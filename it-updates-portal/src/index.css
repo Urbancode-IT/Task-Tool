@@ -1,0 +1,134 @@
+@import 'tailwindcss';
+
+/* ─── Design Tokens ─── */
+:root {
+  /* Primary palette — deep indigo/violet spectrum */
+  --clr-primary-50: #eef2ff;
+  --clr-primary-100: #e0e7ff;
+  --clr-primary-200: #c7d2fe;
+  --clr-primary-300: #a5b4fc;
+  --clr-primary-400: #818cf8;
+  --clr-primary-500: #6366f1;
+  --clr-primary-600: #4f46e5;
+  --clr-primary-700: #4338ca;
+
+  /* Accent — Cyan spark */
+  --clr-accent-400: #22d3ee;
+  --clr-accent-500: #06b6d4;
+
+  /* Neutrals */
+  --clr-slate-50: #f8fafc;
+  --clr-slate-100: #f1f5f9;
+  --clr-slate-200: #e2e8f0;
+  --clr-slate-300: #cbd5e1;
+  --clr-slate-400: #94a3b8;
+  --clr-slate-500: #64748b;
+  --clr-slate-600: #475569;
+  --clr-slate-700: #334155;
+  --clr-slate-800: #1e293b;
+  --clr-slate-900: #0f172a;
+  --clr-slate-950: #020617;
+
+  /* Semantic */
+  --clr-success: #10b981;
+  --clr-warning: #f59e0b;
+  --clr-danger: #ef4444;
+  --clr-info: #3b82f6;
+
+  /* Surface */
+  --surface-bg: var(--clr-slate-50);
+  --surface-card: #ffffff;
+  --surface-elevated: #ffffff;
+
+  /* Sidebar */
+  --sidebar-bg: var(--clr-slate-900);
+  --sidebar-width: 260px;
+  --sidebar-collapsed: 72px;
+
+  /* Radius */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 20px;
+  --radius-full: 999px;
+
+  /* Shadows */
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.04);
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.06), 0 1px 2px rgba(0, 0, 0, 0.04);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.07), 0 2px 4px -2px rgba(0, 0, 0, 0.05);
+  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.08), 0 4px 6px -4px rgba(0, 0, 0, 0.04);
+  --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.08), 0 8px 10px -6px rgba(0, 0, 0, 0.04);
+  --shadow-glow: 0 0 20px rgba(99, 102, 241, 0.15);
+
+  /* Transitions */
+  --transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-base: 200ms cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-smooth: 300ms cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* Typography */
+  --font-display: 'Outfit', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-body: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+/* ─── Global Reset ─── */
+*,
+*::before,
+*::after {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html {
+  font-size: 16px;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+body {
+  font-family: var(--font-body);
+  color: var(--clr-slate-800);
+  background-color: var(--surface-bg);
+  line-height: 1.6;
+  overflow-x: hidden;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-display);
+  line-height: 1.25;
+}
+
+button {
+  font-family: inherit;
+  cursor: pointer;
+}
+
+input, select, textarea {
+  font-family: inherit;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--clr-slate-300);
+  border-radius: var(--radius-full);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--clr-slate-400);
+}
+
+/* Selection color */
+::selection {
+  background: var(--clr-primary-200);
+  color: var(--clr-primary-700);
+}
