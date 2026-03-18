@@ -1,0 +1,100 @@
+.main-layout {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface-bg, #f8fafc);
+}
+
+.main-layout-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem 1.5rem;
+  background: var(--sidebar-bg, #0f172a);
+  color: var(--clr-slate-200);
+  border-bottom: 1px solid rgba(148, 163, 184, 0.1);
+  flex-shrink: 0;
+}
+
+/* When IT Updates is active, its sidebar is fixed and overlaps viewport; push header content right so it’s not hidden */
+.main-layout.main-layout-with-sidebar .main-layout-header {
+  padding-left: calc(var(--sidebar-width, 260px) + 1rem);
+}
+
+@media (max-width: 768px) {
+  .main-layout.main-layout-with-sidebar .main-layout-header {
+    padding-left: 1rem;
+  }
+}
+
+.main-layout-header-left {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.main-layout-module-nav {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.main-layout-module-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  border: none;
+  background: transparent;
+  color: var(--clr-slate-400);
+  border-radius: 8px;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.main-layout-module-btn:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--clr-slate-200);
+}
+
+.main-layout-module-btn.active {
+  background: rgba(99, 102, 241, 0.2);
+  color: #a5b4fc;
+}
+
+.main-layout-header-right {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.main-layout-user-name {
+  font-size: 0.85rem;
+  color: var(--clr-slate-400);
+}
+
+.main-layout-logout-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--clr-slate-400);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.main-layout-logout-btn:hover {
+  background: rgba(239, 68, 68, 0.15);
+  color: #fca5a5;
+}
+
+.main-layout-content {
+  flex: 1;
+  overflow: auto;
+}

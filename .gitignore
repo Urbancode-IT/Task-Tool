@@ -1,0 +1,30 @@
+# Dependencies
+**/node_modules/
+
+# Lock files (optional to commit; requested to ignore)
+**/package-lock.json
+
+# Environment files
+**/.env
+**/.env.*
+!.env.example
+.env.example
+
+# Logs
+**/logs/
+**/*.log
+
+# Build outputs
+**/dist/
+**/dist-ssr/
+
+# OS / Editor
+**/.DS_Store
+**/.idea/
+**/.vscode/
+**/*.suo
+**/*.ntvs*
+**/*.njsproj
+**/*.sln
+**/*.sw?
+
