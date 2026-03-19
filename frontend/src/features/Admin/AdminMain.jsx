@@ -639,7 +639,7 @@ export default function AdminMain({ currentUser, onLogout }) {
                                   <button
                                     type="button"
                                     className="admin-btn-sm admin-btn-rework"
-                                    onClick={() => updateReviewTaskStatus(id, 'in_progress')}
+                                    onClick={() => updateReviewTaskStatus(id, 'rework')}
                                   >
                                     Rework
                                   </button>
@@ -881,6 +881,7 @@ export default function AdminMain({ currentUser, onLogout }) {
                     <option value="">All</option>
                     <option value="in_progress">In Progress</option>
                     <option value="review">Review</option>
+                    <option value="rework">Rework</option>
                     <option value="completed">Completed</option>
                   </select>
                 </label>
@@ -1130,7 +1131,7 @@ export default function AdminMain({ currentUser, onLogout }) {
                     className="admin-btn admin-btn-secondary"
                     onClick={() => {
                       const id = taskDetailModal.task.id || taskDetailModal.task.task_id;
-                      updateReviewTaskStatus(id, 'in_progress');
+                      updateReviewTaskStatus(id, 'rework');
                       closeTaskDetail();
                     }}
                   >

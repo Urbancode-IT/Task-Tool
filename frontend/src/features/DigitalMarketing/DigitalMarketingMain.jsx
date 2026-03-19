@@ -29,12 +29,14 @@ const TABS = [
 const STATUS_LABELS = {
   in_progress: 'In Progress',
   review: 'Review',
+  rework: 'Rework',
   completed: 'Completed',
 };
 
 const STATUS_COLORS = {
   in_progress: '#6366f1',
   review: '#8b5cf6',
+  rework: '#f97316',
   completed: '#10b981',
 };
 
@@ -53,7 +55,7 @@ const groupTasksByStatus = (tasks) =>
       acc[key].push(task);
       return acc;
     },
-    { in_progress: [], review: [], completed: [] }
+    { in_progress: [], review: [], rework: [], completed: [] }
   );
 
 function Avatar({ user }) {
@@ -496,7 +498,7 @@ export default function DigitalMarketingMain({ currentUser, onLogout }) {
                   </div>
                   <DragDropContext onDragEnd={handleDragEnd}>
                     <section className="it-updates-columns">
-                      {['in_progress', 'review', 'completed'].map((statusKey) =>
+                      {['in_progress', 'rework', 'review', 'completed'].map((statusKey) =>
                         renderKanbanColumn(
                           statusKey,
                           myTaskGroups[statusKey] || []
@@ -525,7 +527,7 @@ export default function DigitalMarketingMain({ currentUser, onLogout }) {
               </div>
               <DragDropContext onDragEnd={handleDragEnd}>
                 <section className="it-updates-columns">
-                  {['in_progress', 'review', 'completed'].map((statusKey) =>
+                  {['in_progress', 'rework', 'review', 'completed'].map((statusKey) =>
                     renderKanbanColumn(statusKey, myTaskGroups[statusKey] || [])
                   )}
                 </section>
@@ -556,6 +558,7 @@ export default function DigitalMarketingMain({ currentUser, onLogout }) {
                 >
                   <option value="">All statuses</option>
                   <option value="in_progress">In Progress</option>
+                  <option value="rework">Rework</option>
                   <option value="review">Review</option>
                   <option value="completed">Completed</option>
                 </select>
@@ -574,7 +577,7 @@ export default function DigitalMarketingMain({ currentUser, onLogout }) {
               </div>
               <DragDropContext onDragEnd={handleDragEnd}>
                 <section className="it-updates-columns">
-                  {['in_progress', 'review', 'completed'].map((statusKey) =>
+                  {['in_progress', 'rework', 'review', 'completed'].map((statusKey) =>
                     renderKanbanColumn(
                       statusKey,
                       groupTasksByStatus(filteredTasks)[statusKey] || []
@@ -885,7 +888,7 @@ function TaskModal({ task, onClose, onSave, onRefresh, teamMembers, assignedByOp
 
   const handleManualRework = async () => {
     try {
-      const newStatus = 'in_progress';
+      const newStatus = 'rework';
       setForm((prev) => ({ ...prev, status: newStatus }));
       await itUpdatesApi.updateTask(task.id, { ...form, status: newStatus });
       if (onRefresh) onRefresh();
@@ -1090,6 +1093,7 @@ function TaskModal({ task, onClose, onSave, onRefresh, teamMembers, assignedByOp
             Status
             <select value={form.status} onChange={(e) => setForm((f) => ({ ...f, status: e.target.value }))}>
               <option value="in_progress">In Progress</option>
+              <option value="rework">Rework</option>
               <option value="review">Review</option>
               <option value="completed">Completed</option>
             </select>
@@ -1113,7 +1117,7 @@ function TaskModal({ task, onClose, onSave, onRefresh, teamMembers, assignedByOp
           </label>
 
           <div className="it-updates-modal-actions">
-            {isExistingTask && (form.status === 'review' || form.status === 'completed') && (
+            {isExistingTask && form.status === 'review' && (
               <button
                 type="button"
                 className="it-updates-btn it-updates-btn-secondary rework-btn"

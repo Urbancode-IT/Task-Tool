@@ -32,12 +32,14 @@ const TABS = [
 const STATUS_LABELS = {
   in_progress: 'In Progress',
   review: 'Review',
+  rework: 'Rework',
   completed: 'Completed',
 };
 
 const STATUS_COLORS = {
   in_progress: '#6366f1',
   review: '#8b5cf6',
+  rework: '#f97316',
   completed: '#10b981',
 };
 
@@ -71,7 +73,7 @@ const groupTasksByStatus = (tasks) => {
       acc[key].push(task);
       return acc;
     },
-    { in_progress: [], review: [], completed: [] }
+    { in_progress: [], review: [], rework: [], completed: [] }
   );
 };
 
@@ -644,7 +646,7 @@ const ITUpdatesMain = ({ currentUser, onLogout }) => {
               </div>
               <DragDropContext onDragEnd={handleDragEnd}>
                 <section className="it-updates-columns">
-                  {(['in_progress', 'review', 'completed']).map((statusKey) =>
+                  {(['in_progress', 'rework', 'review', 'completed']).map((statusKey) =>
                     renderKanbanColumn(
                       statusKey,
                       myTaskGroups[statusKey] || [],
@@ -691,6 +693,7 @@ const ITUpdatesMain = ({ currentUser, onLogout }) => {
                 >
                   <option value="">All statuses</option>
                   <option value="in_progress">In Progress</option>
+                  <option value="rework">Rework</option>
                   <option value="review">Review</option>
                   <option value="completed">Completed</option>
                 </select>
@@ -709,7 +712,7 @@ const ITUpdatesMain = ({ currentUser, onLogout }) => {
               </div>
               <DragDropContext onDragEnd={handleDragEnd}>
                 <section className="it-updates-columns">
-                  {(['in_progress', 'review', 'completed']).map((statusKey) =>
+                  {(['in_progress', 'rework', 'review', 'completed']).map((statusKey) =>
                     renderKanbanColumn(
                       statusKey,
                       dashboardTaskGroups[statusKey] || [],
@@ -1272,8 +1275,8 @@ function TaskModal({ task, projects, developers, managers, onClose, onSave, onRe
     if (allDone && form.status === 'in_progress') {
       newStatus = 'review';
     } 
-    // 2. Any pending -> In Progress (if currently review or completed)
-    else if (hasPending && (form.status === 'review' || form.status === 'completed')) {
+    // 2. Any pending -> In Progress (if currently review/rework/completed)
+    else if (hasPending && (form.status === 'review' || form.status === 'rework' || form.status === 'completed')) {
       newStatus = 'in_progress';
     }
 
@@ -1290,7 +1293,7 @@ function TaskModal({ task, projects, developers, managers, onClose, onSave, onRe
 
   const handleManualRework = async () => {
     try {
-      const newStatus = 'in_progress';
+      const newStatus = 'rework';
       setForm(prev => ({ ...prev, status: newStatus }));
       await itUpdatesApi.updateTask(task.id, { ...form, status: newStatus });
       if (onRefresh) onRefresh();
@@ -1575,6 +1578,7 @@ function TaskModal({ task, projects, developers, managers, onClose, onSave, onRe
             Status
             <select value={form.status} onChange={(e) => setForm((f) => ({ ...f, status: e.target.value }))}>
               <option value="in_progress">In Progress</option>
+              <option value="rework">Rework</option>
               <option value="review">Review</option>
               <option value="completed">Completed</option>
             </select>
@@ -1599,7 +1603,7 @@ function TaskModal({ task, projects, developers, managers, onClose, onSave, onRe
 
 
           <div className="it-updates-modal-actions">
-            {isExistingTask && (form.status === 'review' || form.status === 'completed') && (
+            {isExistingTask && form.status === 'review' && (
               <button 
                 type="button" 
                 className="it-updates-btn it-updates-btn-secondary rework-btn"

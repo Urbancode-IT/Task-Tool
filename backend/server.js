@@ -597,7 +597,7 @@ app.get(`${BASE_PATH}/team-overview`, async (req, res) => {
       const key = task.assignee || 'Unassigned';
       if (!acc[key]) acc[key] = { assignee: key, total_tasks: 0, in_progress_tasks: 0, completed_tasks: 0 };
       acc[key].total_tasks += 1;
-      if (task.status === 'in_progress' || task.status === 'review') acc[key].in_progress_tasks += 1;
+      if (task.status === 'in_progress' || task.status === 'review' || task.status === 'rework') acc[key].in_progress_tasks += 1;
       if (task.status === 'completed') acc[key].completed_tasks += 1;
       return acc;
     }, {});

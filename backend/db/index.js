@@ -654,7 +654,7 @@ export async function dbGetAdminPendingSummary() {
     const [{ rows: pendingRows }, { rows: overdueRows }] = await Promise.all([
       p.query(
         `SELECT
-           COUNT(*) FILTER (WHERE status IN ('in_progress','review'))::int AS pending_count,
+           COUNT(*) FILTER (WHERE status IN ('in_progress','review','rework'))::int AS pending_count,
            COUNT(*) FILTER (WHERE status = 'review')::int AS review_count
          FROM it_tasks`
       ),
@@ -935,7 +935,7 @@ export async function dbGetDashboardStatsFull() {
   try {
     const [activeProj, activeTasks, completedTasks, projectRows, teamRows] = await Promise.all([
       p.query("SELECT COUNT(*) AS n FROM it_projects WHERE status = 'active'"),
-      p.query("SELECT COUNT(*) AS n FROM it_tasks WHERE status IN ('in_progress', 'review')"),
+      p.query("SELECT COUNT(*) AS n FROM it_tasks WHERE status IN ('in_progress', 'review', 'rework')"),
       p.query("SELECT COUNT(*) AS n FROM it_tasks WHERE status = 'completed'"),
       p.query(`
         SELECT p.project_id, p.project_name, p.priority,
@@ -950,7 +950,7 @@ export async function dbGetDashboardStatsFull() {
       p.query(`
         SELECT u.user_id, COALESCE(u.username, u.email) AS username, u.profile_image,
                COUNT(t.task_id) AS total_assigned,
-               COUNT(t.task_id) FILTER (WHERE t.status IN ('in_progress', 'review')) AS in_progress_count,
+               COUNT(t.task_id) FILTER (WHERE t.status IN ('in_progress', 'review', 'rework')) AS in_progress_count,
                COUNT(t.task_id) FILTER (WHERE t.status = 'completed' AND (t.completed_at::date = CURRENT_DATE OR (t.completed_at IS NULL AND t.task_date = CURRENT_DATE))) AS completed_today
         FROM users u
         LEFT JOIN it_tasks t ON t.assigned_to = u.user_id
@@ -1024,7 +1024,7 @@ export async function dbGetTeamOverview(team = null) {
                u.is_it_developer, u.is_it_manager,
                COUNT(t.task_id) AS total_tasks,
                COUNT(t.task_id) FILTER (WHERE t.status = 'completed') AS completed_tasks,
-               COUNT(t.task_id) FILTER (WHERE t.status IN ('in_progress', 'review')) AS in_progress_tasks
+               COUNT(t.task_id) FILTER (WHERE t.status IN ('in_progress', 'review', 'rework')) AS in_progress_tasks
         FROM users u
         LEFT JOIN it_tasks t ON t.assigned_to = u.user_id
         ${teamWhereClause}
@@ -1051,13 +1051,14 @@ export async function dbGetTeamOverview(team = null) {
         SELECT COALESCE(t.assigned_to::text, 'Unassigned') AS assignee,
                COUNT(*) AS total, COUNT(*) FILTER (WHERE t.status = 'in_progress') AS in_progress,
                COUNT(*) FILTER (WHERE t.status = 'review') AS review,
+               COUNT(*) FILTER (WHERE t.status = 'rework') AS rework,
                COUNT(*) FILTER (WHERE t.status = 'completed') AS completed
         FROM it_tasks t GROUP BY t.assigned_to
       `);
       return rows.map((r) => ({
         assignee: r.assignee || 'Unassigned',
         total_tasks: Number(r.total),
-        in_progress_tasks: Number(r.in_progress) + Number(r.review),
+        in_progress_tasks: Number(r.in_progress) + Number(r.review) + Number(r.rework),
         completed_tasks: Number(r.completed),
       }));
     } catch (err2) {
