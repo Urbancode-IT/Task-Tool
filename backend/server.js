@@ -448,7 +448,7 @@ app.get(`${BASE_PATH}/tasks`, async (req, res) => {
 app.post(`${BASE_PATH}/tasks`, async (req, res) => {
   try {
     if (db.useDb()) {
-      const task = await db.dbCreateTask(req.body);
+      const task = await db.dbCreateTask({ ...req.body, team: req.body?.team || req.query?.team });
       if (!task) return res.status(500).json({ message: 'Failed to create task' });
       return res.status(201).json(task);
     }
@@ -472,7 +472,7 @@ app.post(`${BASE_PATH}/tasks`, async (req, res) => {
 app.put(`${BASE_PATH}/tasks/:taskId`, async (req, res) => {
   try {
     if (db.useDb()) {
-      const task = await db.dbUpdateTask(req.params.taskId, req.body);
+      const task = await db.dbUpdateTask(req.params.taskId, { ...req.body, team: req.body?.team || req.query?.team });
       if (!task) return res.status(404).json({ message: 'Task not found' });
       return res.json(task);
     }
@@ -490,7 +490,7 @@ app.put(`${BASE_PATH}/tasks/:taskId`, async (req, res) => {
 app.delete(`${BASE_PATH}/tasks/:taskId`, async (req, res) => {
   try {
     if (db.useDb()) {
-      const ok = await db.dbDeleteTask(req.params.taskId);
+      const ok = await db.dbDeleteTask(req.params.taskId, req.query?.team || null);
       if (!ok) return res.status(404).json({ message: 'Task not found' });
       return res.status(204).send();
     }
@@ -646,7 +646,7 @@ app.get(`${BASE_PATH}/tasks/:taskId/requirements`, async (req, res) => {
   const { taskId } = req.params;
   try {
     if (db.useDb()) {
-      const list = await db.dbGetRequirements(taskId);
+      const list = await db.dbGetRequirements(taskId, req.query?.team || null);
       return res.json(list);
     }
     res.json(requirementsByTaskId[taskId] || []);
@@ -661,7 +661,7 @@ app.post(`${BASE_PATH}/tasks/:taskId/requirements`, async (req, res) => {
   const { taskId } = req.params;
   try {
     if (db.useDb()) {
-      const req2 = await db.dbCreateRequirement(taskId, req.body);
+      const req2 = await db.dbCreateRequirement(taskId, req.body, req.body?.team || req.query?.team || null);
       if (!req2) return res.status(500).json({ message: 'Failed to create requirement' });
       return res.status(201).json(req2);
     }
@@ -692,7 +692,7 @@ app.put(`${BASE_PATH}/tasks/:taskId/requirements/:reqId`, async (req, res) => {
   const { taskId, reqId } = req.params;
   try {
     if (db.useDb()) {
-      const updated = await db.dbUpdateRequirement(reqId, req.body);
+      const updated = await db.dbUpdateRequirement(reqId, req.body, taskId, req.body?.team || req.query?.team || null);
       if (!updated) return res.status(404).json({ message: 'Requirement not found' });
       return res.json(updated);
     }
@@ -712,7 +712,7 @@ app.delete(`${BASE_PATH}/tasks/:taskId/requirements/:reqId`, async (req, res) =>
   const { taskId, reqId } = req.params;
   try {
     if (db.useDb()) {
-      const ok = await db.dbDeleteRequirement(reqId);
+      const ok = await db.dbDeleteRequirement(reqId, taskId, req.query?.team || null);
       if (!ok) return res.status(404).json({ message: 'Requirement not found' });
       return res.status(204).send();
     }

@@ -25,6 +25,7 @@ const TABS = [
   { key: 'Overview', label: 'Overview', icon: MdTableChart },
   { key: 'EOD Updates', label: 'EOD Updates', icon: MdOutlineAssignment },
 ];
+const MODULE_TEAM = 'digital_marketing';
 
 const STATUS_LABELS = {
   in_progress: 'In Progress',
@@ -199,7 +200,7 @@ export default function DigitalMarketingMain({ currentUser, onLogout }) {
         )
       );
       try {
-        await itUpdatesApi.updateTask(taskId, { status: newStatus });
+        await itUpdatesApi.updateTask(taskId, { status: newStatus, team: MODULE_TEAM });
       } catch {
         setTasks((prev) =>
           prev.map((t) =>
@@ -229,9 +230,9 @@ export default function DigitalMarketingMain({ currentUser, onLogout }) {
         dueDate: payload.due_date ?? payload.dueDate,
       };
       if (taskModal.task?.id) {
-        await itUpdatesApi.updateTask(taskModal.task.id, body);
+        await itUpdatesApi.updateTask(taskModal.task.id, { ...body, team: MODULE_TEAM });
       } else {
-        const res = await itUpdatesApi.createTask(body);
+        const res = await itUpdatesApi.createTask({ ...body, team: MODULE_TEAM });
         const newTaskId = res.data?.id || res.data?.task_id;
         if (newTaskId && payload.requirements?.length > 0) {
           await Promise.all(
@@ -241,6 +242,7 @@ export default function DigitalMarketingMain({ currentUser, onLogout }) {
                 status: req.status,
                 priority: req.priority,
                 due_date: req.due_date || null,
+                team: MODULE_TEAM,
               })
             )
           );
@@ -799,7 +801,7 @@ function TaskModal({ task, onClose, onSave, onRefresh, teamMembers, assignedByOp
     if (isExistingTask) {
       setReqLoading(true);
       itUpdatesApi
-        .getRequirements(task.id)
+        .getRequirements(task.id, { team: MODULE_TEAM })
         .then((res) => setRequirements(Array.isArray(res.data) ? res.data : []))
         .catch(() => setRequirements([]))
         .finally(() => setReqLoading(false));
@@ -823,7 +825,8 @@ function TaskModal({ task, onClose, onSave, onRefresh, teamMembers, assignedByOp
         status: reqForm.status,
         priority: reqForm.priority,
         due_date: reqForm.due_date || null,
-      });
+        team: MODULE_TEAM,
+      }, { team: MODULE_TEAM });
       setRequirements((prev) => [...prev, res.data]);
     } else {
       setRequirements((prev) => [
@@ -843,7 +846,8 @@ function TaskModal({ task, onClose, onSave, onRefresh, teamMembers, assignedByOp
         status: reqForm.status,
         priority: reqForm.priority,
         due_date: reqForm.due_date || null,
-      });
+        team: MODULE_TEAM,
+      }, { team: MODULE_TEAM });
       setRequirements((prev) => prev.map((r) => (r.id === editingReqId ? res.data : r)));
     } else {
       setRequirements((prev) =>
@@ -858,7 +862,7 @@ function TaskModal({ task, onClose, onSave, onRefresh, teamMembers, assignedByOp
 
   const handleDeleteRequirement = async (reqId) => {
     if (isExistingTask && !String(reqId).startsWith('temp-')) {
-      await itUpdatesApi.deleteRequirement(task.id, reqId);
+      await itUpdatesApi.deleteRequirement(task.id, reqId, { team: MODULE_TEAM });
     }
     setRequirements((prev) => prev.filter((r) => r.id !== reqId));
   };
@@ -866,7 +870,7 @@ function TaskModal({ task, onClose, onSave, onRefresh, teamMembers, assignedByOp
   const handleToggleReqStatus = async (req) => {
     const newStatus = req.status === 'completed' ? 'pending' : 'completed';
     if (isExistingTask && !String(req.id).startsWith('temp-')) {
-      const res = await itUpdatesApi.updateRequirement(task.id, req.id, { status: newStatus });
+      const res = await itUpdatesApi.updateRequirement(task.id, req.id, { status: newStatus, team: MODULE_TEAM }, { team: MODULE_TEAM });
       setRequirements((prev) => prev.map((r) => (r.id === req.id ? res.data : r)));
     } else {
       setRequirements((prev) =>
@@ -890,7 +894,7 @@ function TaskModal({ task, onClose, onSave, onRefresh, teamMembers, assignedByOp
     try {
       const newStatus = 'rework';
       setForm((prev) => ({ ...prev, status: newStatus }));
-      await itUpdatesApi.updateTask(task.id, { ...form, status: newStatus });
+      await itUpdatesApi.updateTask(task.id, { ...form, status: newStatus, team: MODULE_TEAM });
       if (onRefresh) onRefresh();
     } catch {
       // ignore

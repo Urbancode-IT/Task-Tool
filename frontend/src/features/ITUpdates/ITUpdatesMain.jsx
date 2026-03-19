@@ -28,6 +28,7 @@ const TABS = [
   { key: 'Overview', label: 'Overview', icon: MdTableChart },
   { key: 'EOD Updates', label: 'EOD Updates', icon: MdOutlineAssignment },
 ];
+const MODULE_TEAM = 'it';
 
 const STATUS_LABELS = {
   in_progress: 'In Progress',
@@ -268,7 +269,7 @@ const ITUpdatesMain = ({ currentUser, onLogout }) => {
         )
       );
       try {
-        await itUpdatesApi.updateTask(taskId, { status: newStatus });
+        await itUpdatesApi.updateTask(taskId, { status: newStatus, team: MODULE_TEAM });
       } catch {
         setTasks((prev) =>
           prev.map((t) =>
@@ -322,9 +323,9 @@ const ITUpdatesMain = ({ currentUser, onLogout }) => {
         dueDate: payload.due_date ?? payload.dueDate,
       };
       if (taskModal.task?.id) {
-        await itUpdatesApi.updateTask(taskModal.task.id, body);
+        await itUpdatesApi.updateTask(taskModal.task.id, { ...body, team: MODULE_TEAM });
       } else {
-        const res = await itUpdatesApi.createTask(body);
+        const res = await itUpdatesApi.createTask({ ...body, team: MODULE_TEAM });
         const newTaskId = res.data?.id || res.data?.task_id;
         if (newTaskId && payload.requirements?.length > 0) {
           // Change to Promise.all to catch errors, or at least log them
@@ -335,6 +336,7 @@ const ITUpdatesMain = ({ currentUser, onLogout }) => {
                 status: req.status,
                 priority: req.priority,
                 due_date: req.due_date || null,
+                team: MODULE_TEAM,
               })
             )
           );
@@ -1140,7 +1142,7 @@ function TaskModal({ task, projects, developers, managers, onClose, onSave, onRe
   useEffect(() => {
     if (isExistingTask) {
       setReqLoading(true);
-      itUpdatesApi.getRequirements(task.id)
+      itUpdatesApi.getRequirements(task.id, { team: MODULE_TEAM })
         .then((res) => setRequirements(Array.isArray(res.data) ? res.data : []))
         .catch(() => setRequirements([]))
         .finally(() => setReqLoading(false));
@@ -1165,7 +1167,8 @@ function TaskModal({ task, projects, developers, managers, onClose, onSave, onRe
           status: reqForm.status,
           priority: reqForm.priority,
           due_date: reqForm.due_date || null,
-        });
+          team: MODULE_TEAM,
+        }, { team: MODULE_TEAM });
         setRequirements((prev) => {
           const newList = [...prev, res.data];
           handleStatusTransitions(newList);
@@ -1200,7 +1203,8 @@ function TaskModal({ task, projects, developers, managers, onClose, onSave, onRe
           status: reqForm.status,
           priority: reqForm.priority,
           due_date: reqForm.due_date || null,
-        });
+          team: MODULE_TEAM,
+        }, { team: MODULE_TEAM });
         setRequirements((prev) => {
           const newList = prev.map((r) => (r.id === editingReqId ? res.data : r));
           handleStatusTransitions(newList);
@@ -1229,7 +1233,7 @@ function TaskModal({ task, projects, developers, managers, onClose, onSave, onRe
   const handleDeleteRequirement = async (reqId) => {
     try {
       if (isExistingTask && !String(reqId).startsWith('temp-')) {
-        await itUpdatesApi.deleteRequirement(task.id, reqId);
+        await itUpdatesApi.deleteRequirement(task.id, reqId, { team: MODULE_TEAM });
       }
       setRequirements((prev) => {
         const newList = prev.filter((r) => r.id !== reqId);
@@ -1245,7 +1249,7 @@ function TaskModal({ task, projects, developers, managers, onClose, onSave, onRe
     const newStatus = req.status === 'completed' ? 'pending' : 'completed';
     try {
       if (isExistingTask && !String(req.id).startsWith('temp-')) {
-        const res = await itUpdatesApi.updateRequirement(task.id, req.id, { status: newStatus });
+        const res = await itUpdatesApi.updateRequirement(task.id, req.id, { status: newStatus, team: MODULE_TEAM }, { team: MODULE_TEAM });
         setRequirements((prev) => {
           const newList = prev.map((r) => (r.id === req.id ? res.data : r));
           handleStatusTransitions(newList);
@@ -1283,7 +1287,7 @@ function TaskModal({ task, projects, developers, managers, onClose, onSave, onRe
     if (newStatus) {
       try {
         setForm(prev => ({ ...prev, status: newStatus }));
-        await itUpdatesApi.updateTask(task.id, { ...form, status: newStatus });
+        await itUpdatesApi.updateTask(task.id, { ...form, status: newStatus, team: MODULE_TEAM });
         if (onRefresh) onRefresh();
       } catch (err) {
         console.error('Status transition failed:', err);
@@ -1295,7 +1299,7 @@ function TaskModal({ task, projects, developers, managers, onClose, onSave, onRe
     try {
       const newStatus = 'rework';
       setForm(prev => ({ ...prev, status: newStatus }));
-      await itUpdatesApi.updateTask(task.id, { ...form, status: newStatus });
+      await itUpdatesApi.updateTask(task.id, { ...form, status: newStatus, team: MODULE_TEAM });
       if (onRefresh) onRefresh();
       // Also mark at least one requirement as pending if they are all completed? 
       // User might want to do this manually. For now just move status.

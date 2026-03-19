@@ -482,9 +482,23 @@ export async function dbGetTasksSimple(filters = {}) {
   if (!p) return [];
 
   try {
-    // 1. Check if it_task_requirements exists
+    const normalizedTeam = String(filters.team || '').trim();
+    const taskTable =
+      normalizedTeam === 'consultant'
+        ? 'consultant_tasks'
+        : normalizedTeam === 'digital_marketing'
+          ? 'digital_marketing_tasks'
+          : 'it_tasks';
+    const reqTable =
+      normalizedTeam === 'consultant'
+        ? 'consultant_task_requirements'
+        : normalizedTeam === 'digital_marketing'
+          ? 'digital_marketing_task_requirements'
+          : 'it_task_requirements';
+
     const { rows: tableCheck } = await p.query(
-      "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'it_task_requirements')"
+      "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_schema = 'public' AND table_name = $1)",
+      [reqTable]
     );
     const hasReqs = tableCheck[0]?.exists;
 
@@ -493,7 +507,7 @@ export async function dbGetTasksSimple(filters = {}) {
              u_assigned.username AS assignee_username, 
              u_assigned.profile_image AS assignee_profile_image,
              u_by.username AS assigned_by_username
-      FROM it_tasks t
+      FROM ${taskTable} t
       LEFT JOIN users u_assigned ON t.assigned_to = u_assigned.user_id
       LEFT JOIN users u_by ON t.assigned_by = u_by.user_id
     `;
@@ -544,10 +558,9 @@ export async function dbGetTasksSimple(filters = {}) {
       whereParts.push(`t.status <> 'completed'`);
     }
 
-    // Optional team filter based on assignee's RBAC role code.
-    // Example: team=consultant, team=digital_marketing, team=it_developer, etc.
-    // Special: team=it includes (it_developer, it_manager, admin) + legacy IT flags.
-    if (filters.team) {
+    // Optional team filter based on assignee's RBAC role code (legacy support).
+    // For consultant/digital tables we don't need this role filter.
+    if (filters.team && taskTable === 'it_tasks') {
       if (String(filters.team) === 'it') {
         whereParts.push(
           `(COALESCE(u_assigned.is_it_developer, false) = true
@@ -587,7 +600,7 @@ export async function dbGetTasksSimple(filters = {}) {
       const { rows: statsRows } = await p.query(
         `SELECT task_id, COUNT(*) AS total, 
                 COUNT(*) FILTER (WHERE status = 'completed') AS completed
-         FROM it_task_requirements
+         FROM ${reqTable}
          WHERE task_id = ANY($1)
          GROUP BY task_id`,
         [taskIds]
@@ -618,6 +631,12 @@ export async function dbGetTasksSimple(filters = {}) {
       completed_at: r.completed_at,
       req_total: reqStats[r.task_id]?.total || 0,
       req_completed: reqStats[r.task_id]?.completed || 0,
+      team:
+        taskTable === 'consultant_tasks'
+          ? 'consultant'
+          : taskTable === 'digital_marketing_tasks'
+            ? 'digital_marketing'
+            : 'it',
     }));
   } catch (err) {
     console.error('dbGetTasksSimple Critical Error:', err.message);
@@ -703,15 +722,62 @@ export async function dbGetAdminPendingSummary() {
   }
 }
 
+function resolveTeamFromInput(team) {
+  const t = String(team || '').trim().toLowerCase();
+  if (t === 'consultant') return 'consultant';
+  if (t === 'digital_marketing' || t === 'digital') return 'digital_marketing';
+  return 'it';
+}
+
+function taskTableForTeam(team) {
+  if (team === 'consultant') return 'consultant_tasks';
+  if (team === 'digital_marketing') return 'digital_marketing_tasks';
+  return 'it_tasks';
+}
+
+function reqTableForTeam(team) {
+  if (team === 'consultant') return 'consultant_task_requirements';
+  if (team === 'digital_marketing') return 'digital_marketing_task_requirements';
+  return 'it_task_requirements';
+}
+
+async function detectTaskTeamById(taskId) {
+  const p = getPool();
+  if (!p) return 'it';
+  const id = parseInt(String(taskId), 10);
+  if (!Number.isFinite(id)) return 'it';
+  const checks = [
+    { team: 'consultant', table: 'consultant_tasks' },
+    { team: 'digital_marketing', table: 'digital_marketing_tasks' },
+    { team: 'it', table: 'it_tasks' },
+  ];
+  for (const c of checks) {
+    try {
+      const { rows } = await p.query(
+        "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_schema = 'public' AND table_name = $1) AS ex",
+        [c.table]
+      );
+      if (!rows[0]?.ex) continue;
+      const { rowCount } = await p.query(`SELECT 1 FROM ${c.table} WHERE task_id = $1 LIMIT 1`, [id]);
+      if (rowCount > 0) return c.team;
+    } catch {
+      // ignore table-specific detection failures
+    }
+  }
+  return 'it';
+}
+
 export async function dbCreateTask(data) {
   const p = getPool();
   if (!p) return null;
+  const team = resolveTeamFromInput(data?.team);
+  const taskTable = taskTableForTeam(team);
   // Helper: convert empty strings to null for integer columns
   const toNullableInt = (v) => (v === '' || v === undefined || v === null ? null : v);
   const {
     rows: [row],
   } = await p.query(
-    `INSERT INTO it_tasks (project_id, assigned_to, assigned_by, created_by, task_title, task_description, priority, status, task_date, due_date)
+    `INSERT INTO ${taskTable} (project_id, assigned_to, assigned_by, created_by, task_title, task_description, priority, status, task_date, due_date)
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
      RETURNING *`,
     [
@@ -740,12 +806,15 @@ export async function dbCreateTask(data) {
     dueDate: row.due_date,
     task_date: row.task_date,
     created_at: row.created_at,
+    team,
   };
 }
 
 export async function dbUpdateTask(taskId, data) {
   const p = getPool();
   if (!p) return null;
+  const team = resolveTeamFromInput(data?.team || await detectTaskTeamById(taskId));
+  const taskTable = taskTableForTeam(team);
   const allowed = [
     'task_title',
     'task_description',
@@ -780,7 +849,7 @@ export async function dbUpdateTask(taskId, data) {
       i++;
     }
   }
-  if (updates.length === 0) return dbGetTaskById(taskId);
+  if (updates.length === 0) return dbGetTaskById(taskId, team);
   updates.push('updated_at = CURRENT_TIMESTAMP');
   if (data.status === 'completed') {
     updates.push('completed_at = CURRENT_TIMESTAMP');
@@ -789,7 +858,7 @@ export async function dbUpdateTask(taskId, data) {
   }
   values.push(taskId);
   const { rows } = await p.query(
-    `UPDATE it_tasks SET ${updates.join(', ')} WHERE task_id = $${i} RETURNING *`,
+    `UPDATE ${taskTable} SET ${updates.join(', ')} WHERE task_id = $${i} RETURNING *`,
     values
   );
   const row = rows[0];
@@ -806,13 +875,16 @@ export async function dbUpdateTask(taskId, data) {
     dueDate: row.due_date,
     task_date: row.task_date,
     created_at: row.created_at,
+    team,
   };
 }
 
-export async function dbGetTaskById(taskId) {
+export async function dbGetTaskById(taskId, teamInput = null) {
   const p = getPool();
   if (!p) return null;
-  const { rows } = await p.query('SELECT * FROM it_tasks WHERE task_id = $1', [
+  const team = resolveTeamFromInput(teamInput || await detectTaskTeamById(taskId));
+  const taskTable = taskTableForTeam(team);
+  const { rows } = await p.query(`SELECT * FROM ${taskTable} WHERE task_id = $1`, [
     taskId,
   ]);
   const row = rows[0];
@@ -829,13 +901,16 @@ export async function dbGetTaskById(taskId) {
     dueDate: row.due_date,
     task_date: row.task_date,
     created_at: row.created_at,
+    team,
   };
 }
 
-export async function dbDeleteTask(taskId) {
+export async function dbDeleteTask(taskId, teamInput = null) {
   const p = getPool();
   if (!p) return false;
-  const { rowCount } = await p.query('DELETE FROM it_tasks WHERE task_id = $1', [
+  const team = resolveTeamFromInput(teamInput || await detectTaskTeamById(taskId));
+  const taskTable = taskTableForTeam(team);
+  const { rowCount } = await p.query(`DELETE FROM ${taskTable} WHERE task_id = $1`, [
     taskId,
   ]);
   return rowCount > 0;
@@ -1148,18 +1223,21 @@ const mapRequirement = (r) => ({
   updated_at: r.updated_at,
 });
 
-export async function dbGetRequirements(taskId) {
+export async function dbGetRequirements(taskId, teamInput = null) {
   const p = getPool();
   if (!p) return [];
   try {
+    const team = resolveTeamFromInput(teamInput || await detectTaskTeamById(taskId));
+    const reqTable = reqTableForTeam(team);
     // Check if table exists
     const { rows: tableCheck } = await p.query(
-      "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'it_task_requirements')"
+      "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = $1)",
+      [reqTable]
     );
     if (!tableCheck[0]?.exists) return [];
 
     const { rows } = await p.query(
-      'SELECT * FROM it_task_requirements WHERE task_id = $1 ORDER BY sort_order, requirement_id',
+      `SELECT * FROM ${reqTable} WHERE task_id = $1 ORDER BY sort_order, requirement_id`,
       [parseInt(taskId, 10)]
     );
     return rows.map(mapRequirement);
@@ -1184,19 +1262,21 @@ export async function dbGetRequirementById(reqId) {
   }
 }
 
-export async function dbCreateRequirement(taskId, data) {
+export async function dbCreateRequirement(taskId, data, teamInput = null) {
   const p = getPool();
   if (!p) return null;
   try {
+    const team = resolveTeamFromInput(teamInput || data?.team || await detectTaskTeamById(taskId));
+    const reqTable = reqTableForTeam(team);
     // Get next sort_order
     const { rows: maxRows } = await p.query(
-      'SELECT COALESCE(MAX(sort_order), -1) + 1 AS next FROM it_task_requirements WHERE task_id = $1',
+      `SELECT COALESCE(MAX(sort_order), -1) + 1 AS next FROM ${reqTable} WHERE task_id = $1`,
       [parseInt(taskId, 10)]
     );
     const nextOrder = maxRows[0]?.next ?? 0;
 
     const { rows: [row] } = await p.query(
-      `INSERT INTO it_task_requirements (task_id, title, description, status, priority, due_date, sort_order)
+      `INSERT INTO ${reqTable} (task_id, title, description, status, priority, due_date, sort_order)
        VALUES ($1, $2, $3, $4, $5, $6, $7)
        RETURNING *`,
       [
@@ -1216,9 +1296,11 @@ export async function dbCreateRequirement(taskId, data) {
   }
 }
 
-export async function dbUpdateRequirement(reqId, data) {
+export async function dbUpdateRequirement(reqId, data, taskId = null, teamInput = null) {
   const p = getPool();
   if (!p) return null;
+  const team = resolveTeamFromInput(teamInput || data?.team || (taskId ? await detectTaskTeamById(taskId) : null));
+  const reqTable = reqTableForTeam(team);
   const allowed = ['title', 'description', 'status', 'priority', 'due_date', 'sort_order'];
   const updates = [];
   const values = [];
@@ -1236,7 +1318,7 @@ export async function dbUpdateRequirement(reqId, data) {
   values.push(reqId);
   try {
     const { rows } = await p.query(
-      `UPDATE it_task_requirements SET ${updates.join(', ')} WHERE requirement_id = $${i} RETURNING *`,
+      `UPDATE ${reqTable} SET ${updates.join(', ')} WHERE requirement_id = $${i} RETURNING *`,
       values
     );
     return rows[0] ? mapRequirement(rows[0]) : null;
@@ -1246,12 +1328,14 @@ export async function dbUpdateRequirement(reqId, data) {
   }
 }
 
-export async function dbDeleteRequirement(reqId) {
+export async function dbDeleteRequirement(reqId, taskId = null, teamInput = null) {
   const p = getPool();
   if (!p) return false;
   try {
+    const team = resolveTeamFromInput(teamInput || (taskId ? await detectTaskTeamById(taskId) : null));
+    const reqTable = reqTableForTeam(team);
     const { rowCount } = await p.query(
-      'DELETE FROM it_task_requirements WHERE requirement_id = $1',
+      `DELETE FROM ${reqTable} WHERE requirement_id = $1`,
       [reqId]
     );
     return rowCount > 0;

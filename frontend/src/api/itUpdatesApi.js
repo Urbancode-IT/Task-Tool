@@ -24,16 +24,16 @@ const itUpdatesApi = {
     return apiClient.get(`${BASE_PATH}/tasks`, { params: filters });
   },
 
-  createTask: (taskData) => {
-    return apiClient.post(`${BASE_PATH}/tasks`, taskData);
+  createTask: (taskData, params = {}) => {
+    return apiClient.post(`${BASE_PATH}/tasks`, taskData, { params });
   },
 
-  updateTask: (taskId, taskData) => {
-    return apiClient.put(`${BASE_PATH}/tasks/${taskId}`, taskData);
+  updateTask: (taskId, taskData, params = {}) => {
+    return apiClient.put(`${BASE_PATH}/tasks/${taskId}`, taskData, { params });
   },
 
-  deleteTask: (taskId) => {
-    return apiClient.delete(`${BASE_PATH}/tasks/${taskId}`);
+  deleteTask: (taskId, params = {}) => {
+    return apiClient.delete(`${BASE_PATH}/tasks/${taskId}`, { params });
   },
 
   getTaskComments: (taskId) => {
@@ -77,20 +77,20 @@ const itUpdatesApi = {
   },
 
   // ── Task Requirements (subtasks) ──
-  getRequirements: (taskId) => {
-    return apiClient.get(`${BASE_PATH}/tasks/${taskId}/requirements`);
+  getRequirements: (taskId, params = {}) => {
+    return apiClient.get(`${BASE_PATH}/tasks/${taskId}/requirements`, { params });
   },
 
-  createRequirement: (taskId, data) => {
-    return apiClient.post(`${BASE_PATH}/tasks/${taskId}/requirements`, data);
+  createRequirement: (taskId, data, params = {}) => {
+    return apiClient.post(`${BASE_PATH}/tasks/${taskId}/requirements`, data, { params });
   },
 
-  updateRequirement: (taskId, reqId, data) => {
-    return apiClient.put(`${BASE_PATH}/tasks/${taskId}/requirements/${reqId}`, data);
+  updateRequirement: (taskId, reqId, data, params = {}) => {
+    return apiClient.put(`${BASE_PATH}/tasks/${taskId}/requirements/${reqId}`, data, { params });
   },
 
-  deleteRequirement: (taskId, reqId) => {
-    return apiClient.delete(`${BASE_PATH}/tasks/${taskId}/requirements/${reqId}`);
+  deleteRequirement: (taskId, reqId, params = {}) => {
+    return apiClient.delete(`${BASE_PATH}/tasks/${taskId}/requirements/${reqId}`, { params });
   },
 };
 
