@@ -17,7 +17,7 @@ const COOKIE_OPTS = { httpOnly: true, sameSite: 'lax', secure: process.env.NODE_
 const app = express();
 
 const PORT = process.env.PORT || 3000;
-const CLIENT_ORIGIN = process.env.CLIENT_ORIGIN || 'http://localhost:5173';
+const CLIENT_ORIGIN = process.env.CLIENT_ORIGIN || 'https://status-track.netlify.app/';
 
 app.use(
   cors({
