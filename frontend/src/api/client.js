@@ -45,12 +45,11 @@ apiClient.interceptors.response.use(
         await requestRefreshToken();
         return apiClient(config);
       } catch (refreshError) {
-        if (typeof window !== 'undefined' && window.location.pathname !== '/login') {
+        // This app renders the login screen at `/` (no `/login` route on Netlify).
+        if (typeof window !== 'undefined' && window.location.pathname !== '/') {
           localStorage.removeItem('user');
           localStorage.removeItem('username');
           localStorage.removeItem('profile_image');
-          // This app renders the login form at `/` when no user exists.
-          // Redirecting to `/login` breaks on Netlify because there is no server route.
           window.location.href = '/';
         }
         return Promise.reject(refreshError);

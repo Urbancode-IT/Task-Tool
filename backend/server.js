@@ -12,7 +12,14 @@ import { requireAuth, attachUserPermissions, requirePermission, signAccessToken,
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.join(__dirname, '.env') });
 
-const COOKIE_OPTS = { httpOnly: true, sameSite: 'lax', secure: process.env.NODE_ENV === 'production' };
+// Frontend and backend run on different domains (Netlify -> Render).
+// For cross-site XHR/fetch cookie auth, cookies must be SameSite=None; Secure.
+const COOKIE_OPTS = {
+  httpOnly: true,
+  sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+  secure: process.env.NODE_ENV === 'production',
+  path: '/',
+};
 
 const app = express();
 
