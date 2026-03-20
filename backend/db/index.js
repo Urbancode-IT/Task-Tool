@@ -216,14 +216,32 @@ export async function dbDeleteUser(userId) {
 export async function dbEnsureTables() {
   const p = getPool();
   if (!p) return;
+
+  // If base tables aren't present yet (e.g. `it_tasks`), creating a FK table will fail.
+  // This is a symptom that `schema.sql` / migrations weren't applied to the DB.
+  let hasItTasks = false;
+  try {
+    const { rows } = await p.query(
+      "SELECT to_regclass('public.it_tasks') AS it_tasks_regclass;"
+    );
+    hasItTasks = Boolean(rows?.[0]?.it_tasks_regclass);
+  } catch (err) {
+    console.warn('dbEnsureTables: table existence check failed:', err.message);
+  }
+
+  if (!hasItTasks) {
+    console.warn('dbEnsureTables: skipping it_task_requirements because it_tasks does not exist yet');
+    return;
+  }
+
   const sql = `
     CREATE TABLE IF NOT EXISTS it_task_requirements (
       requirement_id SERIAL PRIMARY KEY,
       task_id        INT NOT NULL REFERENCES it_tasks(task_id) ON DELETE CASCADE,
       title          VARCHAR(500) NOT NULL,
       description    TEXT,
-      status         VARCHAR(20) DEFAULT 'pending', 
-      priority       VARCHAR(20) DEFAULT 'medium', 
+      status         VARCHAR(20) DEFAULT 'pending',
+      priority       VARCHAR(20) DEFAULT 'medium',
       due_date       DATE,
       sort_order     INT DEFAULT 0,
       created_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,

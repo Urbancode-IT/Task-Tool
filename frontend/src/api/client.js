@@ -49,7 +49,9 @@ apiClient.interceptors.response.use(
           localStorage.removeItem('user');
           localStorage.removeItem('username');
           localStorage.removeItem('profile_image');
-          window.location.href = '/login';
+          // This app renders the login form at `/` when no user exists.
+          // Redirecting to `/login` breaks on Netlify because there is no server route.
+          window.location.href = '/';
         }
         return Promise.reject(refreshError);
       }

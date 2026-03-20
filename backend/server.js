@@ -1082,6 +1082,16 @@ async function start() {
   const result = await db.testConnection();
   if (result.ok) {
     console.log('Database connected OK');
+    // Debug helper for production: confirm users table is populated.
+    try {
+      const p = db.getPool?.();
+      if (p) {
+        const { rows } = await p.query('SELECT COUNT(*)::int AS total FROM users');
+        console.log('DB users row count:', rows?.[0]?.total ?? 0);
+      }
+    } catch (e) {
+      console.warn('DB users table check failed:', e.message);
+    }
   } else {
     console.warn('Database not connected:', result.error);
     console.warn('Using in-memory data. Fix .env (DB_USER, DB_PASSWORD, DB_DATABASE, DB_HOST) and run db/schema.sql to use PostgreSQL.');
