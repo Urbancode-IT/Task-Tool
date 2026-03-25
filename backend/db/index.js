@@ -914,6 +914,7 @@ export async function dbUpdateTask(taskId, data) {
     'status',
     'due_date',
     'assigned_to',
+    'assigned_by',
     'project_id',
   ];
   const updates = [];
@@ -932,7 +933,7 @@ export async function dbUpdateTask(taskId, data) {
       let val;
       if (col === 'start_date' || col === 'end_date' || col === 'due_date' || col === 'task_date') {
         val = toNullableDate(v);
-      } else if (col === 'assigned_to' || col === 'project_id') {
+      } else if (col === 'assigned_to' || col === 'assigned_by' || col === 'project_id') {
         val = v === '' ? null : v;
       } else {
         val = v;

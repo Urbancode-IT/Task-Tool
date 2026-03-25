@@ -5,6 +5,7 @@ import {
   MdRefresh,
   MdAdd,
   MdClose,
+  MdCheck,
   MdOutlineAssignment,
   MdDashboard,
   MdChecklist,
@@ -207,6 +208,150 @@ const ITUpdatesMain = ({ currentUser, onLogout }) => {
   }, [activeTab, allTasksFilters.project_id, allTasksFilters.status, allTasksFilters.priority]);
 
   const overviewTasks = useMemo(() => tasks, [tasks]);
+
+  // Inline editor for Overview table (enabled only when you click the pencil icon)
+  const [inlineEditingTaskId, setInlineEditingTaskId] = useState(null);
+  const [inlineDraft, setInlineDraft] = useState(null);
+  const [inlineSaving, setInlineSaving] = useState(false);
+  const [inlineReqLoading, setInlineReqLoading] = useState(false);
+  const [inlineRequirements, setInlineRequirements] = useState([]);
+  const [inlineRequirementsDeleted, setInlineRequirementsDeleted] = useState([]);
+  const [inlineRequirementNewTitle, setInlineRequirementNewTitle] = useState('');
+
+  const inlineEditing = (taskId) => String(inlineEditingTaskId ?? '') === String(taskId ?? '');
+
+  const buildInlineDraftFromTask = (t) => ({
+    projectId: t?.projectId ?? '',
+    title: t?.title ?? '',
+    task_description: t?.task_description ?? t?.description ?? '',
+    assigned_to: t?.assigned_to ?? t?.assignee ?? '',
+    assigned_by: t?.assigned_by ?? '',
+    status: t?.status ?? 'in_progress',
+    priority: t?.priority ?? 'medium',
+    dueDate: t?.dueDate ? String(t.dueDate).slice(0, 10) : '',
+  });
+
+  const startInlineEdit = async (task) => {
+    if (!task?.id) return;
+    if (inlineSaving) return;
+
+    // Toggle off if clicking the same pencil again
+    if (inlineEditing(task.id)) {
+      setInlineEditingTaskId(null);
+      setInlineDraft(null);
+      setInlineReqLoading(false);
+      setInlineRequirements([]);
+      setInlineRequirementsDeleted([]);
+      setInlineRequirementNewTitle('');
+      return;
+    }
+
+    setInlineEditingTaskId(task.id);
+    setInlineDraft(buildInlineDraftFromTask(task));
+    setInlineSaving(false);
+    setInlineReqLoading(true);
+    setInlineRequirementsDeleted([]);
+    setInlineRequirementNewTitle('');
+
+    try {
+      const res = await itUpdatesApi.getRequirements(task.id, { team: MODULE_TEAM });
+      const list = Array.isArray(res?.data) ? res.data : [];
+      setInlineRequirements(
+        list.map((r) => ({
+          id: r.id ?? r.requirement_id ?? r.req_id ?? r.requirementId,
+          title: r.title ?? '',
+          description: r.description ?? null,
+          status: r.status ?? 'pending',
+          priority: r.priority ?? 'medium',
+          due_date: r.due_date ?? r.dueDate ?? null,
+        }))
+      );
+    } catch {
+      setInlineRequirements([]);
+    } finally {
+      setInlineReqLoading(false);
+    }
+  };
+
+  const cancelInlineEdit = () => {
+    if (inlineSaving) return;
+    setInlineEditingTaskId(null);
+    setInlineDraft(null);
+    setInlineReqLoading(false);
+    setInlineRequirements([]);
+    setInlineRequirementsDeleted([]);
+    setInlineRequirementNewTitle('');
+  };
+
+  const saveInlineEdit = async () => {
+    if (!inlineEditingTaskId || !inlineDraft) return;
+    if (inlineSaving) return;
+
+    setInlineSaving(true);
+    setError('');
+    try {
+      const taskId = inlineEditingTaskId;
+      const draft = inlineDraft;
+
+      const reqs = Array.isArray(inlineRequirements) ? inlineRequirements : [];
+      const allDone = reqs.length > 0 && reqs.every((r) => String(r.status) === 'completed');
+      const hasPending = reqs.some((r) => String(r.status) !== 'completed');
+
+      let nextStatus = draft.status ?? 'in_progress';
+      if (allDone && nextStatus === 'in_progress') nextStatus = 'review';
+      else if (hasPending && (nextStatus === 'review' || nextStatus === 'rework' || nextStatus === 'completed')) {
+        nextStatus = 'in_progress';
+      }
+
+      const patch = {
+        team: MODULE_TEAM,
+        projectId: draft.projectId === '' ? null : draft.projectId,
+        title: draft.title ?? '',
+        task_description: draft.task_description ?? '',
+        assigned_to: draft.assigned_to === '' ? null : draft.assigned_to,
+        assigned_by: draft.assigned_by === '' ? null : draft.assigned_by,
+        status: nextStatus,
+        priority: draft.priority ?? 'medium',
+        dueDate: draft.dueDate === '' ? null : draft.dueDate,
+      };
+
+      await itUpdatesApi.updateTask(taskId, patch);
+
+      // Delete removed requirements first
+      for (const reqId of inlineRequirementsDeleted) {
+        if (reqId == null) continue;
+        if (String(reqId).startsWith('temp-')) continue;
+        await itUpdatesApi.deleteRequirement(taskId, reqId, { team: MODULE_TEAM });
+      }
+
+      // Upsert requirements
+      const upsertPromises = reqs.map((r, idx) => {
+        const payload = {
+          title: r.title ?? '',
+          description: r.description ?? null,
+          status: r.status ?? 'pending',
+          priority: r.priority ?? 'medium',
+          due_date: r.due_date ?? null,
+          sort_order: idx,
+          team: MODULE_TEAM,
+        };
+        if (String(r.id).startsWith('temp-')) {
+          return itUpdatesApi.createRequirement(taskId, payload, { team: MODULE_TEAM });
+        }
+        return itUpdatesApi.updateRequirement(taskId, r.id, payload, { team: MODULE_TEAM });
+      });
+      await Promise.all(upsertPromises);
+
+      await loadAllData();
+      cancelInlineEdit();
+    } catch (e) {
+      setError(e?.response?.data?.message || 'Failed to save inline edit');
+      await loadAllData();
+      cancelInlineEdit();
+    } finally {
+      setInlineSaving(false);
+    }
+  };
   useEffect(() => {
     if (activeTab === 'Overview' && (overviewFilters.from_date || overviewFilters.to_date || overviewFilters.assigned_to || overviewFilters.project_id)) {
       fetchTasksWithFilters({
@@ -945,45 +1090,329 @@ const ITUpdatesMain = ({ currentUser, onLogout }) => {
                       <th>Assigned To</th>
                       <th>Assigned By</th>
                       <th>Status</th>
+                      <th>Priority</th>
+                      <th>Due</th>
+                      <th className="it-updates-th-actions">Edit</th>
                     </tr>
                   </thead>
                   <tbody>
                     {overviewTasks.map((task) => (
-                      <tr key={task.id}>
+                      <tr
+                        key={task.id}
+                        onClick={() => {
+                          if (inlineEditing(task.id)) return;
+                          openTaskModal(task);
+                        }}
+                        style={{ cursor: inlineEditing(task.id) ? 'default' : 'pointer' }}
+                      >
                         <td>
                           {task.task_date
                             ? new Date(task.task_date).toLocaleDateString()
                             : '—'}
                         </td>
                         <td>
-                          {task?.projectId != null
-                            ? projectNameById.get(String(task.projectId)) || task.projectId || '—'
-                            : '—'}
-                        </td>
-                        <td>{task.title}</td>
-                        <td>
-                          {task.req_total > 0 ? (
-                            <span className="it-updates-table-reqs">
-                              {task.req_completed}/{task.req_total}
-                            </span>
+                          {inlineEditing(task.id) ? (
+                            <select
+                              className="it-updates-table-edit"
+                              value={String(inlineDraft?.projectId ?? '')}
+                              disabled={inlineSaving || inlineReqLoading}
+                              onClick={(e) => e.stopPropagation()}
+                              onChange={(e) => setInlineDraft((prev) => ({ ...(prev || {}), projectId: e.target.value }))}
+                            >
+                              <option value="">Unassigned</option>
+                              {projects.map((p) => (
+                                <option key={p.id} value={String(p.id)}>
+                                  {p.name ?? p.project_name}
+                                </option>
+                              ))}
+                            </select>
                           ) : (
-                            <span className="it-updates-table-reqs-none">—</span>
+                            task?.projectId != null
+                              ? projectNameById.get(String(task.projectId)) || task.projectId || '—'
+                              : '—'
                           )}
                         </td>
-                        <td>{task.assignee ?? '—'}</td>
-                        <td>{task.assigned_by_name ?? '—'}</td>
                         <td>
-                          <span
-                            className="it-updates-status-badge"
-                            style={{
-                              backgroundColor: STATUS_COLORS[task.status]
-                                ? `${STATUS_COLORS[task.status]}18`
-                                : undefined,
-                              color: STATUS_COLORS[task.status] || '#374151',
-                            }}
-                          >
-                            {STATUS_LABELS[task.status] ?? task.status}
-                          </span>
+                          {inlineEditing(task.id) ? (
+                            <input
+                              className="it-updates-table-edit"
+                              value={inlineDraft?.title ?? ''}
+                              disabled={inlineSaving || inlineReqLoading}
+                              onClick={(e) => e.stopPropagation()}
+                              onChange={(e) => setInlineDraft((prev) => ({ ...(prev || {}), title: e.target.value }))}
+                            />
+                          ) : (
+                            task.title
+                          )}
+                        </td>
+                        <td>
+                          {inlineEditing(task.id) ? (
+                            inlineReqLoading ? (
+                              <span>Loading…</span>
+                            ) : (
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+                                {inlineRequirements.length > 0 ? (
+                                  inlineRequirements.map((req) => (
+                                    <div key={String(req.id)} style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                                      <input
+                                        type="checkbox"
+                                        checked={String(req.status) === 'completed'}
+                                        disabled={inlineSaving}
+                                        onClick={(e) => e.stopPropagation()}
+                                        onChange={(e) => {
+                                          const checked = e.target.checked;
+                                          setInlineRequirements((prev) =>
+                                            prev.map((r) =>
+                                              String(r.id) === String(req.id)
+                                                ? { ...r, status: checked ? 'completed' : 'pending' }
+                                                : r
+                                            )
+                                          );
+                                        }}
+                                      />
+                                      <input
+                                        className="it-updates-table-edit"
+                                        style={{ width: '10rem', padding: '0.25rem 0.5rem' }}
+                                        value={req.title ?? ''}
+                                        disabled={inlineSaving}
+                                        onClick={(e) => e.stopPropagation()}
+                                        onChange={(e) => {
+                                          const val = e.target.value;
+                                          setInlineRequirements((prev) =>
+                                            prev.map((r) => (String(r.id) === String(req.id) ? { ...r, title: val } : r))
+                                          );
+                                        }}
+                                      />
+                                      <button
+                                        type="button"
+                                        className="it-updates-icon-btn it-updates-icon-btn-danger"
+                                        disabled={inlineSaving}
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          if (String(req.id).startsWith('temp-')) {
+                                            setInlineRequirements((prev) => prev.filter((r) => String(r.id) !== String(req.id)));
+                                          } else {
+                                            setInlineRequirementsDeleted((prev) => [...prev, req.id]);
+                                            setInlineRequirements((prev) => prev.filter((r) => String(r.id) !== String(req.id)));
+                                          }
+                                        }}
+                                        title="Delete requirement"
+                                      >
+                                        <MdClose size={14} />
+                                      </button>
+                                    </div>
+                                  ))
+                                ) : (
+                                  <span style={{ color: 'var(--clr-slate-500)' }}>No requirements</span>
+                                )}
+
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', marginTop: '0.15rem' }}>
+                                  <input
+                                    className="it-updates-table-edit"
+                                    style={{ width: '10rem', padding: '0.25rem 0.5rem' }}
+                                    value={inlineRequirementNewTitle}
+                                    disabled={inlineSaving}
+                                    onClick={(e) => e.stopPropagation()}
+                                    placeholder="Add req"
+                                    onChange={(e) => setInlineRequirementNewTitle(e.target.value)}
+                                    onKeyDown={(e) => {
+                                      if (e.key !== 'Enter') return;
+                                      const title = inlineRequirementNewTitle.trim();
+                                      if (!title) return;
+                                      setInlineRequirements((prev) => [
+                                        ...prev,
+                                        {
+                                          id: `temp-${Date.now()}`,
+                                          title,
+                                          description: null,
+                                          status: 'pending',
+                                          priority: 'medium',
+                                          due_date: null,
+                                        },
+                                      ]);
+                                      setInlineRequirementNewTitle('');
+                                    }}
+                                  />
+                                  <button
+                                    type="button"
+                                    className="it-updates-icon-btn"
+                                    disabled={inlineSaving}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      const title = inlineRequirementNewTitle.trim();
+                                      if (!title) return;
+                                      setInlineRequirements((prev) => [
+                                        ...prev,
+                                        {
+                                          id: `temp-${Date.now()}`,
+                                          title,
+                                          description: null,
+                                          status: 'pending',
+                                          priority: 'medium',
+                                          due_date: null,
+                                        },
+                                      ]);
+                                      setInlineRequirementNewTitle('');
+                                    }}
+                                    title="Add requirement"
+                                  >
+                                    +
+                                  </button>
+                                </div>
+                              </div>
+                            )
+                          ) : (
+                            task.req_total > 0 ? (
+                              <span className="it-updates-table-reqs">
+                                {task.req_completed}/{task.req_total}
+                              </span>
+                            ) : (
+                              <span className="it-updates-table-reqs-none">—</span>
+                            )
+                          )}
+                        </td>
+                        <td>
+                          {inlineEditing(task.id) ? (
+                            <select
+                              className="it-updates-table-edit"
+                              value={String(inlineDraft?.assigned_to ?? '')}
+                              disabled={inlineSaving || inlineReqLoading}
+                              onClick={(e) => e.stopPropagation()}
+                              onChange={(e) => setInlineDraft((prev) => ({ ...(prev || {}), assigned_to: e.target.value }))}
+                            >
+                              <option value="">Unassigned</option>
+                              {(developers.length ? developers : teamOverview).map((u) => (
+                                <option key={u.user_id ?? u.assignee} value={String(u.user_id ?? u.assignee ?? '')}>
+                                  {u.username ?? u.assignee}
+                                </option>
+                              ))}
+                            </select>
+                          ) : (
+                            task.assignee ?? '—'
+                          )}
+                        </td>
+                        <td>
+                          {inlineEditing(task.id) ? (
+                            <select
+                              className="it-updates-table-edit"
+                              value={String(inlineDraft?.assigned_by ?? '')}
+                              disabled={inlineSaving || inlineReqLoading}
+                              onClick={(e) => e.stopPropagation()}
+                              onChange={(e) => setInlineDraft((prev) => ({ ...(prev || {}), assigned_by: e.target.value }))}
+                            >
+                              <option value="">—</option>
+                              {(managers || []).map((u) => (
+                                <option key={u.user_id ?? u.id ?? u.assignee} value={String(u.user_id ?? u.id ?? u.assignee ?? '')}>
+                                  {u.username ?? u.assignee}
+                                </option>
+                              ))}
+                            </select>
+                          ) : (
+                            task.assigned_by_name ?? '—'
+                          )}
+                        </td>
+                        <td>
+                          {inlineEditing(task.id) ? (
+                            <select
+                              className="it-updates-table-edit"
+                              value={inlineDraft?.status ?? 'in_progress'}
+                              disabled={inlineSaving || inlineReqLoading}
+                              onClick={(e) => e.stopPropagation()}
+                              onChange={(e) => setInlineDraft((prev) => ({ ...(prev || {}), status: e.target.value }))}
+                            >
+                              <option value="in_progress">{STATUS_LABELS.in_progress}</option>
+                              <option value="review">{STATUS_LABELS.review}</option>
+                              <option value="rework">{STATUS_LABELS.rework}</option>
+                              <option value="completed">{STATUS_LABELS.completed}</option>
+                            </select>
+                          ) : (
+                            <span
+                              className="it-updates-status-badge"
+                              style={{
+                                backgroundColor: STATUS_COLORS[task.status]
+                                  ? `${STATUS_COLORS[task.status]}18`
+                                  : undefined,
+                                color: STATUS_COLORS[task.status] || '#374151',
+                              }}
+                            >
+                              {STATUS_LABELS[task.status] ?? task.status}
+                            </span>
+                          )}
+                        </td>
+                        <td>
+                          {inlineEditing(task.id) ? (
+                            <select
+                              className="it-updates-table-edit"
+                              value={inlineDraft?.priority ?? 'medium'}
+                              disabled={inlineSaving || inlineReqLoading}
+                              onClick={(e) => e.stopPropagation()}
+                              onChange={(e) => setInlineDraft((prev) => ({ ...(prev || {}), priority: e.target.value }))}
+                            >
+                              <option value="low">Low</option>
+                              <option value="medium">Medium</option>
+                              <option value="high">High</option>
+                              <option value="critical">Critical</option>
+                            </select>
+                          ) : (
+                            (task.priority || 'medium').toUpperCase()
+                          )}
+                        </td>
+                        <td>
+                          {inlineEditing(task.id) ? (
+                            <input
+                              className="it-updates-table-edit"
+                              type="date"
+                              value={inlineDraft?.dueDate ?? ''}
+                              disabled={inlineSaving || inlineReqLoading}
+                              onClick={(e) => e.stopPropagation()}
+                              onChange={(e) => setInlineDraft((prev) => ({ ...(prev || {}), dueDate: e.target.value }))}
+                            />
+                          ) : (
+                            task.dueDate ? new Date(task.dueDate).toLocaleDateString() : '—'
+                          )}
+                        </td>
+                        <td className="it-updates-td-actions">
+                          {!inlineEditing(task.id) ? (
+                            <button
+                              type="button"
+                              className="it-updates-icon-btn"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                startInlineEdit(task);
+                              }}
+                              disabled={inlineSaving || inlineReqLoading}
+                              title="Inline edit"
+                            >
+                              <MdEdit size={18} />
+                            </button>
+                          ) : (
+                            <div style={{ display: 'flex', gap: '0.35rem', justifyContent: 'flex-end' }}>
+                              <button
+                                type="button"
+                                className="it-updates-icon-btn"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  saveInlineEdit();
+                                }}
+                                disabled={inlineSaving || inlineReqLoading}
+                                title="Save"
+                              >
+                                <MdCheck size={18} />
+                              </button>
+                              <button
+                                type="button"
+                                className="it-updates-icon-btn it-updates-icon-btn-danger"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  cancelInlineEdit();
+                                }}
+                                disabled={inlineSaving || inlineReqLoading}
+                                title="Cancel"
+                              >
+                                <MdClose size={18} />
+                              </button>
+                            </div>
+                          )}
                         </td>
                       </tr>
                     ))}
