@@ -257,6 +257,17 @@ const ITUpdatesMain = ({ currentUser, onLogout }) => {
     [projects]
   );
 
+  const projectNameById = useMemo(() => {
+    const map = new Map();
+    (projects || []).forEach((p) => {
+      const id = p?.id ?? p?.project_id;
+      if (id == null) return;
+      const name = p?.name ?? p?.project_name;
+      if (name != null) map.set(String(id), name);
+    });
+    return map;
+  }, [projects]);
+
   const dashboardTaskGroups = useMemo(() => groupTasksByStatus(tasks), [tasks]);
   const myTaskGroups = useMemo(() => groupTasksByStatus(myTasks), [myTasks]);
 
@@ -294,9 +305,13 @@ const ITUpdatesMain = ({ currentUser, onLogout }) => {
 
   const handleSaveProject = async (payload) => {
     try {
+      const normalizedProjectCode =
+        payload?.project_code != null && String(payload.project_code).trim() !== ''
+          ? String(payload.project_code).trim()
+          : null;
       const body = {
         name: payload.project_name ?? payload.name,
-        project_code: payload.project_code,
+        project_code: normalizedProjectCode,
         project_url: payload.project_url,
         description: payload.description,
         status: payload.status,
@@ -312,7 +327,12 @@ const ITUpdatesMain = ({ currentUser, onLogout }) => {
       } else {
         await itUpdatesApi.createProject(body);
       }
-      loadAllData();
+      const [statsRes, projRes] = await Promise.all([
+        itUpdatesApi.getDashboardStats(),
+        itUpdatesApi.getProjects(),
+      ]);
+      setDashboardData(statsRes?.data ?? null);
+      setProjects(Array.isArray(projRes?.data) ? projRes.data : []);
       return true;
     } catch (e) {
       setError(e?.response?.data?.message || 'Failed to save project');
@@ -353,7 +373,12 @@ const ITUpdatesMain = ({ currentUser, onLogout }) => {
           );
         }
       }
-      loadAllData();
+      const [tasksRes, statsRes] = await Promise.all([
+        itUpdatesApi.getTasks({ team: MODULE_TEAM }),
+        itUpdatesApi.getDashboardStats(),
+      ]);
+      setTasks(Array.isArray(tasksRes?.data) ? tasksRes.data : []);
+      setDashboardData(statsRes?.data ?? null);
       return true;
     } catch (e) {
       setError(e?.response?.data?.message || 'Failed to save task');
@@ -368,7 +393,8 @@ const ITUpdatesMain = ({ currentUser, onLogout }) => {
         user_id: user?.id ?? user?.user_id,
       });
       setEodModal(false);
-      loadAllData();
+      const eodRes = await itUpdatesApi.getEodReports();
+      setEodReports(Array.isArray(eodRes?.data) ? eodRes.data : []);
     } catch (e) {
       setError(e?.response?.data?.message || 'Failed to save EOD report');
     }
@@ -403,7 +429,10 @@ const ITUpdatesMain = ({ currentUser, onLogout }) => {
                 index={idx}
               >
                 {(provided, snapshot) => {
-                  const projectName = projects.find((p) => String(p.id) === String(task.projectId))?.name ?? projects.find((p) => String(p.id) === String(task.projectId))?.project_name ?? task.projectId ?? 'No project';
+                  const projectName =
+                    task?.projectId != null
+                      ? projectNameById.get(String(task.projectId)) || task.projectId || 'No project'
+                      : 'No project';
                   const desc = (task.task_description || task.description || '').trim();
                   const descSnippet = desc.length > 50 ? desc.slice(0, 50) + '...' : desc;
                   return (
@@ -800,21 +829,6 @@ const ITUpdatesMain = ({ currentUser, onLogout }) => {
                         {project.status ?? 'active'}
                       </span>
                     </div>
-                    {project.project_code && (
-                      <div className="it-updates-project-code">{project.project_code}</div>
-                    )}
-                    {project.project_url && (
-                      <div className="it-updates-project-meta">
-                        <a
-                          href={project.project_url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          Open project URL
-                        </a>
-                      </div>
-                    )}
                     <div className="it-updates-project-meta">
                       <span>Owner: {project.owner_name ?? project.owner ?? 'Not set'}</span>
                     </div>
@@ -942,9 +956,9 @@ const ITUpdatesMain = ({ currentUser, onLogout }) => {
                             : '—'}
                         </td>
                         <td>
-                          {projects.find((p) => String(p.id) === String(task.projectId))?.name ??
-                            task.projectId ??
-                            '—'}
+                          {task?.projectId != null
+                            ? projectNameById.get(String(task.projectId)) || task.projectId || '—'
+                            : '—'}
                         </td>
                         <td>{task.title}</td>
                         <td>
@@ -1125,7 +1139,7 @@ function ProjectModal({ project, teammatesOptions, onClose, onSave }) {
   };
 
   return (
-    <div className="it-updates-modal-backdrop" onClick={onClose}>
+    <div className="it-updates-modal-backdrop">
       <div className="it-updates-modal" onClick={(e) => e.stopPropagation()}>
         <div className="it-updates-modal-header">
           <h2>{project ? 'Edit project' : 'New project'}</h2>
@@ -1140,13 +1154,6 @@ function ProjectModal({ project, teammatesOptions, onClose, onSave }) {
               value={form.project_name}
               onChange={(e) => setForm((f) => ({ ...f, project_name: e.target.value }))}
               required
-            />
-          </label>
-          <label>
-            Project code
-            <input
-              value={form.project_code}
-              onChange={(e) => setForm((f) => ({ ...f, project_code: e.target.value }))}
             />
           </label>
           <label>
@@ -1583,7 +1590,7 @@ function TaskModal({ task, projects, developers, managers, onClose, onSave, onRe
   };
 
   return (
-    <div className="it-updates-modal-backdrop" onClick={onClose}>
+    <div className="it-updates-modal-backdrop">
       <div className="it-updates-modal it-updates-modal-wide" onClick={(e) => e.stopPropagation()}>
         <div className="it-updates-modal-header">
           <h2>{task ? 'Edit task' : 'New task'}</h2>
@@ -1901,7 +1908,7 @@ function EodModal({ onClose, onSave }) {
   };
 
   return (
-    <div className="it-updates-modal-backdrop" onClick={onClose}>
+    <div className="it-updates-modal-backdrop">
       <div className="it-updates-modal" onClick={(e) => e.stopPropagation()}>
         <div className="it-updates-modal-header">
           <h2>EOD Report</h2>

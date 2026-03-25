@@ -131,6 +131,28 @@ export default function DigitalMarketingMain({ currentUser, onLogout }) {
     }
   }, [userId]);
 
+  const refreshTasksOnly = useCallback(async () => {
+    if (!userId) return;
+    setError('');
+    try {
+      const tasksRes = await itUpdatesApi.getTasks({ team: MODULE_TEAM });
+      setTasks(Array.isArray(tasksRes?.data) ? tasksRes.data : []);
+    } catch {
+      setError('Failed to load tasks');
+    }
+  }, [userId]);
+
+  const refreshEodReportsOnly = useCallback(async () => {
+    if (!userId) return;
+    setError('');
+    try {
+      const res = await itUpdatesApi.getEodReports({ user_id: userId });
+      setEodReports(Array.isArray(res?.data) ? res.data : []);
+    } catch {
+      setError('Failed to load EOD reports');
+    }
+  }, [userId]);
+
   useEffect(() => {
     loadMyTasks();
   }, [loadMyTasks]);
@@ -248,7 +270,7 @@ export default function DigitalMarketingMain({ currentUser, onLogout }) {
           );
         }
       }
-      loadMyTasks();
+      await refreshTasksOnly();
       return true;
     } catch (e) {
       setError(e?.response?.data?.message || 'Failed to save task');
@@ -263,7 +285,7 @@ export default function DigitalMarketingMain({ currentUser, onLogout }) {
         user_id: userId,
       });
       setEodModal(false);
-      loadMyTasks();
+      await refreshEodReportsOnly();
     } catch (e) {
       setError(e?.response?.data?.message || 'Failed to save EOD report');
     }
@@ -938,7 +960,7 @@ function TaskModal({ task, onClose, onSave, onRefresh, teamMembers, assignedByOp
   const REQ_STATUS_LABELS = { pending: 'Pending', in_progress: 'In Progress', completed: 'Completed' };
 
   return (
-    <div className="it-updates-modal-backdrop" onClick={onClose}>
+    <div className="it-updates-modal-backdrop">
       <div className="it-updates-modal it-updates-modal-wide" onClick={(e) => e.stopPropagation()}>
         <div className="it-updates-modal-header">
           <h2>{task ? 'Edit task' : 'New task'}</h2>
@@ -1195,7 +1217,7 @@ function EodModal({ onClose, onSave }) {
   };
 
   return (
-    <div className="it-updates-modal-backdrop" onClick={onClose}>
+    <div className="it-updates-modal-backdrop">
       <div className="it-updates-modal" onClick={(e) => e.stopPropagation()}>
         <div className="it-updates-modal-header">
           <h2>EOD Report</h2>
