@@ -437,8 +437,11 @@ export default function ConsultantsMain({ currentUser, onLogout }) {
       {/* ─── Sidebar ─── */}
       <aside className={`it-updates-sidebar ${sidebarOpen ? 'open' : ''}`}>
         <div className="it-updates-sidebar-brand">
-          <img src={logoSrc} alt="Workspace" className="it-updates-sidebar-logo" />
-          <span className="it-updates-sidebar-title">Consultants</span>
+          <img src={logoSrc} alt="Seyal" className="it-updates-sidebar-logo" />
+          <div className="it-updates-sidebar-brand-text">
+            <span className="it-updates-sidebar-title">Seyal</span>
+            <span className="it-updates-sidebar-subtitle">Consultants Team</span>
+          </div>
         </div>
         <nav className="it-updates-sidebar-nav">
           <div className="it-updates-sidebar-nav-label">Navigation</div>

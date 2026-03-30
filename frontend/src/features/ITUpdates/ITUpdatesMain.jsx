@@ -683,8 +683,11 @@ const ITUpdatesMain = ({ currentUser, onLogout }) => {
       )}
       <aside className={`it-updates-sidebar ${sidebarOpen ? 'open' : ''}`}>
         <div className="it-updates-sidebar-brand">
-          <img src={logoSrc} alt="IT Updates" className="it-updates-sidebar-logo" />
-          <span className="it-updates-sidebar-title">IT Updates</span>
+          <img src={logoSrc} alt="Seyal" className="it-updates-sidebar-logo" />
+          <div className="it-updates-sidebar-brand-text">
+            <span className="it-updates-sidebar-title">Seyal</span>
+            <span className="it-updates-sidebar-subtitle">IT Team</span>
+          </div>
         </div>
 
         <nav className="it-updates-sidebar-nav">

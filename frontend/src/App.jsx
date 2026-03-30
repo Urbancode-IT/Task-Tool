@@ -33,8 +33,8 @@ const LoginPage = ({ onLogin }) => {
       <div className="auth-grid-overlay" />
       <div className="auth-card">
         <div className="auth-logo-wrapper">
-          <img src={logoSrc} alt="IT Updates" className="auth-logo-img" />
-          <span className="auth-logo-text">IT Updates</span>
+          <img src={logoSrc} alt="Seyal" className="auth-logo-img" />
+          <span className="auth-logo-text">Seyal</span>
         </div>
         <h1 className="auth-title">Welcome back</h1>
         <p className="auth-subtitle">Sign in to your workspace to continue</p>
@@ -45,7 +45,7 @@ const LoginPage = ({ onLogin }) => {
               type="text"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              placeholder="e.g. atchaya@itupdates.local"
+              placeholder="e.g. atchaya@seyal.local"
               required
               autoComplete="username"
             />

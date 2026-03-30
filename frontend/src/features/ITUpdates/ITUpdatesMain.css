@@ -52,6 +52,19 @@
   letter-spacing: -0.01em;
 }
 
+.it-updates-sidebar-brand-text {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.1;
+}
+
+.it-updates-sidebar-subtitle {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--clr-slate-500);
+  margin-top: 0.15rem;
+}
+
 .it-updates-sidebar-nav {
   flex: 1;
   padding: 0.75rem 0.75rem;
