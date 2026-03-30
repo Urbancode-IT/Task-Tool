@@ -15,6 +15,7 @@ import {
 } from 'react-icons/md';
 import itUpdatesApi from '../../api/itUpdatesApi';
 import { getDisplayRole } from '../../utils/displayRole';
+import { isTaskOverdue } from '../../utils/taskDue';
 import logoSrc from '../../assets/logo.png';
 import '../ITUpdates/ITUpdatesMain.css';
 
@@ -27,7 +28,11 @@ const TABS = [
 ];
 const MODULE_TEAM = 'digital_marketing';
 
+const EMPTY_ALL_TASKS_FILTERS = { status: '', priority: '' };
+const EMPTY_OVERVIEW_FILTERS = { from_date: '', to_date: '', assigned_to: '' };
+
 const STATUS_LABELS = {
+  todo: 'To do',
   in_progress: 'In Progress',
   review: 'Review',
   rework: 'Rework',
@@ -35,6 +40,7 @@ const STATUS_LABELS = {
 };
 
 const STATUS_COLORS = {
+  todo: '#94a3b8',
   in_progress: '#6366f1',
   review: '#8b5cf6',
   rework: '#f97316',
@@ -56,7 +62,7 @@ const groupTasksByStatus = (tasks) =>
       acc[key].push(task);
       return acc;
     },
-    { in_progress: [], review: [], rework: [], completed: [] }
+    { todo: [], in_progress: [], review: [], rework: [], completed: [] }
   );
 
 function Avatar({ user }) {
@@ -92,8 +98,10 @@ export default function DigitalMarketingMain({ currentUser, onLogout }) {
 
   const [taskModal, setTaskModal] = useState({ open: false, task: null });
   const [eodModal, setEodModal] = useState(false);
-  const [allTasksFilters, setAllTasksFilters] = useState({ status: '', priority: '' });
-  const [overviewFilters, setOverviewFilters] = useState({ from_date: '', to_date: '', assigned_to: '' });
+  const [allTasksFiltersDraft, setAllTasksFiltersDraft] = useState(EMPTY_ALL_TASKS_FILTERS);
+  const [allTasksFiltersApplied, setAllTasksFiltersApplied] = useState(EMPTY_ALL_TASKS_FILTERS);
+  const [overviewFiltersDraft, setOverviewFiltersDraft] = useState(EMPTY_OVERVIEW_FILTERS);
+  const [overviewFiltersApplied, setOverviewFiltersApplied] = useState(EMPTY_OVERVIEW_FILTERS);
 
   const user =
     currentUser ||
@@ -180,21 +188,21 @@ export default function DigitalMarketingMain({ currentUser, onLogout }) {
 
   const filteredTasks = useMemo(() => {
     let result = tasks;
-    if (allTasksFilters.status) result = result.filter((t) => t.status === allTasksFilters.status);
-    if (allTasksFilters.priority) result = result.filter((t) => t.priority === allTasksFilters.priority);
+    if (allTasksFiltersApplied.status) result = result.filter((t) => t.status === allTasksFiltersApplied.status);
+    if (allTasksFiltersApplied.priority) result = result.filter((t) => t.priority === allTasksFiltersApplied.priority);
     return result;
-  }, [tasks, allTasksFilters]);
+  }, [tasks, allTasksFiltersApplied]);
 
   const overviewTasks = useMemo(() => {
     let result = tasks;
-    if (overviewFilters.from_date)
-      result = result.filter((t) => t.task_date && t.task_date.slice(0, 10) >= overviewFilters.from_date);
-    if (overviewFilters.to_date)
-      result = result.filter((t) => t.task_date && t.task_date.slice(0, 10) <= overviewFilters.to_date);
-    if (overviewFilters.assigned_to)
-      result = result.filter((t) => String(t.assigned_to) === String(overviewFilters.assigned_to));
+    if (overviewFiltersApplied.from_date)
+      result = result.filter((t) => t.task_date && t.task_date.slice(0, 10) >= overviewFiltersApplied.from_date);
+    if (overviewFiltersApplied.to_date)
+      result = result.filter((t) => t.task_date && t.task_date.slice(0, 10) <= overviewFiltersApplied.to_date);
+    if (overviewFiltersApplied.assigned_to)
+      result = result.filter((t) => String(t.assigned_to) === String(overviewFiltersApplied.assigned_to));
     return result;
-  }, [tasks, overviewFilters]);
+  }, [tasks, overviewFiltersApplied]);
 
   const today = new Date().toISOString().slice(0, 10);
   const completedToday = useMemo(
@@ -321,30 +329,41 @@ export default function DigitalMarketingMain({ currentUser, onLogout }) {
                 draggableId={`task-${task.id}`}
                 index={idx}
               >
-                {(providedDrag, snapshotDrag) => (
+                {(providedDrag, snapshotDrag) => {
+                  const overdue = isTaskOverdue(task);
+                  return (
                   <div
                     ref={providedDrag.innerRef}
                     {...providedDrag.draggableProps}
                     {...providedDrag.dragHandleProps}
-                    className={`it-updates-task-card ${
-                      snapshotDrag.isDragging
-                        ? 'it-updates-task-card-dragging'
-                        : ''
-                    }`}
+                    className={[
+                      'it-updates-task-card',
+                      snapshotDrag.isDragging && 'it-updates-task-card-dragging',
+                      overdue && 'it-updates-task-card-overdue',
+                    ]
+                      .filter(Boolean)
+                      .join(' ')}
                     onClick={() => openTaskModal(task)}
                   >
-                    <div
-                      className="it-updates-task-card-priority"
-                      style={{
-                        backgroundColor:
-                          (PRIORITY_COLORS[task.priority] ||
-                            PRIORITY_COLORS.medium) + '18',
-                        color:
-                          PRIORITY_COLORS[task.priority] ||
-                          PRIORITY_COLORS.medium,
-                      }}
-                    >
-                      {(task.priority || 'medium').toUpperCase()}
+                    <div className="it-updates-task-card-toprow">
+                      <div
+                        className="it-updates-task-card-priority"
+                        style={{
+                          backgroundColor:
+                            (PRIORITY_COLORS[task.priority] ||
+                              PRIORITY_COLORS.medium) + '18',
+                          color:
+                            PRIORITY_COLORS[task.priority] ||
+                            PRIORITY_COLORS.medium,
+                        }}
+                      >
+                        {(task.priority || 'medium').toUpperCase()}
+                      </div>
+                      {overdue ? (
+                        <span className="it-updates-task-card-pending-tag" title="Past due date">
+                          Pending
+                        </span>
+                      ) : null}
                     </div>
                     <div className="it-updates-task-card-title">
                       {task.title}
@@ -356,11 +375,43 @@ export default function DigitalMarketingMain({ currentUser, onLogout }) {
                           : task.task_description}
                       </div>
                     )}
+                    {Number(task.req_total) > 0 && (
+                      <div className="it-updates-task-card-reqs">
+                        <div className="it-updates-task-card-reqs-label">
+                          <MdChecklist size={12} />
+                          <span>
+                            {Number(task.req_completed) || 0}/{Number(task.req_total)} subtasks
+                          </span>
+                        </div>
+                        <div className="it-updates-task-card-reqs-bar">
+                          <div
+                            className="it-updates-task-card-reqs-fill"
+                            style={{
+                              width: `${Math.round(
+                                ((Number(task.req_completed) || 0) / Number(task.req_total)) * 100
+                              )}%`,
+                            }}
+                          />
+                        </div>
+                      </div>
+                    )}
                     <div className="it-updates-task-card-assigned-by">
                       Assigned by: {task.assigned_by_name || '—'}
                     </div>
+                    {task.status === 'completed' &&
+                      (task.reviewed_by_username || task.review_comment) && (
+                        <div className="it-updates-task-card-review">
+                          {task.reviewed_by_username ? (
+                            <span>Reviewed by {task.reviewed_by_username}</span>
+                          ) : null}
+                          {task.review_comment ? (
+                            <span className="it-updates-task-card-review-comment">{task.review_comment}</span>
+                          ) : null}
+                        </div>
+                      )}
                   </div>
-                )}
+                  );
+                }}
               </Draggable>
             ))}
             {provided.placeholder}
@@ -522,14 +573,16 @@ export default function DigitalMarketingMain({ currentUser, onLogout }) {
                     </h2>
                   </div>
                   <DragDropContext onDragEnd={handleDragEnd}>
-                    <section className="it-updates-columns">
-                      {['in_progress', 'rework', 'review', 'completed'].map((statusKey) =>
-                        renderKanbanColumn(
-                          statusKey,
-                          myTaskGroups[statusKey] || []
-                        )
-                      )}
-                    </section>
+                    <div className="it-updates-kanban-wrap">
+                      <section className="it-updates-columns">
+                        {['todo', 'in_progress', 'review', 'rework', 'completed'].map((statusKey) =>
+                          renderKanbanColumn(
+                            statusKey,
+                            myTaskGroups[statusKey] || []
+                          )
+                        )}
+                      </section>
+                    </div>
                   </DragDropContext>
                 </div>
               </section>
@@ -551,11 +604,13 @@ export default function DigitalMarketingMain({ currentUser, onLogout }) {
                 </button>
               </div>
               <DragDropContext onDragEnd={handleDragEnd}>
-                <section className="it-updates-columns">
-                  {['in_progress', 'rework', 'review', 'completed'].map((statusKey) =>
-                    renderKanbanColumn(statusKey, myTaskGroups[statusKey] || [])
-                  )}
-                </section>
+                <div className="it-updates-kanban-wrap">
+                  <section className="it-updates-columns">
+                    {['todo', 'in_progress', 'review', 'rework', 'completed'].map((statusKey) =>
+                      renderKanbanColumn(statusKey, myTaskGroups[statusKey] || [])
+                    )}
+                  </section>
+                </div>
               </DragDropContext>
             </>
           )}
@@ -576,21 +631,22 @@ export default function DigitalMarketingMain({ currentUser, onLogout }) {
               </div>
               <div className="it-updates-filters">
                 <select
-                  value={allTasksFilters.status}
+                  value={allTasksFiltersDraft.status}
                   onChange={(e) =>
-                    setAllTasksFilters((f) => ({ ...f, status: e.target.value }))
+                    setAllTasksFiltersDraft((f) => ({ ...f, status: e.target.value }))
                   }
                 >
                   <option value="">All statuses</option>
+                  <option value="todo">To do</option>
                   <option value="in_progress">In Progress</option>
-                  <option value="rework">Rework</option>
                   <option value="review">Review</option>
+                  <option value="rework">Rework</option>
                   <option value="completed">Completed</option>
                 </select>
                 <select
-                  value={allTasksFilters.priority}
+                  value={allTasksFiltersDraft.priority}
                   onChange={(e) =>
-                    setAllTasksFilters((f) => ({ ...f, priority: e.target.value }))
+                    setAllTasksFiltersDraft((f) => ({ ...f, priority: e.target.value }))
                   }
                 >
                   <option value="">All priorities</option>
@@ -599,16 +655,37 @@ export default function DigitalMarketingMain({ currentUser, onLogout }) {
                   <option value="high">High</option>
                   <option value="critical">Critical</option>
                 </select>
+                <div className="it-updates-filter-actions">
+                  <button
+                    type="button"
+                    className="it-updates-btn it-updates-btn-primary"
+                    onClick={() => setAllTasksFiltersApplied({ ...allTasksFiltersDraft })}
+                  >
+                    Apply
+                  </button>
+                  <button
+                    type="button"
+                    className="it-updates-btn it-updates-btn-secondary"
+                    onClick={() => {
+                      setAllTasksFiltersDraft(EMPTY_ALL_TASKS_FILTERS);
+                      setAllTasksFiltersApplied(EMPTY_ALL_TASKS_FILTERS);
+                    }}
+                  >
+                    Clear
+                  </button>
+                </div>
               </div>
               <DragDropContext onDragEnd={handleDragEnd}>
-                <section className="it-updates-columns">
-                  {['in_progress', 'rework', 'review', 'completed'].map((statusKey) =>
-                    renderKanbanColumn(
-                      statusKey,
-                      groupTasksByStatus(filteredTasks)[statusKey] || []
-                    )
-                  )}
-                </section>
+                <div className="it-updates-kanban-wrap">
+                  <section className="it-updates-columns">
+                    {['todo', 'in_progress', 'review', 'rework', 'completed'].map((statusKey) =>
+                      renderKanbanColumn(
+                        statusKey,
+                        groupTasksByStatus(filteredTasks)[statusKey] || []
+                      )
+                    )}
+                  </section>
+                </div>
               </DragDropContext>
             </>
           )}
@@ -624,9 +701,9 @@ export default function DigitalMarketingMain({ currentUser, onLogout }) {
                   From date
                   <input
                     type="date"
-                    value={overviewFilters.from_date}
+                    value={overviewFiltersDraft.from_date}
                     onChange={(e) =>
-                      setOverviewFilters((f) => ({ ...f, from_date: e.target.value }))
+                      setOverviewFiltersDraft((f) => ({ ...f, from_date: e.target.value }))
                     }
                   />
                 </label>
@@ -634,18 +711,18 @@ export default function DigitalMarketingMain({ currentUser, onLogout }) {
                   To date
                   <input
                     type="date"
-                    value={overviewFilters.to_date}
+                    value={overviewFiltersDraft.to_date}
                     onChange={(e) =>
-                      setOverviewFilters((f) => ({ ...f, to_date: e.target.value }))
+                      setOverviewFiltersDraft((f) => ({ ...f, to_date: e.target.value }))
                     }
                   />
                 </label>
                 <label>
                   Team Member
                   <select
-                    value={overviewFilters.assigned_to}
+                    value={overviewFiltersDraft.assigned_to}
                     onChange={(e) =>
-                      setOverviewFilters((f) => ({ ...f, assigned_to: e.target.value }))
+                      setOverviewFiltersDraft((f) => ({ ...f, assigned_to: e.target.value }))
                     }
                   >
                     <option value="">All</option>
@@ -659,6 +736,25 @@ export default function DigitalMarketingMain({ currentUser, onLogout }) {
                     ))}
                   </select>
                 </label>
+                <div className="it-updates-filter-actions">
+                  <button
+                    type="button"
+                    className="it-updates-btn it-updates-btn-primary"
+                    onClick={() => setOverviewFiltersApplied({ ...overviewFiltersDraft })}
+                  >
+                    Apply
+                  </button>
+                  <button
+                    type="button"
+                    className="it-updates-btn it-updates-btn-secondary"
+                    onClick={() => {
+                      setOverviewFiltersDraft(EMPTY_OVERVIEW_FILTERS);
+                      setOverviewFiltersApplied(EMPTY_OVERVIEW_FILTERS);
+                    }}
+                  >
+                    Clear
+                  </button>
+                </div>
               </div>
               <div className="it-updates-table-wrap">
                 <table className="it-updates-table-overview">
@@ -801,7 +897,7 @@ function TaskModal({ task, onClose, onSave, onRefresh, teamMembers, assignedByOp
     task_description: task?.task_description ?? task?.description ?? '',
     assigned_to: task?.assigned_to ?? '',
     assigned_by: task?.assigned_by ?? '',
-    status: task?.status ?? 'in_progress',
+    status: task?.id != null ? (task?.status ?? 'in_progress') : 'todo',
     priority: task?.priority ?? 'medium',
     task_date: task?.task_date ? String(task.task_date).slice(0, 10) : new Date().toISOString().slice(0, 10),
     due_date: task?.dueDate ? String(task.dueDate).slice(0, 10) : '',
@@ -811,25 +907,29 @@ function TaskModal({ task, onClose, onSave, onRefresh, teamMembers, assignedByOp
   const [reqLoading, setReqLoading] = useState(false);
   const [showAddReq, setShowAddReq] = useState(false);
   const [editingReqId, setEditingReqId] = useState(null);
-  const [reqForm, setReqForm] = useState({
-    title: '',
-    status: 'pending',
-    priority: 'medium',
-    due_date: '',
-  });
+  const [reqForm, setReqForm] = useState({ title: '' });
 
   const isExistingTask = Boolean(task?.id);
   const [saveState, setSaveState] = useState({ saving: false, saved: false });
+  const [reviewNote, setReviewNote] = useState('');
 
   useEffect(() => {
-    if (isExistingTask) {
+    if (!isExistingTask) return;
+    let cancelled = false;
+    void (async () => {
       setReqLoading(true);
-      itUpdatesApi
-        .getRequirements(task.id, { team: MODULE_TEAM })
-        .then((res) => setRequirements(Array.isArray(res.data) ? res.data : []))
-        .catch(() => setRequirements([]))
-        .finally(() => setReqLoading(false));
-    }
+      try {
+        const res = await itUpdatesApi.getRequirements(task.id, { team: MODULE_TEAM });
+        if (!cancelled) setRequirements(Array.isArray(res.data) ? res.data : []);
+      } catch {
+        if (!cancelled) setRequirements([]);
+      } finally {
+        if (!cancelled) setReqLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [isExistingTask, task?.id]);
 
   const completedReqs = requirements.filter((r) => r.status === 'completed').length;
@@ -837,88 +937,194 @@ function TaskModal({ task, onClose, onSave, onRefresh, teamMembers, assignedByOp
   const reqProgress = totalReqs > 0 ? Math.round((completedReqs / totalReqs) * 100) : 0;
 
   const resetReqForm = () => {
-    setReqForm({ title: '', status: 'pending', priority: 'medium', due_date: '' });
+    setReqForm({ title: '' });
     setEditingReqId(null);
+  };
+
+  const handleStatusTransitions = async (updatedReqs) => {
+    if (!isExistingTask) return;
+
+    const allDone =
+      updatedReqs.length > 0 && updatedReqs.every((r) => r.status === 'completed');
+    const hasPending = updatedReqs.some((r) => r.status !== 'completed');
+
+    let newStatus = null;
+    if (allDone && form.status === 'in_progress') {
+      newStatus = 'review';
+    } else if (hasPending && (form.status === 'rework' || form.status === 'completed')) {
+      newStatus = 'in_progress';
+    }
+
+    if (newStatus) {
+      try {
+        setForm((prev) => ({ ...prev, status: newStatus }));
+        await itUpdatesApi.updateTask(task.id, { status: newStatus, team: MODULE_TEAM });
+        if (onRefresh) onRefresh();
+      } catch (err) {
+        console.error('Status transition failed:', err);
+      }
+    }
   };
 
   const handleAddRequirement = async () => {
     if (!reqForm.title.trim()) return;
-    if (isExistingTask) {
-      const res = await itUpdatesApi.createRequirement(task.id, {
-        title: reqForm.title,
-        status: reqForm.status,
-        priority: reqForm.priority,
-        due_date: reqForm.due_date || null,
-        team: MODULE_TEAM,
-      }, { team: MODULE_TEAM });
-      setRequirements((prev) => [...prev, res.data]);
-    } else {
-      setRequirements((prev) => [
-        ...prev,
-        { id: `temp-${Date.now()}`, ...reqForm, due_date: reqForm.due_date || null },
-      ]);
+    try {
+      if (isExistingTask) {
+        const res = await itUpdatesApi.createRequirement(
+          task.id,
+          {
+            title: reqForm.title,
+            status: 'pending',
+            priority: 'medium',
+            due_date: null,
+            team: MODULE_TEAM,
+          },
+          { team: MODULE_TEAM }
+        );
+        setRequirements((prev) => {
+          const newList = [...prev, res.data];
+          void handleStatusTransitions(newList);
+          return newList;
+        });
+      } else {
+        setRequirements((prev) => {
+          const newList = [
+            ...prev,
+            {
+              id: `temp-${Date.now()}`,
+              title: reqForm.title,
+              status: 'pending',
+              priority: 'medium',
+              due_date: null,
+            },
+          ];
+          void handleStatusTransitions(newList);
+          return newList;
+        });
+      }
+      resetReqForm();
+      setShowAddReq(false);
+    } catch {
+      // ignore
     }
-    resetReqForm();
-    setShowAddReq(false);
   };
 
   const handleUpdateRequirement = async () => {
     if (!reqForm.title.trim() || !editingReqId) return;
-    if (isExistingTask && !String(editingReqId).startsWith('temp-')) {
-      const res = await itUpdatesApi.updateRequirement(task.id, editingReqId, {
-        title: reqForm.title,
-        status: reqForm.status,
-        priority: reqForm.priority,
-        due_date: reqForm.due_date || null,
-        team: MODULE_TEAM,
-      }, { team: MODULE_TEAM });
-      setRequirements((prev) => prev.map((r) => (r.id === editingReqId ? res.data : r)));
-    } else {
-      setRequirements((prev) =>
-        prev.map((r) =>
-          r.id === editingReqId ? { ...r, ...reqForm, due_date: reqForm.due_date || null } : r
-        )
-      );
+    try {
+      if (isExistingTask && !String(editingReqId).startsWith('temp-')) {
+        const existingReq = requirements.find((r) => String(r.id) === String(editingReqId));
+        const res = await itUpdatesApi.updateRequirement(
+          task.id,
+          editingReqId,
+          {
+            title: reqForm.title,
+            status: existingReq?.status ?? 'pending',
+            priority: existingReq?.priority ?? 'medium',
+            due_date: existingReq?.due_date ?? null,
+            team: MODULE_TEAM,
+          },
+          { team: MODULE_TEAM }
+        );
+        setRequirements((prev) => {
+          const newList = prev.map((r) => (r.id === editingReqId ? res.data : r));
+          void handleStatusTransitions(newList);
+          return newList;
+        });
+      } else {
+        setRequirements((prev) => {
+          const newList = prev.map((r) =>
+            r.id === editingReqId ? { ...r, title: reqForm.title } : r
+          );
+          void handleStatusTransitions(newList);
+          return newList;
+        });
+      }
+      resetReqForm();
+      setShowAddReq(false);
+    } catch {
+      // ignore
     }
-    resetReqForm();
-    setShowAddReq(false);
   };
 
   const handleDeleteRequirement = async (reqId) => {
-    if (isExistingTask && !String(reqId).startsWith('temp-')) {
-      await itUpdatesApi.deleteRequirement(task.id, reqId, { team: MODULE_TEAM });
+    try {
+      if (isExistingTask && !String(reqId).startsWith('temp-')) {
+        await itUpdatesApi.deleteRequirement(task.id, reqId, { team: MODULE_TEAM });
+      }
+      setRequirements((prev) => {
+        const newList = prev.filter((r) => r.id !== reqId);
+        void handleStatusTransitions(newList);
+        return newList;
+      });
+    } catch {
+      // ignore
     }
-    setRequirements((prev) => prev.filter((r) => r.id !== reqId));
   };
 
   const handleToggleReqStatus = async (req) => {
     const newStatus = req.status === 'completed' ? 'pending' : 'completed';
-    if (isExistingTask && !String(req.id).startsWith('temp-')) {
-      const res = await itUpdatesApi.updateRequirement(task.id, req.id, { status: newStatus, team: MODULE_TEAM }, { team: MODULE_TEAM });
-      setRequirements((prev) => prev.map((r) => (r.id === req.id ? res.data : r)));
-    } else {
-      setRequirements((prev) =>
-        prev.map((r) => (r.id === req.id ? { ...r, status: newStatus } : r))
-      );
+    try {
+      if (isExistingTask && !String(req.id).startsWith('temp-')) {
+        const res = await itUpdatesApi.updateRequirement(
+          task.id,
+          req.id,
+          { status: newStatus, team: MODULE_TEAM },
+          { team: MODULE_TEAM }
+        );
+        setRequirements((prev) => {
+          const newList = prev.map((r) => (r.id === req.id ? res.data : r));
+          void handleStatusTransitions(newList);
+          return newList;
+        });
+      } else {
+        setRequirements((prev) => {
+          const newList = prev.map((r) =>
+            r.id === req.id ? { ...r, status: newStatus } : r
+          );
+          void handleStatusTransitions(newList);
+          return newList;
+        });
+      }
+    } catch {
+      // ignore
     }
   };
 
   const startEditReq = (req) => {
     setEditingReqId(req.id);
-    setReqForm({
-      title: req.title,
-      status: req.status,
-      priority: req.priority,
-      due_date: req.due_date ? String(req.due_date).slice(0, 10) : '',
-    });
+    setReqForm({ title: req.title });
     setShowAddReq(true);
+  };
+
+  const handleCompleteFromReview = async () => {
+    try {
+      setForm((prev) => ({ ...prev, status: 'completed' }));
+      await itUpdatesApi.updateTask(task.id, {
+        ...form,
+        status: 'completed',
+        review_comment: reviewNote.trim() || undefined,
+        team: MODULE_TEAM,
+      });
+      setReviewNote('');
+      if (onRefresh) onRefresh();
+      onClose();
+    } catch {
+      // ignore
+    }
   };
 
   const handleManualRework = async () => {
     try {
       const newStatus = 'rework';
       setForm((prev) => ({ ...prev, status: newStatus }));
-      await itUpdatesApi.updateTask(task.id, { ...form, status: newStatus, team: MODULE_TEAM });
+      await itUpdatesApi.updateTask(task.id, {
+        ...form,
+        status: newStatus,
+        review_comment: reviewNote.trim() || undefined,
+        team: MODULE_TEAM,
+      });
+      setReviewNote('');
       if (onRefresh) onRefresh();
     } catch {
       // ignore
@@ -949,16 +1155,6 @@ function TaskModal({ task, onClose, onSave, onRefresh, teamMembers, assignedByOp
     }
   };
 
-  const PRIORITY_C = {
-    low: '#10b981',
-    medium: '#f59e0b',
-    high: '#f97316',
-    critical: '#ef4444',
-  };
-
-  const REQ_STATUS_COLORS = { pending: '#94a3b8', in_progress: '#6366f1', completed: '#10b981' };
-  const REQ_STATUS_LABELS = { pending: 'Pending', in_progress: 'In Progress', completed: 'Completed' };
-
   return (
     <div className="it-updates-modal-backdrop">
       <div className="it-updates-modal it-updates-modal-wide" onClick={(e) => e.stopPropagation()}>
@@ -985,6 +1181,29 @@ function TaskModal({ task, onClose, onSave, onRefresh, teamMembers, assignedByOp
               rows={2}
             />
           </label>
+
+          {isExistingTask &&
+            (task?.status === 'completed' || task?.status === 'rework') &&
+            (task?.review_comment || task?.reviewed_by_username || task?.reviewed_at) && (
+              <div className="it-updates-review-meta">
+                <div className="it-updates-review-meta-title">Last review</div>
+                {task.reviewed_by_username ? (
+                  <div className="it-updates-review-meta-row">
+                    <span className="it-updates-review-meta-label">Reviewer</span>
+                    <span>{task.reviewed_by_username}</span>
+                  </div>
+                ) : null}
+                {task.reviewed_at ? (
+                  <div className="it-updates-review-meta-row">
+                    <span className="it-updates-review-meta-label">When</span>
+                    <span>{new Date(task.reviewed_at).toLocaleString()}</span>
+                  </div>
+                ) : null}
+                {task.review_comment ? (
+                  <div className="it-updates-review-meta-comment">{task.review_comment}</div>
+                ) : null}
+              </div>
+            )}
 
           {/* Requirements */}
           <div className="req-section">
@@ -1022,49 +1241,40 @@ function TaskModal({ task, onClose, onSave, onRefresh, teamMembers, assignedByOp
               <p className="req-note">No requirements yet. Click "Add" to create one.</p>
             )}
 
-            {(!reqLoading || !isExistingTask) && requirements.map((req) => (
-              <div
-                key={req.id}
-                className={`req-card ${req.status === 'completed' ? 'req-card-completed' : ''}`}
-              >
-                <div className="req-card-left">
-                  <button
-                    type="button"
-                    className={`req-checkbox ${req.status === 'completed' ? 'req-checkbox-checked' : ''}`}
-                    onClick={() => handleToggleReqStatus(req)}
-                    title={req.status === 'completed' ? 'Mark as pending' : 'Mark as completed'}
-                  >
-                    {req.status === 'completed' && (
-                      <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-                        <path d="M2 6L5 9L10 3" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                      </svg>
-                    )}
-                  </button>
+            {(!reqLoading || !isExistingTask) && requirements.length > 0 && (
+              <div className="req-table-box" role="table" aria-label="Requirements table">
+                <div className="req-table-header" role="row">
+                  <div className="req-th req-th-done" role="columnheader">Done</div>
+                  <div className="req-th req-th-title" role="columnheader">Requirement</div>
+                  <div className="req-th req-th-actions" role="columnheader">Actions</div>
                 </div>
-                <div className="req-card-body">
-                  <div className="req-card-top">
-                    <span className={`req-card-title ${req.status === 'completed' ? 'req-title-done' : ''}`}>
-                      {req.title}
-                    </span>
-                    <div className="req-card-actions">
+                {requirements.map((req) => (
+                  <div key={req.id} className={`req-table-row ${req.status === 'completed' ? 'req-row-completed' : ''}`} role="row">
+                    <div className="req-td req-td-done">
+                      <button
+                        type="button"
+                        className={`req-checkbox ${req.status === 'completed' ? 'req-checkbox-checked' : ''}`}
+                        onClick={() => handleToggleReqStatus(req)}
+                        title={req.status === 'completed' ? 'Mark as pending' : 'Mark as completed'}
+                      >
+                        {req.status === 'completed' && (
+                          <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                            <path d="M2 6L5 9L10 3" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                          </svg>
+                        )}
+                      </button>
+                    </div>
+                    <div className="req-td req-td-title">
+                      <span className={`req-row-title ${req.status === 'completed' ? 'req-title-done' : ''}`}>{req.title}</span>
+                    </div>
+                    <div className="req-td req-td-actions">
                       <button type="button" className="req-action-btn" onClick={() => startEditReq(req)} title="Edit">✏️</button>
                       <button type="button" className="req-action-btn req-action-btn-danger" onClick={() => handleDeleteRequirement(req.id)} title="Delete">🗑️</button>
                     </div>
                   </div>
-                  <div className="req-card-meta">
-                    <span className="req-status-badge" style={{ backgroundColor: `${REQ_STATUS_COLORS[req.status]}18`, color: REQ_STATUS_COLORS[req.status] }}>
-                      {REQ_STATUS_LABELS[req.status] ?? req.status}
-                    </span>
-                    <span className="req-priority-badge" style={{ backgroundColor: `${PRIORITY_C[req.priority] || PRIORITY_C.medium}18`, color: PRIORITY_C[req.priority] || PRIORITY_C.medium }}>
-                      {(req.priority || 'medium').toUpperCase()}
-                    </span>
-                    {req.due_date && (
-                      <span className="req-due-date">Due: {new Date(req.due_date).toLocaleDateString()}</span>
-                    )}
-                  </div>
-                </div>
+                ))}
               </div>
-            ))}
+            )}
 
             {showAddReq && (
               <div className="req-form">
@@ -1077,29 +1287,6 @@ function TaskModal({ task, onClose, onSave, onRefresh, teamMembers, assignedByOp
                     placeholder="Enter subtask requirement..."
                   />
                 </label>
-                <div className="req-form-row">
-                  <label>
-                    Status
-                    <select value={reqForm.status} onChange={(e) => setReqForm((f) => ({ ...f, status: e.target.value }))}>
-                      <option value="pending">Pending</option>
-                      <option value="in_progress">In Progress</option>
-                      <option value="completed">Completed</option>
-                    </select>
-                  </label>
-                  <label>
-                    Priority
-                    <select value={reqForm.priority} onChange={(e) => setReqForm((f) => ({ ...f, priority: e.target.value }))}>
-                      <option value="low">Low</option>
-                      <option value="medium">Medium</option>
-                      <option value="high">High</option>
-                      <option value="critical">Critical</option>
-                    </select>
-                  </label>
-                  <label>
-                    Due date (Optional)
-                    <input type="date" value={reqForm.due_date} onChange={(e) => setReqForm((f) => ({ ...f, due_date: e.target.value }))} />
-                  </label>
-                </div>
                 <div className="req-form-actions">
                   <button type="button" className="it-updates-btn it-updates-btn-secondary" onClick={() => { resetReqForm(); setShowAddReq(false); }}>Cancel</button>
                   <button type="button" className="it-updates-btn it-updates-btn-primary" onClick={editingReqId ? handleUpdateRequirement : handleAddRequirement} disabled={!reqForm.title.trim()}>
@@ -1135,9 +1322,10 @@ function TaskModal({ task, onClose, onSave, onRefresh, teamMembers, assignedByOp
           <label>
             Status
             <select value={form.status} onChange={(e) => setForm((f) => ({ ...f, status: e.target.value }))}>
+              <option value="todo">To do</option>
               <option value="in_progress">In Progress</option>
-              <option value="rework">Rework</option>
               <option value="review">Review</option>
+              <option value="rework">Rework</option>
               <option value="completed">Completed</option>
             </select>
           </label>
@@ -1159,17 +1347,42 @@ function TaskModal({ task, onClose, onSave, onRefresh, teamMembers, assignedByOp
             <input type="date" value={form.due_date} onChange={(e) => setForm((f) => ({ ...f, due_date: e.target.value }))} />
           </label>
 
+          {isExistingTask && form.status === 'review' && (
+            <div className="it-updates-rework-block">
+              <p className="it-updates-review-actions-hint">
+                No changes needed? Mark complete. Otherwise send back for rework (optional note applies to either action).
+              </p>
+              <label className="it-updates-rework-label">
+                Review note (optional)
+                <textarea
+                  className="it-updates-rework-textarea"
+                  rows={2}
+                  value={reviewNote}
+                  onChange={(e) => setReviewNote(e.target.value)}
+                  placeholder="e.g. Approved as-is / Please update section 2…"
+                />
+              </label>
+              <div className="it-updates-review-actions">
+                <button
+                  type="button"
+                  className="it-updates-btn it-updates-btn-primary"
+                  onClick={handleCompleteFromReview}
+                >
+                  Mark complete
+                </button>
+                <button
+                  type="button"
+                  className="it-updates-btn it-updates-btn-secondary rework-btn"
+                  onClick={handleManualRework}
+                  style={{ border: '1px solid #ef4444', color: '#ef4444' }}
+                >
+                  ↩ Send for rework
+                </button>
+              </div>
+            </div>
+          )}
+
           <div className="it-updates-modal-actions">
-            {isExistingTask && form.status === 'review' && (
-              <button
-                type="button"
-                className="it-updates-btn it-updates-btn-secondary rework-btn"
-                onClick={handleManualRework}
-                style={{ marginRight: 'auto', border: '1px solid #ef4444', color: '#ef4444' }}
-              >
-                ↩ Send for Rework
-              </button>
-            )}
             <button type="button" className="it-updates-btn it-updates-btn-secondary" onClick={onClose}>
               Cancel
             </button>

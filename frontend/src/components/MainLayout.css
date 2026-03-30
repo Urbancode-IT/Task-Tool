@@ -37,6 +37,11 @@
   display: flex;
   align-items: center;
   gap: 0.25rem;
+  overflow-x: auto;
+  overflow-y: hidden;
+  max-width: 100%;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
 }
 
 .main-layout-module-btn {
@@ -61,6 +66,21 @@
 .main-layout-module-btn.active {
   background: rgba(99, 102, 241, 0.2);
   color: #a5b4fc;
+}
+
+@media (max-width: 640px) {
+  .main-layout-header {
+    padding: 0.65rem 1rem;
+  }
+
+  .main-layout-module-btn {
+    padding: 0.45rem 0.6rem;
+    border-radius: 10px;
+  }
+
+  .main-layout-module-btn span {
+    display: none;
+  }
 }
 
 .main-layout-header-right {

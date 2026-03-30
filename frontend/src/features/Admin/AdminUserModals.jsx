@@ -1,14 +1,6 @@
 import React, { useState } from 'react';
 import { MdClose, MdDelete, MdEdit } from 'react-icons/md';
-
-function formatUserRowRole(u) {
-  if (Array.isArray(u.role_names) && u.role_names.length > 0) {
-    return [...new Set(u.role_names.filter(Boolean))].join(', ');
-  }
-  if (u.is_it_manager) return 'IT Manager';
-  if (u.is_it_developer) return 'IT Developer';
-  return 'User';
-}
+import { formatUserRowRole } from '../../utils/displayRole';
 
 export function AdminUserDetailModal({ user, mode, onClose, onEdit, onSave, onDelete }) {
   const [form, setForm] = useState({
@@ -212,5 +204,3 @@ export function AdminAddUserModal({ onClose, onSave }) {
     </div>
   );
 }
-
-export { formatUserRowRole };

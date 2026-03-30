@@ -11,16 +11,14 @@ import {
   MdRefresh,
   MdAdd,
   MdDelete,
+  MdVisibility,
 } from 'react-icons/md';
 import adminApi from '../../api/adminApi';
 import itUpdatesApi from '../../api/itUpdatesApi';
 import { getDisplayRole } from '../../utils/displayRole';
 import logoSrc from '../../assets/logo.png';
-import {
-  AdminAddUserModal,
-  AdminUserDetailModal,
-  formatUserRowRole,
-} from './AdminUserModals';
+import { AdminAddUserModal, AdminUserDetailModal } from './AdminUserModals';
+import { formatUserRowRole } from '../../utils/displayRole';
 import '../ITUpdates/ITUpdatesMain.css';
 import './AdminMain.css';
 
@@ -54,6 +52,15 @@ const USERS_TEAM_FILTERS = [
   { key: 'consultant', label: 'Consultants' },
   { key: 'digital', label: 'Digital team' },
 ];
+
+const EMPTY_ADMIN_OVERVIEW_FILTERS = {
+  status: '',
+  priority: '',
+  from_date: '',
+  to_date: '',
+  assigned_to: '',
+  project_id: '',
+};
 
 function Avatar({ user }) {
   const name = user?.name || user?.username || user?.email || 'U';
@@ -101,20 +108,26 @@ export default function AdminMain({ currentUser, onLogout }) {
   const [reviewLoading, setReviewLoading] = useState(false);
   const [overdueLoading, setOverdueLoading] = useState(false);
   const [error, setError] = useState('');
-  const [taskDetailModal, setTaskDetailModal] = useState({ open: false, task: null });
+  const [taskDetailModal, setTaskDetailModal] = useState({
+    open: false,
+    task: null,
+    requirements: [],
+    requirementsLoading: false,
+  });
+  const [reviewDecisionModal, setReviewDecisionModal] = useState({
+    open: false,
+    task: null,
+    nextStatus: null,
+  });
+  const [reviewCommentDraft, setReviewCommentDraft] = useState('');
+  const [reviewSubmitting, setReviewSubmitting] = useState(false);
   const [editUserRoles, setEditUserRoles] = useState(null);
   const [userRoleIds, setUserRoleIds] = useState([]);
   const [usersTeamFilter, setUsersTeamFilter] = useState('all');
   const [tasksTeamFilter, setTasksTeamFilter] = useState('all');
   const [overviewTeamFilter, setOverviewTeamFilter] = useState('all');
-  const [overviewFilters, setOverviewFilters] = useState({
-    status: '',
-    priority: '',
-    from_date: '',
-    to_date: '',
-    assigned_to: '',
-    project_id: '',
-  });
+  const [overviewFiltersDraft, setOverviewFiltersDraft] = useState(EMPTY_ADMIN_OVERVIEW_FILTERS);
+  const [overviewFiltersApplied, setOverviewFiltersApplied] = useState(EMPTY_ADMIN_OVERVIEW_FILTERS);
   const [overviewTasks, setOverviewTasks] = useState([]);
   const [overviewLoading, setOverviewLoading] = useState(false);
   const [overviewTeamMembers, setOverviewTeamMembers] = useState([]);
@@ -246,24 +259,17 @@ export default function AdminMain({ currentUser, onLogout }) {
     return undefined;
   };
 
-  const loadProjects = () => {
-    itUpdatesApi
-      .getProjects()
-      .then((res) => setProjects(Array.isArray(res.data) ? res.data : []))
-      .catch(() => setProjects([]));
-  };
-
   const loadOverviewData = () => {
     setOverviewLoading(true);
     const team = mapTeamFilter(overviewTeamFilter);
     const params = {
       team,
-      status: overviewFilters.status || undefined,
-      priority: overviewFilters.priority || undefined,
-      from_date: overviewFilters.from_date || undefined,
-      to_date: overviewFilters.to_date || undefined,
-      assigned_to: overviewFilters.assigned_to || undefined,
-      project_id: overviewFilters.project_id || undefined,
+      status: overviewFiltersApplied.status || undefined,
+      priority: overviewFiltersApplied.priority || undefined,
+      from_date: overviewFiltersApplied.from_date || undefined,
+      to_date: overviewFiltersApplied.to_date || undefined,
+      assigned_to: overviewFiltersApplied.assigned_to || undefined,
+      project_id: overviewFiltersApplied.project_id || undefined,
     };
     Promise.all([
       itUpdatesApi.getTasks(params),
@@ -295,12 +301,12 @@ export default function AdminMain({ currentUser, onLogout }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     overviewTeamFilter,
-    overviewFilters.status,
-    overviewFilters.priority,
-    overviewFilters.from_date,
-    overviewFilters.to_date,
-    overviewFilters.assigned_to,
-    overviewFilters.project_id,
+    overviewFiltersApplied.status,
+    overviewFiltersApplied.priority,
+    overviewFiltersApplied.from_date,
+    overviewFiltersApplied.to_date,
+    overviewFiltersApplied.assigned_to,
+    overviewFiltersApplied.project_id,
   ]);
 
   const openEditUserRoles = (u) => {
@@ -330,19 +336,100 @@ export default function AdminMain({ currentUser, onLogout }) {
     );
   };
 
-  const updateReviewTaskStatus = async (taskId, nextStatus) => {
+  const openReviewDecision = (task, nextStatus) => {
+    setReviewDecisionModal({ open: true, task, nextStatus });
+    setReviewCommentDraft('');
+    setError('');
+  };
+
+  const closeReviewDecision = () => {
+    setReviewDecisionModal({ open: false, task: null, nextStatus: null });
+    setReviewCommentDraft('');
+    setReviewSubmitting(false);
+  };
+
+  const submitReviewDecision = async () => {
+    const { task, nextStatus } = reviewDecisionModal;
+    if (!task || !nextStatus) return;
+    const id = task.id || task.task_id;
+    const teamParam =
+      task.team === 'consultant'
+        ? 'consultant'
+        : task.team === 'digital_marketing'
+          ? 'digital_marketing'
+          : task.team === 'it'
+            ? 'it'
+            : undefined;
+    const body = {
+      status: nextStatus,
+      review_comment: reviewCommentDraft.trim() || undefined,
+    };
+    if (teamParam) body.team = teamParam;
+
+    setReviewSubmitting(true);
+    setError('');
     try {
-      await itUpdatesApi.updateTask(taskId, { status: nextStatus });
+      await itUpdatesApi.updateTask(id, body, teamParam ? { team: teamParam } : {});
+      const detailId = taskDetailModal.task?.id || taskDetailModal.task?.task_id;
+      if (taskDetailModal.open && detailId != null && String(detailId) === String(id)) {
+        closeTaskDetail();
+      }
+      closeReviewDecision();
       loadReviewTasks();
       loadPendingSummary();
       loadOverdueTasks();
     } catch (e) {
       setError(e?.response?.data?.message || 'Failed to update task status');
+    } finally {
+      setReviewSubmitting(false);
     }
   };
 
-  const openTaskDetail = (task) => setTaskDetailModal({ open: true, task });
-  const closeTaskDetail = () => setTaskDetailModal({ open: false, task: null });
+  const openTaskDetail = (task) => {
+    const taskId = task?.id ?? task?.task_id;
+    if (taskId == null) {
+      setTaskDetailModal({
+        open: true,
+        task,
+        requirements: [],
+        requirementsLoading: false,
+      });
+      return;
+    }
+    setTaskDetailModal({
+      open: true,
+      task,
+      requirements: [],
+      requirementsLoading: true,
+    });
+    const team = task?.team;
+    const reqParams = team ? { params: { team } } : {};
+    itUpdatesApi
+      .getRequirements(taskId, reqParams)
+      .then((res) => {
+        const list = Array.isArray(res.data) ? res.data : [];
+        setTaskDetailModal((m) => {
+          const mid = m.task?.id ?? m.task?.task_id;
+          if (!m.open || String(mid) !== String(taskId)) return m;
+          return { ...m, requirements: list, requirementsLoading: false };
+        });
+      })
+      .catch(() => {
+        setTaskDetailModal((m) => {
+          const mid = m.task?.id ?? m.task?.task_id;
+          if (!m.open || String(mid) !== String(taskId)) return m;
+          return { ...m, requirements: [], requirementsLoading: false };
+        });
+      });
+  };
+
+  const closeTaskDetail = () =>
+    setTaskDetailModal({
+      open: false,
+      task: null,
+      requirements: [],
+      requirementsLoading: false,
+    });
 
   const roleCounts = useMemo(
     () =>
@@ -613,9 +700,6 @@ export default function AdminMain({ currentUser, onLogout }) {
                                   >
                                     <strong>{title}</strong>
                                   </button>
-                                  {t.projectId || t.project_id ? (
-                                    <div className="admin-muted">Project #{t.projectId || t.project_id}</div>
-                                  ) : null}
                                 </td>
                                 <td>{assignee}</td>
                                 <td>{assignedBy}</td>
@@ -631,15 +715,24 @@ export default function AdminMain({ currentUser, onLogout }) {
                                 <td className="admin-td-actions">
                                   <button
                                     type="button"
+                                    className="admin-btn-sm admin-btn-view-task"
+                                    onClick={() => openTaskDetail(t)}
+                                    title="View task details"
+                                  >
+                                    <MdVisibility size={16} aria-hidden />
+                                    View
+                                  </button>
+                                  <button
+                                    type="button"
                                     className="admin-btn-sm admin-btn-approve"
-                                    onClick={() => updateReviewTaskStatus(id, 'completed')}
+                                    onClick={() => openReviewDecision(t, 'completed')}
                                   >
                                     Approve
                                   </button>
                                   <button
                                     type="button"
                                     className="admin-btn-sm admin-btn-rework"
-                                    onClick={() => updateReviewTaskStatus(id, 'rework')}
+                                    onClick={() => openReviewDecision(t, 'rework')}
                                   >
                                     Rework
                                   </button>
@@ -696,9 +789,6 @@ export default function AdminMain({ currentUser, onLogout }) {
                                   >
                                     <strong>{title}</strong>
                                   </button>
-                                  {t.projectId || t.project_id ? (
-                                    <div className="admin-muted">Project #{t.projectId || t.project_id}</div>
-                                  ) : null}
                                 </td>
                                 <td>{assignee}</td>
                                 <td>{assignedBy}</td>
@@ -854,9 +944,9 @@ export default function AdminMain({ currentUser, onLogout }) {
                   From date
                   <input
                     type="date"
-                    value={overviewFilters.from_date}
+                    value={overviewFiltersDraft.from_date}
                     onChange={(e) =>
-                      setOverviewFilters((f) => ({ ...f, from_date: e.target.value }))
+                      setOverviewFiltersDraft((f) => ({ ...f, from_date: e.target.value }))
                     }
                   />
                 </label>
@@ -864,21 +954,22 @@ export default function AdminMain({ currentUser, onLogout }) {
                   To date
                   <input
                     type="date"
-                    value={overviewFilters.to_date}
+                    value={overviewFiltersDraft.to_date}
                     onChange={(e) =>
-                      setOverviewFilters((f) => ({ ...f, to_date: e.target.value }))
+                      setOverviewFiltersDraft((f) => ({ ...f, to_date: e.target.value }))
                     }
                   />
                 </label>
                 <label>
                   Status
                   <select
-                    value={overviewFilters.status}
+                    value={overviewFiltersDraft.status}
                     onChange={(e) =>
-                      setOverviewFilters((f) => ({ ...f, status: e.target.value }))
+                      setOverviewFiltersDraft((f) => ({ ...f, status: e.target.value }))
                     }
                   >
                     <option value="">All</option>
+                    <option value="todo">To do</option>
                     <option value="in_progress">In Progress</option>
                     <option value="review">Review</option>
                     <option value="rework">Rework</option>
@@ -888,9 +979,9 @@ export default function AdminMain({ currentUser, onLogout }) {
                 <label>
                   Priority
                   <select
-                    value={overviewFilters.priority}
+                    value={overviewFiltersDraft.priority}
                     onChange={(e) =>
-                      setOverviewFilters((f) => ({ ...f, priority: e.target.value }))
+                      setOverviewFiltersDraft((f) => ({ ...f, priority: e.target.value }))
                     }
                   >
                     <option value="">All</option>
@@ -903,9 +994,9 @@ export default function AdminMain({ currentUser, onLogout }) {
                 <label>
                   Assignee
                   <select
-                    value={overviewFilters.assigned_to}
+                    value={overviewFiltersDraft.assigned_to}
                     onChange={(e) =>
-                      setOverviewFilters((f) => ({ ...f, assigned_to: e.target.value }))
+                      setOverviewFiltersDraft((f) => ({ ...f, assigned_to: e.target.value }))
                     }
                   >
                     <option value="">All</option>
@@ -919,9 +1010,9 @@ export default function AdminMain({ currentUser, onLogout }) {
                 <label>
                   Project
                   <select
-                    value={overviewFilters.project_id}
+                    value={overviewFiltersDraft.project_id}
                     onChange={(e) =>
-                      setOverviewFilters((f) => ({ ...f, project_id: e.target.value }))
+                      setOverviewFiltersDraft((f) => ({ ...f, project_id: e.target.value }))
                     }
                   >
                     <option value="">All</option>
@@ -932,6 +1023,25 @@ export default function AdminMain({ currentUser, onLogout }) {
                     ))}
                   </select>
                 </label>
+                <div className="it-updates-filter-actions">
+                  <button
+                    type="button"
+                    className="it-updates-btn it-updates-btn-primary"
+                    onClick={() => setOverviewFiltersApplied({ ...overviewFiltersDraft })}
+                  >
+                    Apply
+                  </button>
+                  <button
+                    type="button"
+                    className="it-updates-btn it-updates-btn-secondary"
+                    onClick={() => {
+                      setOverviewFiltersDraft(EMPTY_ADMIN_OVERVIEW_FILTERS);
+                      setOverviewFiltersApplied(EMPTY_ADMIN_OVERVIEW_FILTERS);
+                    }}
+                  >
+                    Clear
+                  </button>
+                </div>
               </div>
 
               {overviewLoading ? (
@@ -1082,6 +1192,67 @@ export default function AdminMain({ currentUser, onLogout }) {
         />
       )}
 
+      {reviewDecisionModal.open && reviewDecisionModal.task && (
+        <div className="admin-modal-backdrop" onClick={closeReviewDecision}>
+          <div
+            className="admin-modal admin-review-decision-modal"
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-labelledby="admin-review-decision-title"
+          >
+            <div className="admin-modal-header">
+              <h3 id="admin-review-decision-title">
+                {reviewDecisionModal.nextStatus === 'completed' ? 'Approve task' : 'Send back for rework'}
+              </h3>
+              <button type="button" className="admin-modal-close" onClick={closeReviewDecision}>
+                <MdClose size={22} />
+              </button>
+            </div>
+            <div className="admin-modal-body">
+              <p className="admin-review-decision-task-name">
+                <strong>{reviewDecisionModal.task.task_title || reviewDecisionModal.task.title}</strong>
+              </p>
+              <p className="admin-muted admin-review-decision-hint">
+                Reviewer is recorded from your account. Add a short note for the assignee (optional).
+              </p>
+              <label className="admin-review-decision-label" htmlFor="admin-review-comment">
+                Review comment
+              </label>
+              <textarea
+                id="admin-review-comment"
+                className="admin-review-decision-textarea"
+                rows={4}
+                value={reviewCommentDraft}
+                onChange={(e) => setReviewCommentDraft(e.target.value)}
+                placeholder="e.g. Approved — ready for release. / Please adjust the report section…"
+              />
+            </div>
+            <div className="admin-modal-actions">
+              <button
+                type="button"
+                className="admin-btn admin-btn-secondary"
+                onClick={closeReviewDecision}
+                disabled={reviewSubmitting}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className={
+                  reviewDecisionModal.nextStatus === 'completed'
+                    ? 'admin-btn admin-btn-primary'
+                    : 'admin-btn admin-btn-secondary'
+                }
+                onClick={submitReviewDecision}
+                disabled={reviewSubmitting}
+              >
+                {reviewSubmitting ? 'Saving…' : reviewDecisionModal.nextStatus === 'completed' ? 'Approve' : 'Confirm rework'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {taskDetailModal.open && taskDetailModal.task && (
         <div className="admin-modal-backdrop" onClick={closeTaskDetail}>
           <div className="admin-modal admin-task-modal" onClick={(e) => e.stopPropagation()}>
@@ -1092,12 +1263,47 @@ export default function AdminMain({ currentUser, onLogout }) {
               </button>
             </div>
             <div className="admin-task-body">
-              <div className="admin-task-title">
-                {taskDetailModal.task.task_title || taskDetailModal.task.title}
+              <div className="admin-task-block">
+                <div className="admin-task-block-label">Task title</div>
+                <div className="admin-task-title">
+                  {taskDetailModal.task.task_title || taskDetailModal.task.title || '—'}
+                </div>
               </div>
               {taskDetailModal.task.task_description ? (
-                <div className="admin-task-desc">{taskDetailModal.task.task_description}</div>
+                <div className="admin-task-block">
+                  <div className="admin-task-block-label">Description</div>
+                  <div className="admin-task-desc">{taskDetailModal.task.task_description}</div>
+                </div>
               ) : null}
+
+              <div className="admin-task-block admin-task-req-block">
+                <div className="admin-task-block-label">Requirements</div>
+                {taskDetailModal.requirementsLoading ? (
+                  <div className="admin-muted">Loading requirements…</div>
+                ) : taskDetailModal.requirements.length === 0 ? (
+                  <div className="admin-muted">No requirements listed for this task.</div>
+                ) : (
+                  <ul className="admin-req-list">
+                    {taskDetailModal.requirements.map((r) => {
+                      const rid = r.id ?? r.requirement_id;
+                      const st = r.status || 'pending';
+                      return (
+                        <li key={String(rid)} className="admin-req-item">
+                          <div className="admin-req-item-head">
+                            <span className="admin-req-item-title">{r.title || 'Untitled requirement'}</span>
+                            <span className={`admin-req-status-badge admin-req-status-${String(st).replace(/_/g, '-')}`}>
+                              {st.replace(/_/g, ' ')}
+                            </span>
+                          </div>
+                          {r.description ? (
+                            <div className="admin-req-item-desc">{r.description}</div>
+                          ) : null}
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+              </div>
 
               <div className="admin-task-meta-grid">
                 <div><span className="admin-task-meta-label">Status</span><span>{taskDetailModal.task.status || '—'}</span></div>
@@ -1107,6 +1313,31 @@ export default function AdminMain({ currentUser, onLogout }) {
                 <div><span className="admin-task-meta-label">Assignee</span><span>{taskDetailModal.task.assignee || '—'}</span></div>
                 <div><span className="admin-task-meta-label">Assigned by</span><span>{taskDetailModal.task.assigned_by_name || taskDetailModal.task.assigned_by_username || '—'}</span></div>
                 <div><span className="admin-task-meta-label">Checklist</span><span>{Number.isFinite(taskDetailModal.task.req_total) || Number.isFinite(taskDetailModal.task.req_completed) ? `${taskDetailModal.task.req_completed || 0}/${taskDetailModal.task.req_total || 0}` : '—'}</span></div>
+                {(taskDetailModal.task.status === 'completed' || taskDetailModal.task.status === 'rework') &&
+                  (taskDetailModal.task.review_comment ||
+                    taskDetailModal.task.reviewed_by_username ||
+                    taskDetailModal.task.reviewed_at) && (
+                  <>
+                    <div>
+                      <span className="admin-task-meta-label">Reviewed by</span>
+                      <span>{taskDetailModal.task.reviewed_by_username || '—'}</span>
+                    </div>
+                    <div>
+                      <span className="admin-task-meta-label">Reviewed at</span>
+                      <span>
+                        {taskDetailModal.task.reviewed_at
+                          ? new Date(taskDetailModal.task.reviewed_at).toLocaleString()
+                          : '—'}
+                      </span>
+                    </div>
+                    <div className="admin-task-meta-span-2">
+                      <span className="admin-task-meta-label">Review comment</span>
+                      <span className="admin-task-review-comment-text">
+                        {taskDetailModal.task.review_comment || '—'}
+                      </span>
+                    </div>
+                  </>
+                )}
               </div>
             </div>
             <div className="admin-modal-actions">
@@ -1118,22 +1349,14 @@ export default function AdminMain({ currentUser, onLogout }) {
                   <button
                     type="button"
                     className="admin-btn admin-btn-primary"
-                    onClick={() => {
-                      const id = taskDetailModal.task.id || taskDetailModal.task.task_id;
-                      updateReviewTaskStatus(id, 'completed');
-                      closeTaskDetail();
-                    }}
+                    onClick={() => openReviewDecision(taskDetailModal.task, 'completed')}
                   >
                     Approve
                   </button>
                   <button
                     type="button"
                     className="admin-btn admin-btn-secondary"
-                    onClick={() => {
-                      const id = taskDetailModal.task.id || taskDetailModal.task.task_id;
-                      updateReviewTaskStatus(id, 'rework');
-                      closeTaskDetail();
-                    }}
+                    onClick={() => openReviewDecision(taskDetailModal.task, 'rework')}
                   >
                     Rework
                   </button>

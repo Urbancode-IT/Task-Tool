@@ -1,25 +1,23 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { MdCampaign, MdAdd, MdCalendarToday, MdEdit, MdDelete } from 'react-icons/md';
 import './Placeholder.css';
 
 const STORAGE_KEY = 'digital_marketing_daily_activities';
 
-export default function DigitalMarketingPlaceholder({ currentUser, onLogout }) {
+export default function DigitalMarketingPlaceholder({ currentUser }) {
   const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [activity, setActivity] = useState('');
   const [channel, setChannel] = useState('');
   const [status, setStatus] = useState('in_progress');
-  const [entries, setEntries] = useState([]);
-  const [editingId, setEditingId] = useState(null);
-
-  useEffect(() => {
+  const [entries, setEntries] = useState(() => {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) setEntries(JSON.parse(raw));
+      return raw ? JSON.parse(raw) : [];
     } catch {
-      setEntries([]);
+      return [];
     }
-  }, []);
+  });
+  const [editingId, setEditingId] = useState(null);
 
   const persist = (next) => {
     setEntries(next);

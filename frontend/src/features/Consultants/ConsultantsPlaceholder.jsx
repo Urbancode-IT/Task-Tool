@@ -2,7 +2,7 @@ import React from 'react';
 import { MdPeople } from 'react-icons/md';
 import './Placeholder.css';
 
-export default function ConsultantsPlaceholder({ currentUser, onLogout }) {
+export default function ConsultantsPlaceholder() {
   return (
     <div className="placeholder-module">
       <div className="placeholder-card">

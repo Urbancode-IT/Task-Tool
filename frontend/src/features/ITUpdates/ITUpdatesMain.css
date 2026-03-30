@@ -744,9 +744,17 @@
 
 .it-updates-columns {
   display: grid;
-  grid-template-columns: repeat(4, minmax(240px, 1fr));
+  grid-template-columns: repeat(5, minmax(220px, 1fr));
   gap: 1rem;
   min-width: 1020px;
+}
+
+.it-updates-kanban-wrap {
+  width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding-bottom: 0.25rem;
+  -webkit-overflow-scrolling: touch;
 }
 
 .it-updates-column {
@@ -820,6 +828,34 @@
   border-color: var(--clr-primary-300);
 }
 
+/* Past due date, task not completed — subtle frame + small Pending tag */
+.it-updates-task-card-toprow {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.5rem;
+  width: 100%;
+}
+
+.it-updates-task-card-pending-tag {
+  flex-shrink: 0;
+  font-size: 0.56rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  padding: 0.16rem 0.45rem;
+  border-radius: var(--radius-full);
+  text-transform: uppercase;
+  color: #b91c1c;
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.22);
+  line-height: 1.2;
+}
+
+.it-updates-task-card-overdue {
+  border-color: #fecaca;
+  border-left: 3px solid #dc2626;
+}
+
 .it-updates-task-card-priority {
   display: inline-block;
   font-size: 0.56rem;
@@ -871,6 +907,105 @@
   margin-top: 0.12rem;
   padding-top: 0.25rem;
   border-top: 1px solid var(--clr-slate-100);
+}
+
+.it-updates-task-card-review {
+  font-size: 0.62rem;
+  color: var(--clr-slate-500);
+  margin-top: 0.35rem;
+  padding-top: 0.35rem;
+  border-top: 1px dashed var(--clr-slate-200);
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.it-updates-task-card-review-comment {
+  color: var(--clr-slate-600);
+  line-height: 1.35;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+}
+
+.it-updates-review-meta {
+  padding: 0.75rem 0.85rem;
+  background: var(--clr-slate-50);
+  border: 1px solid var(--clr-slate-100);
+  border-radius: var(--radius-md);
+  margin-bottom: 0.5rem;
+}
+
+.it-updates-review-meta-title {
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--clr-slate-500);
+  margin-bottom: 0.45rem;
+}
+
+.it-updates-review-meta-row {
+  display: flex;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+  margin-bottom: 0.25rem;
+}
+
+.it-updates-review-meta-label {
+  color: var(--clr-slate-500);
+  min-width: 4.5rem;
+}
+
+.it-updates-review-meta-comment {
+  font-size: 0.88rem;
+  color: var(--clr-slate-800);
+  white-space: pre-wrap;
+  margin-top: 0.35rem;
+}
+
+.it-updates-review-actions-hint {
+  font-size: 0.82rem;
+  color: var(--clr-slate-600);
+  margin: 0 0 0.35rem;
+  line-height: 1.4;
+}
+
+.it-updates-review-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.it-updates-rework-block {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+  padding: 0.75rem 0;
+  border-top: 1px solid var(--clr-slate-100);
+}
+
+.it-updates-rework-label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--clr-slate-700);
+}
+
+.it-updates-rework-textarea {
+  width: 100%;
+  padding: 0.45rem 0.55rem;
+  border: 1px solid var(--clr-slate-200);
+  border-radius: 8px;
+  font-size: 0.875rem;
+  font-family: inherit;
+  resize: vertical;
+  box-sizing: border-box;
 }
 
 .it-updates-empty-column {
@@ -981,6 +1116,19 @@
   margin-bottom: 0.5rem;
 }
 
+.it-updates-filter-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin-left: auto;
+}
+
+.it-updates-filter-actions .it-updates-btn {
+  padding: 0.45rem 0.85rem;
+  font-size: 0.78rem;
+}
+
 .it-updates-filters select {
   padding: 0.5rem 0.75rem;
   border-radius: var(--radius-md);
@@ -1005,6 +1153,10 @@
   gap: 1rem;
   margin-bottom: 1.25rem;
   align-items: flex-end;
+}
+
+.it-updates-overview-filters .it-updates-filter-actions {
+  align-self: flex-end;
 }
 
 .it-updates-overview-filters label {
@@ -1662,8 +1814,8 @@
   }
 
   .it-updates-columns {
-    grid-template-columns: repeat(4, minmax(220px, 1fr));
-    min-width: 920px;
+    grid-template-columns: repeat(5, minmax(200px, 1fr));
+    min-width: 1100px;
   }
 
   .it-updates-projects-grid-cards {
@@ -1676,6 +1828,15 @@
 
   .it-updates-topbar-subtitle {
     display: none;
+  }
+
+  /* Keep header actions compact on phones */
+  .it-updates-topbar-right .it-updates-btn span {
+    display: none;
+  }
+
+  .it-updates-topbar-right .it-updates-btn {
+    padding: 0.5rem;
   }
 
   .it-updates-overview-filters {
@@ -1810,6 +1971,92 @@
   font-weight: 400;
   text-transform: none;
   letter-spacing: 0;
+}
+
+/* Requirements table (single-box, excel-like) */
+.req-table-box {
+  border: 1px solid var(--clr-slate-200);
+  background: var(--clr-slate-50);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  margin: 0.25rem 0 0.75rem;
+}
+
+.req-table-header {
+  display: grid;
+  grid-template-columns: 34px 1fr 110px;
+  align-items: center;
+  padding: 0.55rem 0.75rem;
+  background: var(--clr-slate-50);
+  border-bottom: 1px solid var(--clr-slate-100);
+}
+
+.req-th {
+  font-size: 0.72rem;
+  font-weight: 800;
+  color: var(--clr-slate-600);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.req-th-done,
+.req-td-done {
+  text-align: center;
+}
+
+.req-table-row {
+  display: grid;
+  grid-template-columns: 34px 1fr 110px;
+  align-items: center;
+  padding: 0.55rem 0.75rem;
+  border-bottom: 1px solid var(--clr-slate-100);
+  transition: background var(--transition-fast), border-color var(--transition-fast);
+}
+
+.req-table-row:last-child {
+  border-bottom: none;
+}
+
+.req-table-row:hover {
+  background: var(--clr-primary-50);
+}
+
+.req-row-completed {
+  opacity: 0.85;
+}
+
+.req-td {
+  min-width: 0;
+}
+
+.req-td-done {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.req-td-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.25rem;
+}
+
+.req-row-title {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font-size: 0.85rem;
+  font-weight: 650;
+  color: var(--clr-slate-800);
+}
+
+@media (max-width: 560px) {
+  .req-table-header,
+  .req-table-row {
+    grid-template-columns: 34px 1fr 92px;
+  }
 }
 
 /* Requirement card */

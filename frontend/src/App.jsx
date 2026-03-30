@@ -94,16 +94,33 @@ const LoginPage = ({ onLogin }) => {
 };
 
 function App() {
-  const [user, setUser] = useState(undefined);
+  // Speed up first paint: if we already have a cached user from a previous session,
+  // render immediately and verify the session in the background.
+  const [user, setUser] = useState(() => {
+    const raw = localStorage.getItem('user');
+    if (!raw) return undefined; // no cache -> keep current "checking session" bootstrap
+    try {
+      return JSON.parse(raw);
+    } catch {
+      return null; // cache corrupted -> treat as logged out
+    }
+  });
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
         const { data } = await authApi.me();
-        if (!cancelled && data?.user) {
-          setUser(data.user);
-          localStorage.setItem('user', JSON.stringify(data.user));
+        if (!cancelled) {
+          if (data?.user) {
+            setUser(data.user);
+            localStorage.setItem('user', JSON.stringify(data.user));
+          } else {
+            setUser(null);
+            localStorage.removeItem('user');
+            localStorage.removeItem('username');
+            localStorage.removeItem('profile_image');
+          }
         }
       } catch {
         if (!cancelled) {

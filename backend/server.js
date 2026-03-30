@@ -38,15 +38,22 @@ function normalizeOrigin(value) {
 }
 
 function getAllowedOrigins() {
-  const raw = process.env.CLIENT_ORIGIN || 'https://status-track.netlify.app';
-  // const raw = process.env.CLIENT_ORIGIN || 'http://localhost:5174';
-  return raw
+  const raw = process.env.CLIENT_ORIGIN || '';
+  const fromEnv = raw
     .split(',')
     .map((part) => normalizeOrigin(part))
     .filter(Boolean);
+
+  if (process.env.NODE_ENV !== 'production') {
+    // Always allow common local frontend origins in development.
+    fromEnv.push('http://localhost:5173', 'http://localhost:5174', 'http://127.0.0.1:5173', 'http://127.0.0.1:5174');
+  }
+
+  return [...new Set(fromEnv)];
 }
 
 const allowedOrigins = getAllowedOrigins();
+console.log('CORS allowed origins:', allowedOrigins.join(', ') || '(none configured)');
 
 const corsOptions = {
   origin(origin, callback) {
@@ -117,6 +124,43 @@ let commentsByTaskId = {
 };
 
 const makeId = (prefix) => `${prefix}_${Math.random().toString(36).slice(2, 9)}`;
+
+/** When a task leaves Review, record reviewer (session) + comment; when entering Review, clear prior review metadata. */
+function mergeTaskReviewTransition(existing, incomingBody, reqUser) {
+  const body = { ...incomingBody };
+  if (!existing) return body;
+
+  const prev = existing.status;
+  const next = body.status !== undefined ? body.status : prev;
+
+  if (body.reviewComment !== undefined && body.review_comment === undefined) {
+    body.review_comment = body.reviewComment;
+  }
+
+  const rawId = reqUser?.id;
+  const uidNum =
+    rawId != null && String(rawId).trim() !== '' && Number.isFinite(Number(rawId))
+      ? Number(rawId)
+      : null;
+
+  if (prev === 'review' && (next === 'completed' || next === 'rework')) {
+    body.reviewed_by = uidNum;
+    body.reviewed_at = new Date().toISOString();
+    const t =
+      body.review_comment !== undefined ? String(body.review_comment ?? '').trim() : '';
+    body.review_comment = t || null;
+  } else if (next === 'review' && prev !== 'review') {
+    body.reviewed_by = null;
+    body.review_comment = null;
+    body.reviewed_at = null;
+  } else if (prev === 'review' && next !== 'review' && next !== 'completed' && next !== 'rework') {
+    body.reviewed_by = null;
+    body.review_comment = null;
+    body.reviewed_at = null;
+  }
+
+  return body;
+}
 
 async function buildUserFromDbUser(dbUser) {
   const user = {
@@ -567,15 +611,19 @@ app.post(`${BASE_PATH}/tasks`, async (req, res) => {
 
 app.put(`${BASE_PATH}/tasks/:taskId`, async (req, res) => {
   try {
+    const { taskId } = req.params;
+    const team = req.body?.team || req.query?.team;
     if (db.useDb()) {
-      const task = await db.dbUpdateTask(req.params.taskId, { ...req.body, team: req.body?.team || req.query?.team });
+      const existing = await db.dbGetTaskById(taskId, team);
+      const body = mergeTaskReviewTransition(existing, { ...req.body, team }, req.user);
+      const task = await db.dbUpdateTask(taskId, body);
       if (!task) return res.status(404).json({ message: 'Task not found' });
       return res.json(task);
     }
-    const { taskId } = req.params;
     const idx = tasks.findIndex((t) => t.id === taskId);
     if (idx === -1) return res.status(404).json({ message: 'Task not found' });
-    tasks[idx] = { ...tasks[idx], ...req.body };
+    const merged = mergeTaskReviewTransition(tasks[idx], req.body, req.user);
+    tasks[idx] = { ...tasks[idx], ...merged };
     res.json(tasks[idx]);
   } catch (err) {
     console.error(err);
@@ -693,7 +741,13 @@ app.get(`${BASE_PATH}/team-overview`, async (req, res) => {
       const key = task.assignee || 'Unassigned';
       if (!acc[key]) acc[key] = { assignee: key, total_tasks: 0, in_progress_tasks: 0, completed_tasks: 0 };
       acc[key].total_tasks += 1;
-      if (task.status === 'in_progress' || task.status === 'review' || task.status === 'rework') acc[key].in_progress_tasks += 1;
+      if (
+        task.status === 'todo' ||
+        task.status === 'in_progress' ||
+        task.status === 'review' ||
+        task.status === 'rework'
+      )
+        acc[key].in_progress_tasks += 1;
       if (task.status === 'completed') acc[key].completed_tasks += 1;
       return acc;
     }, {});

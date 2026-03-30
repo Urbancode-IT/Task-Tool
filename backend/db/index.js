@@ -246,6 +246,25 @@ export async function dbEnsureTables() {
     console.warn('dbEnsureTables: project ownership columns check failed:', err.message);
   }
 
+  const taskTablesForReview = ['it_tasks', 'consultant_tasks', 'digital_marketing_tasks'];
+  for (const tbl of taskTablesForReview) {
+    try {
+      const { rows } = await p.query(
+        "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_schema = 'public' AND table_name = $1)",
+        [tbl]
+      );
+      if (!rows[0]?.exists) continue;
+      await p.query(`
+        ALTER TABLE ${tbl}
+        ADD COLUMN IF NOT EXISTS reviewed_by INT REFERENCES users(user_id),
+        ADD COLUMN IF NOT EXISTS review_comment TEXT,
+        ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMPTZ;
+      `);
+    } catch (err) {
+      console.warn(`dbEnsureTables: ${tbl} review columns:`, err.message);
+    }
+  }
+
   // If base tables aren't present yet (e.g. `it_tasks`), creating a FK table will fail.
   // This is a symptom that `schema.sql` / migrations weren't applied to the DB.
   let hasItTasks = false;
@@ -598,10 +617,12 @@ export async function dbGetTasksSimple(filters = {}) {
       SELECT t.*, 
              u_assigned.username AS assignee_username, 
              u_assigned.profile_image AS assignee_profile_image,
-             u_by.username AS assigned_by_username
+             u_by.username AS assigned_by_username,
+             u_review.username AS reviewer_username
       FROM ${taskTable} t
       LEFT JOIN users u_assigned ON t.assigned_to = u_assigned.user_id
       LEFT JOIN users u_by ON t.assigned_by = u_by.user_id
+      LEFT JOIN users u_review ON t.reviewed_by = u_review.user_id
     `;
 
     const whereParts = [];
@@ -723,6 +744,10 @@ export async function dbGetTasksSimple(filters = {}) {
       completed_at: r.completed_at,
       req_total: reqStats[r.task_id]?.total || 0,
       req_completed: reqStats[r.task_id]?.completed || 0,
+      reviewed_by: r.reviewed_by ?? null,
+      reviewed_by_username: r.reviewer_username ?? null,
+      review_comment: r.review_comment ?? null,
+      reviewed_at: r.reviewed_at ?? null,
       team:
         taskTable === 'consultant_tasks'
           ? 'consultant'
@@ -765,7 +790,7 @@ export async function dbGetAdminPendingSummary() {
     const [{ rows: pendingRows }, { rows: overdueRows }] = await Promise.all([
       p.query(
         `SELECT
-           COUNT(*) FILTER (WHERE status IN ('in_progress','review','rework'))::int AS pending_count,
+           COUNT(*) FILTER (WHERE status IN ('todo','in_progress','review','rework'))::int AS pending_count,
            COUNT(*) FILTER (WHERE status = 'review')::int AS review_count
          FROM it_tasks`
       ),
@@ -916,6 +941,9 @@ export async function dbUpdateTask(taskId, data) {
     'assigned_to',
     'assigned_by',
     'project_id',
+    'reviewed_by',
+    'review_comment',
+    'reviewed_at',
   ];
   const updates = [];
   const values = [];
@@ -925,6 +953,9 @@ export async function dbUpdateTask(taskId, data) {
     description: 'task_description',
     dueDate: 'due_date',
     projectId: 'project_id',
+    reviewComment: 'review_comment',
+    reviewedBy: 'reviewed_by',
+    reviewedAt: 'reviewed_at',
   };
   for (const [k, v] of Object.entries(data)) {
     const col = map[k] || k;
@@ -933,8 +964,12 @@ export async function dbUpdateTask(taskId, data) {
       let val;
       if (col === 'start_date' || col === 'end_date' || col === 'due_date' || col === 'task_date') {
         val = toNullableDate(v);
-      } else if (col === 'assigned_to' || col === 'assigned_by' || col === 'project_id') {
+      } else if (col === 'reviewed_at') {
+        val = v === '' || v == null ? null : v;
+      } else if (col === 'assigned_to' || col === 'assigned_by' || col === 'project_id' || col === 'reviewed_by') {
         val = v === '' ? null : v;
+      } else if (col === 'review_comment') {
+        val = v === '' || v == null ? null : String(v);
       } else {
         val = v;
       }
@@ -954,22 +989,8 @@ export async function dbUpdateTask(taskId, data) {
     `UPDATE ${taskTable} SET ${updates.join(', ')} WHERE task_id = $${i} RETURNING *`,
     values
   );
-  const row = rows[0];
-  if (!row) return null;
-  return {
-    id: String(row.task_id),
-    title: row.task_title,
-    task_description: row.task_description,
-    status: row.status,
-    priority: row.priority,
-    assignee: row.assigned_to ? String(row.assigned_to) : 'Unassigned',
-    assigned_to: row.assigned_to,
-    projectId: row.project_id ? String(row.project_id) : null,
-    dueDate: row.due_date,
-    task_date: row.task_date,
-    created_at: row.created_at,
-    team,
-  };
+  if (!rows[0]) return null;
+  return dbGetTaskById(taskId, team);
 }
 
 export async function dbGetTaskById(taskId, teamInput = null) {
@@ -977,9 +998,13 @@ export async function dbGetTaskById(taskId, teamInput = null) {
   if (!p) return null;
   const team = resolveTeamFromInput(teamInput || await detectTaskTeamById(taskId));
   const taskTable = taskTableForTeam(team);
-  const { rows } = await p.query(`SELECT * FROM ${taskTable} WHERE task_id = $1`, [
-    taskId,
-  ]);
+  const { rows } = await p.query(
+    `SELECT t.*, u_rev.username AS reviewer_username
+     FROM ${taskTable} t
+     LEFT JOIN users u_rev ON t.reviewed_by = u_rev.user_id
+     WHERE t.task_id = $1`,
+    [taskId]
+  );
   const row = rows[0];
   if (!row) return null;
   return {
@@ -994,6 +1019,11 @@ export async function dbGetTaskById(taskId, teamInput = null) {
     dueDate: row.due_date,
     task_date: row.task_date,
     created_at: row.created_at,
+    completed_at: row.completed_at ?? null,
+    reviewed_by: row.reviewed_by ?? null,
+    reviewed_by_username: row.reviewer_username ?? null,
+    review_comment: row.review_comment ?? null,
+    reviewed_at: row.reviewed_at ?? null,
     team,
   };
 }
@@ -1103,7 +1133,7 @@ export async function dbGetDashboardStatsFull() {
   try {
     const [activeProj, activeTasks, completedTasks, projectRows, teamRows] = await Promise.all([
       p.query("SELECT COUNT(*) AS n FROM it_projects WHERE status = 'active'"),
-      p.query("SELECT COUNT(*) AS n FROM it_tasks WHERE status IN ('in_progress', 'review', 'rework')"),
+      p.query("SELECT COUNT(*) AS n FROM it_tasks WHERE status IN ('todo', 'in_progress', 'review', 'rework')"),
       p.query("SELECT COUNT(*) AS n FROM it_tasks WHERE status = 'completed'"),
       p.query(`
         SELECT p.project_id, p.project_name, p.priority,
@@ -1118,7 +1148,7 @@ export async function dbGetDashboardStatsFull() {
       p.query(`
         SELECT u.user_id, COALESCE(u.username, u.email) AS username, u.profile_image,
                COUNT(t.task_id) AS total_assigned,
-               COUNT(t.task_id) FILTER (WHERE t.status IN ('in_progress', 'review', 'rework')) AS in_progress_count,
+               COUNT(t.task_id) FILTER (WHERE t.status IN ('todo', 'in_progress', 'review', 'rework')) AS in_progress_count,
                COUNT(t.task_id) FILTER (WHERE t.status = 'completed' AND (t.completed_at::date = CURRENT_DATE OR (t.completed_at IS NULL AND t.task_date = CURRENT_DATE))) AS completed_today
         FROM users u
         LEFT JOIN it_tasks t ON t.assigned_to = u.user_id
@@ -1192,7 +1222,7 @@ export async function dbGetTeamOverview(team = null) {
                u.is_it_developer, u.is_it_manager,
                COUNT(t.task_id) AS total_tasks,
                COUNT(t.task_id) FILTER (WHERE t.status = 'completed') AS completed_tasks,
-               COUNT(t.task_id) FILTER (WHERE t.status IN ('in_progress', 'review', 'rework')) AS in_progress_tasks
+               COUNT(t.task_id) FILTER (WHERE t.status IN ('todo', 'in_progress', 'review', 'rework')) AS in_progress_tasks
         FROM users u
         LEFT JOIN it_tasks t ON t.assigned_to = u.user_id
         ${teamWhereClause}
@@ -1217,16 +1247,15 @@ export async function dbGetTeamOverview(team = null) {
     try {
       const { rows } = await p.query(`
         SELECT COALESCE(t.assigned_to::text, 'Unassigned') AS assignee,
-               COUNT(*) AS total, COUNT(*) FILTER (WHERE t.status = 'in_progress') AS in_progress,
-               COUNT(*) FILTER (WHERE t.status = 'review') AS review,
-               COUNT(*) FILTER (WHERE t.status = 'rework') AS rework,
+               COUNT(*) AS total,
+               COUNT(*) FILTER (WHERE t.status IN ('todo', 'in_progress', 'review', 'rework')) AS open_tasks,
                COUNT(*) FILTER (WHERE t.status = 'completed') AS completed
         FROM it_tasks t GROUP BY t.assigned_to
       `);
       return rows.map((r) => ({
         assignee: r.assignee || 'Unassigned',
         total_tasks: Number(r.total),
-        in_progress_tasks: Number(r.in_progress) + Number(r.review) + Number(r.rework),
+        in_progress_tasks: Number(r.open_tasks),
         completed_tasks: Number(r.completed),
       }));
     } catch (err2) {

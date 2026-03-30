@@ -14,3 +14,13 @@ export function getDisplayRole(user) {
     return 'Digital Marketing';
   return user.role && user.role !== 'User' ? user.role : 'User';
 }
+
+/** Admin user table: roles column from API role_names or legacy flags. */
+export function formatUserRowRole(u) {
+  if (Array.isArray(u.role_names) && u.role_names.length > 0) {
+    return [...new Set(u.role_names.filter(Boolean))].join(', ');
+  }
+  if (u.is_it_manager) return 'IT Manager';
+  if (u.is_it_developer) return 'IT Developer';
+  return 'User';
+}
