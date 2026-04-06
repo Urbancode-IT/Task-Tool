@@ -10,7 +10,7 @@ const MODULES = [
   { key: 'it_updates', label: 'IT Updates', icon: MdComputer, permission: 'it_updates.view' },
   { key: 'consultants', label: 'Consultants', icon: MdPeople, permission: 'consultants.view' },
   { key: 'digital_marketing', label: 'Digital Marketing', icon: MdCampaign, permission: 'digital_marketing.view' },
-  { key: 'admin', label: 'Admin', icon: MdAdminPanelSettings, permission: 'admin.access' },
+  { key: 'admin', label: 'Management', icon: MdAdminPanelSettings, permission: 'admin.access' },
 ];
 
 export default function MainLayout({ currentUser, onLogout }) {

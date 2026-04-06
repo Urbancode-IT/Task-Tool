@@ -24,7 +24,7 @@ const COOKIE_OPTS = {
 
 const app = express();
 
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 3001;
 /**
  * `cors` does an exact string match for `Origin`.
  * If `CLIENT_ORIGIN` contains a trailing `/`, browsers send without it, so CORS breaks.

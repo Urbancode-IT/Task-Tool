@@ -223,15 +223,11 @@ const ITUpdatesMain = ({ currentUser, onLogout }) => {
   const [inlineSaving, setInlineSaving] = useState(false);
   const [inlineReqLoading, setInlineReqLoading] = useState(false);
   const [inlineRequirements, setInlineRequirements] = useState([]);
-  const [inlineRequirementsDeleted, setInlineRequirementsDeleted] = useState([]);
-  const [inlineRequirementNewTitle, setInlineRequirementNewTitle] = useState('');
 
   const inlineEditing = (taskId) => String(inlineEditingTaskId ?? '') === String(taskId ?? '');
 
   const buildInlineDraftFromTask = (t) => ({
     projectId: t?.projectId ?? '',
-    title: t?.title ?? '',
-    task_description: t?.task_description ?? t?.description ?? '',
     assigned_to: t?.assigned_to ?? t?.assignee ?? '',
     assigned_by: t?.assigned_by ?? '',
     status: t?.status ?? 'in_progress',
@@ -249,8 +245,6 @@ const ITUpdatesMain = ({ currentUser, onLogout }) => {
       setInlineDraft(null);
       setInlineReqLoading(false);
       setInlineRequirements([]);
-      setInlineRequirementsDeleted([]);
-      setInlineRequirementNewTitle('');
       return;
     }
 
@@ -258,8 +252,6 @@ const ITUpdatesMain = ({ currentUser, onLogout }) => {
     setInlineDraft(buildInlineDraftFromTask(task));
     setInlineSaving(false);
     setInlineReqLoading(true);
-    setInlineRequirementsDeleted([]);
-    setInlineRequirementNewTitle('');
 
     try {
       const res = await itUpdatesApi.getRequirements(task.id, { team: MODULE_TEAM });
@@ -287,8 +279,6 @@ const ITUpdatesMain = ({ currentUser, onLogout }) => {
     setInlineDraft(null);
     setInlineReqLoading(false);
     setInlineRequirements([]);
-    setInlineRequirementsDeleted([]);
-    setInlineRequirementNewTitle('');
   };
 
   const saveInlineEdit = async () => {
@@ -314,8 +304,6 @@ const ITUpdatesMain = ({ currentUser, onLogout }) => {
       const patch = {
         team: MODULE_TEAM,
         projectId: draft.projectId === '' ? null : draft.projectId,
-        title: draft.title ?? '',
-        task_description: draft.task_description ?? '',
         assigned_to: draft.assigned_to === '' ? null : draft.assigned_to,
         assigned_by: draft.assigned_by === '' ? null : draft.assigned_by,
         status: nextStatus,
@@ -324,31 +312,6 @@ const ITUpdatesMain = ({ currentUser, onLogout }) => {
       };
 
       await itUpdatesApi.updateTask(taskId, patch);
-
-      // Delete removed requirements first
-      for (const reqId of inlineRequirementsDeleted) {
-        if (reqId == null) continue;
-        if (String(reqId).startsWith('temp-')) continue;
-        await itUpdatesApi.deleteRequirement(taskId, reqId, { team: MODULE_TEAM });
-      }
-
-      // Upsert requirements
-      const upsertPromises = reqs.map((r, idx) => {
-        const payload = {
-          title: r.title ?? '',
-          description: r.description ?? null,
-          status: r.status ?? 'pending',
-          priority: r.priority ?? 'medium',
-          due_date: r.due_date ?? null,
-          sort_order: idx,
-          team: MODULE_TEAM,
-        };
-        if (String(r.id).startsWith('temp-')) {
-          return itUpdatesApi.createRequirement(taskId, payload, { team: MODULE_TEAM });
-        }
-        return itUpdatesApi.updateRequirement(taskId, r.id, payload, { team: MODULE_TEAM });
-      });
-      await Promise.all(upsertPromises);
 
       await loadAllData();
       cancelInlineEdit();
@@ -1162,8 +1125,6 @@ const ITUpdatesMain = ({ currentUser, onLogout }) => {
                     <tr>
                       <th>Date</th>
                       <th>Project</th>
-                      <th>Task Title</th>
-                      <th>Requirements</th>
                       <th>Assigned To</th>
                       <th>Assigned By</th>
                       <th>Status</th>
@@ -1207,145 +1168,6 @@ const ITUpdatesMain = ({ currentUser, onLogout }) => {
                             task?.projectId != null
                               ? projectNameById.get(String(task.projectId)) || task.projectId || '—'
                               : '—'
-                          )}
-                        </td>
-                        <td>
-                          {inlineEditing(task.id) ? (
-                            <input
-                              className="it-updates-table-edit"
-                              value={inlineDraft?.title ?? ''}
-                              disabled={inlineSaving || inlineReqLoading}
-                              onClick={(e) => e.stopPropagation()}
-                              onChange={(e) => setInlineDraft((prev) => ({ ...(prev || {}), title: e.target.value }))}
-                            />
-                          ) : (
-                            task.title
-                          )}
-                        </td>
-                        <td>
-                          {inlineEditing(task.id) ? (
-                            inlineReqLoading ? (
-                              <span>Loading…</span>
-                            ) : (
-                              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
-                                {inlineRequirements.length > 0 ? (
-                                  inlineRequirements.map((req) => (
-                                    <div key={String(req.id)} style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
-                                      <input
-                                        type="checkbox"
-                                        checked={String(req.status) === 'completed'}
-                                        disabled={inlineSaving}
-                                        onClick={(e) => e.stopPropagation()}
-                                        onChange={(e) => {
-                                          const checked = e.target.checked;
-                                          setInlineRequirements((prev) =>
-                                            prev.map((r) =>
-                                              String(r.id) === String(req.id)
-                                                ? { ...r, status: checked ? 'completed' : 'pending' }
-                                                : r
-                                            )
-                                          );
-                                        }}
-                                      />
-                                      <input
-                                        className="it-updates-table-edit"
-                                        style={{ width: '10rem', padding: '0.25rem 0.5rem' }}
-                                        value={req.title ?? ''}
-                                        disabled={inlineSaving}
-                                        onClick={(e) => e.stopPropagation()}
-                                        onChange={(e) => {
-                                          const val = e.target.value;
-                                          setInlineRequirements((prev) =>
-                                            prev.map((r) => (String(r.id) === String(req.id) ? { ...r, title: val } : r))
-                                          );
-                                        }}
-                                      />
-                                      <button
-                                        type="button"
-                                        className="it-updates-icon-btn it-updates-icon-btn-danger"
-                                        disabled={inlineSaving}
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          if (String(req.id).startsWith('temp-')) {
-                                            setInlineRequirements((prev) => prev.filter((r) => String(r.id) !== String(req.id)));
-                                          } else {
-                                            setInlineRequirementsDeleted((prev) => [...prev, req.id]);
-                                            setInlineRequirements((prev) => prev.filter((r) => String(r.id) !== String(req.id)));
-                                          }
-                                        }}
-                                        title="Delete requirement"
-                                      >
-                                        <MdClose size={14} />
-                                      </button>
-                                    </div>
-                                  ))
-                                ) : (
-                                  <span style={{ color: 'var(--clr-slate-500)' }}>No requirements</span>
-                                )}
-
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', marginTop: '0.15rem' }}>
-                                  <input
-                                    className="it-updates-table-edit"
-                                    style={{ width: '10rem', padding: '0.25rem 0.5rem' }}
-                                    value={inlineRequirementNewTitle}
-                                    disabled={inlineSaving}
-                                    onClick={(e) => e.stopPropagation()}
-                                    placeholder="Add req"
-                                    onChange={(e) => setInlineRequirementNewTitle(e.target.value)}
-                                    onKeyDown={(e) => {
-                                      if (e.key !== 'Enter') return;
-                                      const title = inlineRequirementNewTitle.trim();
-                                      if (!title) return;
-                                      setInlineRequirements((prev) => [
-                                        ...prev,
-                                        {
-                                          id: `temp-${Date.now()}`,
-                                          title,
-                                          description: null,
-                                          status: 'pending',
-                                          priority: 'medium',
-                                          due_date: null,
-                                        },
-                                      ]);
-                                      setInlineRequirementNewTitle('');
-                                    }}
-                                  />
-                                  <button
-                                    type="button"
-                                    className="it-updates-icon-btn"
-                                    disabled={inlineSaving}
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      const title = inlineRequirementNewTitle.trim();
-                                      if (!title) return;
-                                      setInlineRequirements((prev) => [
-                                        ...prev,
-                                        {
-                                          id: `temp-${Date.now()}`,
-                                          title,
-                                          description: null,
-                                          status: 'pending',
-                                          priority: 'medium',
-                                          due_date: null,
-                                        },
-                                      ]);
-                                      setInlineRequirementNewTitle('');
-                                    }}
-                                    title="Add requirement"
-                                  >
-                                    +
-                                  </button>
-                                </div>
-                              </div>
-                            )
-                          ) : (
-                            task.req_total > 0 ? (
-                              <span className="it-updates-table-reqs">
-                                {task.req_completed}/{task.req_total}
-                              </span>
-                            ) : (
-                              <span className="it-updates-table-reqs-none">—</span>
-                            )
                           )}
                         </td>
                         <td>

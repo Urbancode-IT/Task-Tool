@@ -478,7 +478,7 @@ export default function AdminMain({ currentUser, onLogout }) {
       <aside className={`it-updates-sidebar ${sidebarOpen ? 'open' : ''}`}>
         <div className="it-updates-sidebar-brand">
           <img src={logoSrc} alt="Workspace" className="it-updates-sidebar-logo" />
-          <span className="it-updates-sidebar-title">Admin</span>
+          <span className="it-updates-sidebar-title">Management</span>
         </div>
         <nav className="it-updates-sidebar-nav">
           <div className="it-updates-sidebar-nav-label">Navigation</div>
@@ -533,7 +533,7 @@ export default function AdminMain({ currentUser, onLogout }) {
               <MdMenu size={24} />
             </button>
             <div>
-              <h1 className="it-updates-topbar-title">{tabConfig?.label || 'Admin'}</h1>
+              <h1 className="it-updates-topbar-title">{tabConfig?.label || 'Management'}</h1>
               <p className="it-updates-topbar-subtitle">{TAB_SUBTITLES[activeTab]}</p>
             </div>
           </div>

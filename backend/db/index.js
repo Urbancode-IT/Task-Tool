@@ -1390,6 +1390,9 @@ export async function dbCreateRequirement(taskId, data, teamInput = null) {
   try {
     const team = resolveTeamFromInput(teamInput || data?.team || await detectTaskTeamById(taskId));
     const reqTable = reqTableForTeam(team);
+    // DB schema uses VARCHAR(500) for title; clamp to prevent 500 errors.
+    const normalizedTitle = String(data?.title ?? 'Untitled Requirement').trim();
+    const safeTitle = (normalizedTitle || 'Untitled Requirement').slice(0, 500);
     // Get next sort_order
     const { rows: maxRows } = await p.query(
       `SELECT COALESCE(MAX(sort_order), -1) + 1 AS next FROM ${reqTable} WHERE task_id = $1`,
@@ -1403,7 +1406,7 @@ export async function dbCreateRequirement(taskId, data, teamInput = null) {
        RETURNING *`,
       [
         parseInt(taskId, 10),
-        data.title ?? 'Untitled Requirement',
+        safeTitle,
         data.description ?? null,
         data.status ?? 'pending',
         data.priority ?? 'medium',
@@ -1430,7 +1433,12 @@ export async function dbUpdateRequirement(reqId, data, taskId = null, teamInput 
   for (const [k, v] of Object.entries(data)) {
     if (allowed.includes(k) && v !== undefined) {
       updates.push(`${k} = $${i}`);
-      const val = (k === 'due_date') ? toNullableDate(v) : v;
+      const val =
+        k === 'due_date'
+          ? toNullableDate(v)
+          : k === 'title'
+            ? String(v ?? '').trim().slice(0, 500)
+            : v;
       values.push(val);
       i++;
     }
