@@ -43,6 +43,7 @@ function userMatchesTeamFilter(u, filter) {
   if (filter === 'it') return inItTeam;
   if (filter === 'consultant') return codes.includes('consultant');
   if (filter === 'digital') return codes.includes('digital_marketing');
+  if (filter === 'legal_finance') return codes.includes('admin');
   return true;
 }
 
@@ -51,6 +52,7 @@ const USERS_TEAM_FILTERS = [
   { key: 'it', label: 'IT team' },
   { key: 'consultant', label: 'Consultants' },
   { key: 'digital', label: 'Digital team' },
+  { key: 'legal_finance', label: 'Legal & Finance' },
 ];
 
 const EMPTY_ADMIN_OVERVIEW_FILTERS = {
@@ -193,7 +195,9 @@ export default function AdminMain({ currentUser, onLogout }) {
               ? 'digital_marketing'
               : tasksTeamFilter === 'it'
                 ? 'it'
-                : undefined,
+                : tasksTeamFilter === 'legal_finance'
+                  ? 'legal_finance'
+                  : undefined,
       })
       .then((res) => setReviewTasks(Array.isArray(res.data) ? res.data : []))
       .catch(() => setReviewTasks([]))
@@ -212,7 +216,9 @@ export default function AdminMain({ currentUser, onLogout }) {
               ? 'digital_marketing'
               : tasksTeamFilter === 'it'
                 ? 'it'
-                : undefined,
+                : tasksTeamFilter === 'legal_finance'
+                  ? 'legal_finance'
+                  : undefined,
       })
       .then((res) => setOverdueTasks(Array.isArray(res.data) ? res.data : []))
       .catch(() => setOverdueTasks([]))
@@ -256,6 +262,7 @@ export default function AdminMain({ currentUser, onLogout }) {
     if (key === 'consultant') return 'consultant';
     if (key === 'digital') return 'digital_marketing';
     if (key === 'it') return 'it';
+    if (key === 'legal_finance') return 'legal_finance';
     return undefined;
   };
 
@@ -359,7 +366,9 @@ export default function AdminMain({ currentUser, onLogout }) {
           ? 'digital_marketing'
           : task.team === 'it'
             ? 'it'
-            : undefined;
+            : task.team === 'legal_finance'
+              ? 'legal_finance'
+              : undefined;
     const body = {
       status: nextStatus,
       review_comment: reviewCommentDraft.trim() || undefined,

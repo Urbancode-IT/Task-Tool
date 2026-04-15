@@ -246,7 +246,12 @@ export async function dbEnsureTables() {
     console.warn('dbEnsureTables: project ownership columns check failed:', err.message);
   }
 
-  const taskTablesForReview = ['it_tasks', 'consultant_tasks', 'digital_marketing_tasks'];
+  const taskTablesForReview = [
+    'it_tasks',
+    'consultant_tasks',
+    'digital_marketing_tasks',
+    'legal_finance_tasks',
+  ];
   for (const tbl of taskTablesForReview) {
     try {
       const { rows } = await p.query(
@@ -263,6 +268,27 @@ export async function dbEnsureTables() {
     } catch (err) {
       console.warn(`dbEnsureTables: ${tbl} review columns:`, err.message);
     }
+  }
+
+  try {
+    const { rows } = await p.query(
+      "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'digital_marketing_tasks') AS ex"
+    );
+    if (rows?.[0]?.ex) {
+      await p.query(`
+        ALTER TABLE digital_marketing_tasks
+        ADD COLUMN IF NOT EXISTS campaign_name VARCHAR(255),
+        ADD COLUMN IF NOT EXISTS content_type VARCHAR(100),
+        ADD COLUMN IF NOT EXISTS channel VARCHAR(100),
+        ADD COLUMN IF NOT EXISTS design_link TEXT,
+        ADD COLUMN IF NOT EXISTS content_doc_link TEXT,
+        ADD COLUMN IF NOT EXISTS publish_link TEXT,
+        ADD COLUMN IF NOT EXISTS target_date DATE,
+        ADD COLUMN IF NOT EXISTS publish_date DATE;
+      `);
+    }
+  } catch (err) {
+    console.warn('dbEnsureTables: digital_marketing_tasks campaign columns:', err.message);
   }
 
   // If base tables aren't present yet (e.g. `it_tasks`), creating a FK table will fail.
@@ -303,6 +329,56 @@ export async function dbEnsureTables() {
     console.log('DB: it_task_requirements table ensured.');
   } catch (err) {
     console.error('dbEnsureTables ERROR:', err.message);
+  }
+
+  try {
+    await p.query(`
+      CREATE TABLE IF NOT EXISTS legal_finance_tasks (
+        task_id SERIAL PRIMARY KEY,
+        project_id INT REFERENCES it_projects(project_id) ON DELETE SET NULL,
+        assigned_to INT REFERENCES users(user_id) ON DELETE SET NULL,
+        assigned_by INT REFERENCES users(user_id) ON DELETE SET NULL,
+        created_by INT REFERENCES users(user_id) ON DELETE SET NULL,
+        task_title VARCHAR(500) NOT NULL DEFAULT 'New Task',
+        task_description TEXT,
+        priority VARCHAR(20) DEFAULT 'medium',
+        status VARCHAR(20) DEFAULT 'in_progress',
+        task_date DATE,
+        due_date DATE,
+        created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+        completed_at TIMESTAMPTZ,
+        reviewed_by INT REFERENCES users(user_id) ON DELETE SET NULL,
+        review_comment TEXT,
+        reviewed_at TIMESTAMPTZ
+      );
+      CREATE INDEX IF NOT EXISTS idx_legal_finance_tasks_assigned ON legal_finance_tasks(assigned_to);
+      CREATE INDEX IF NOT EXISTS idx_legal_finance_tasks_status ON legal_finance_tasks(status);
+    `);
+    console.log('DB: legal_finance_tasks table ensured.');
+  } catch (err) {
+    console.warn('dbEnsureTables: legal_finance_tasks:', err.message);
+  }
+
+  try {
+    await p.query(`
+      CREATE TABLE IF NOT EXISTS legal_finance_task_requirements (
+        requirement_id SERIAL PRIMARY KEY,
+        task_id INT NOT NULL REFERENCES legal_finance_tasks(task_id) ON DELETE CASCADE,
+        title VARCHAR(500) NOT NULL,
+        description TEXT,
+        status VARCHAR(20) DEFAULT 'pending',
+        priority VARCHAR(20) DEFAULT 'medium',
+        due_date DATE,
+        sort_order INT DEFAULT 0,
+        created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE INDEX IF NOT EXISTS idx_lf_task_requirements_task_id ON legal_finance_task_requirements(task_id);
+    `);
+    console.log('DB: legal_finance_task_requirements table ensured.');
+  } catch (err) {
+    console.warn('dbEnsureTables: legal_finance_task_requirements:', err.message);
   }
 }
 
@@ -599,13 +675,17 @@ export async function dbGetTasksSimple(filters = {}) {
         ? 'consultant_tasks'
         : normalizedTeam === 'digital_marketing'
           ? 'digital_marketing_tasks'
-          : 'it_tasks';
+          : normalizedTeam === 'legal_finance'
+            ? 'legal_finance_tasks'
+            : 'it_tasks';
     const reqTable =
       normalizedTeam === 'consultant'
         ? 'consultant_task_requirements'
         : normalizedTeam === 'digital_marketing'
           ? 'digital_marketing_task_requirements'
-          : 'it_task_requirements';
+          : normalizedTeam === 'legal_finance'
+            ? 'legal_finance_task_requirements'
+            : 'it_task_requirements';
 
     const { rows: tableCheck } = await p.query(
       "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_schema = 'public' AND table_name = $1)",
@@ -672,7 +752,7 @@ export async function dbGetTasksSimple(filters = {}) {
     }
 
     // Optional team filter based on assignee's RBAC role code (legacy support).
-    // For consultant/digital tables we don't need this role filter.
+    // For consultant/digital/legal_finance tables we don't need this role filter.
     if (filters.team && taskTable === 'it_tasks') {
       if (String(filters.team) === 'it') {
         whereParts.push(
@@ -748,12 +828,22 @@ export async function dbGetTasksSimple(filters = {}) {
       reviewed_by_username: r.reviewer_username ?? null,
       review_comment: r.review_comment ?? null,
       reviewed_at: r.reviewed_at ?? null,
+      campaign_name: r.campaign_name ?? null,
+      content_type: r.content_type ?? null,
+      channel: r.channel ?? null,
+      design_link: r.design_link ?? null,
+      content_doc_link: r.content_doc_link ?? null,
+      publish_link: r.publish_link ?? null,
+      target_date: r.target_date ?? null,
+      publish_date: r.publish_date ?? null,
       team:
         taskTable === 'consultant_tasks'
           ? 'consultant'
           : taskTable === 'digital_marketing_tasks'
             ? 'digital_marketing'
-            : 'it',
+            : taskTable === 'legal_finance_tasks'
+              ? 'legal_finance'
+              : 'it',
     }));
   } catch (err) {
     console.error('dbGetTasksSimple Critical Error:', err.message);
@@ -843,18 +933,21 @@ function resolveTeamFromInput(team) {
   const t = String(team || '').trim().toLowerCase();
   if (t === 'consultant') return 'consultant';
   if (t === 'digital_marketing' || t === 'digital') return 'digital_marketing';
+  if (t === 'legal_finance' || t === 'legal-finance' || t === 'legalfinance') return 'legal_finance';
   return 'it';
 }
 
 function taskTableForTeam(team) {
   if (team === 'consultant') return 'consultant_tasks';
   if (team === 'digital_marketing') return 'digital_marketing_tasks';
+  if (team === 'legal_finance') return 'legal_finance_tasks';
   return 'it_tasks';
 }
 
 function reqTableForTeam(team) {
   if (team === 'consultant') return 'consultant_task_requirements';
   if (team === 'digital_marketing') return 'digital_marketing_task_requirements';
+  if (team === 'legal_finance') return 'legal_finance_task_requirements';
   return 'it_task_requirements';
 }
 
@@ -866,6 +959,7 @@ async function detectTaskTeamById(taskId) {
   const checks = [
     { team: 'consultant', table: 'consultant_tasks' },
     { team: 'digital_marketing', table: 'digital_marketing_tasks' },
+    { team: 'legal_finance', table: 'legal_finance_tasks' },
     { team: 'it', table: 'it_tasks' },
   ];
   for (const c of checks) {
@@ -891,24 +985,60 @@ export async function dbCreateTask(data) {
   const taskTable = taskTableForTeam(team);
   // Helper: convert empty strings to null for integer columns
   const toNullableInt = (v) => (v === '' || v === undefined || v === null ? null : v);
+  const insertColumns = [
+    'project_id',
+    'assigned_to',
+    'assigned_by',
+    'created_by',
+    'task_title',
+    'task_description',
+    'priority',
+    'status',
+    'task_date',
+    'due_date',
+  ];
+  const insertValues = [
+    toNullableInt(data.projectId ?? data.project_id),
+    toNullableInt(data.assigned_to),
+    toNullableInt(data.assigned_by),
+    toNullableInt(data.created_by ?? data.assigned_by),
+    data.title ?? data.task_title ?? 'New Task',
+    data.task_description ?? data.description ?? null,
+    data.priority ?? 'medium',
+    data.status ?? 'in_progress',
+    toNullableDate(data.task_date ?? data.taskDate) ?? new Date().toISOString().slice(0, 10),
+    toNullableDate(data.dueDate ?? data.due_date),
+  ];
+  if (team === 'digital_marketing') {
+    insertColumns.push(
+      'campaign_name',
+      'content_type',
+      'channel',
+      'design_link',
+      'content_doc_link',
+      'publish_link',
+      'target_date',
+      'publish_date'
+    );
+    insertValues.push(
+      data.campaign_name ?? null,
+      data.content_type ?? null,
+      data.channel ?? null,
+      data.design_link ?? null,
+      data.content_doc_link ?? null,
+      data.publish_link ?? null,
+      toNullableDate(data.target_date),
+      toNullableDate(data.publish_date)
+    );
+  }
+  const placeholders = insertValues.map((_, idx) => `$${idx + 1}`).join(', ');
   const {
     rows: [row],
   } = await p.query(
-    `INSERT INTO ${taskTable} (project_id, assigned_to, assigned_by, created_by, task_title, task_description, priority, status, task_date, due_date)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+    `INSERT INTO ${taskTable} (${insertColumns.join(', ')})
+     VALUES (${placeholders})
      RETURNING *`,
-    [
-      toNullableInt(data.projectId ?? data.project_id),
-      toNullableInt(data.assigned_to),
-      toNullableInt(data.assigned_by),
-      toNullableInt(data.created_by ?? data.assigned_by),
-      data.title ?? data.task_title ?? 'New Task',
-      data.task_description ?? data.description ?? null,
-      data.priority ?? 'medium',
-      data.status ?? 'in_progress',
-      toNullableDate(data.task_date ?? data.taskDate) ?? new Date().toISOString().slice(0, 10),
-      toNullableDate(data.dueDate ?? data.due_date),
-    ]
+    insertValues
   );
   if (!row) return null;
   return {
@@ -945,6 +1075,18 @@ export async function dbUpdateTask(taskId, data) {
     'review_comment',
     'reviewed_at',
   ];
+  if (team === 'digital_marketing') {
+    allowed.push(
+      'campaign_name',
+      'content_type',
+      'channel',
+      'design_link',
+      'content_doc_link',
+      'publish_link',
+      'target_date',
+      'publish_date'
+    );
+  }
   const updates = [];
   const values = [];
   let i = 1;
@@ -956,13 +1098,15 @@ export async function dbUpdateTask(taskId, data) {
     reviewComment: 'review_comment',
     reviewedBy: 'reviewed_by',
     reviewedAt: 'reviewed_at',
+    targetDate: 'target_date',
+    publishDate: 'publish_date',
   };
   for (const [k, v] of Object.entries(data)) {
     const col = map[k] || k;
     if (allowed.includes(col) && v !== undefined) {
       updates.push(`${col} = $${i}`);
       let val;
-      if (col === 'start_date' || col === 'end_date' || col === 'due_date' || col === 'task_date') {
+      if (col === 'start_date' || col === 'end_date' || col === 'due_date' || col === 'task_date' || col === 'target_date' || col === 'publish_date') {
         val = toNullableDate(v);
       } else if (col === 'reviewed_at') {
         val = v === '' || v == null ? null : v;
@@ -1024,6 +1168,14 @@ export async function dbGetTaskById(taskId, teamInput = null) {
     reviewed_by_username: row.reviewer_username ?? null,
     review_comment: row.review_comment ?? null,
     reviewed_at: row.reviewed_at ?? null,
+    campaign_name: row.campaign_name ?? null,
+    content_type: row.content_type ?? null,
+    channel: row.channel ?? null,
+    design_link: row.design_link ?? null,
+    content_doc_link: row.content_doc_link ?? null,
+    publish_link: row.publish_link ?? null,
+    target_date: row.target_date ?? null,
+    publish_date: row.publish_date ?? null,
     team,
   };
 }
@@ -1190,9 +1342,13 @@ export async function dbGetTeamOverview(team = null) {
   const p = getPool();
   if (!p) return [];
   try {
-    const teamWhereClause =
-      team === 'it'
-        ? `WHERE (
+    const taskJoinTable = team === 'legal_finance' ? 'legal_finance_tasks' : 'it_tasks';
+
+    let teamWhereClause = '';
+    const params = [];
+
+    if (team === 'it') {
+      teamWhereClause = `WHERE (
             COALESCE(u.is_it_developer, false) = true
             OR COALESCE(u.is_it_manager, false) = true
             OR EXISTS (
@@ -1202,19 +1358,26 @@ export async function dbGetTeamOverview(team = null) {
               WHERE ur.user_id = u.user_id
                 AND r.code = ANY($1)
             )
-          )`
-        : team
-          ? `WHERE EXISTS (
+          )`;
+      params.push(['it_developer', 'it_manager', 'admin']);
+    } else if (team === 'legal_finance') {
+      teamWhereClause = `WHERE EXISTS (
+              SELECT 1
+              FROM user_roles ur
+              JOIN roles r ON r.role_id = ur.role_id
+              WHERE ur.user_id = u.user_id
+                AND r.code = 'admin'
+            )`;
+    } else if (team) {
+      teamWhereClause = `WHERE EXISTS (
               SELECT 1
               FROM user_roles ur
               JOIN roles r ON r.role_id = ur.role_id
               WHERE ur.user_id = u.user_id
                 AND r.code = $1
-            )`
-          : '';
-
-    const params =
-      team === 'it' ? [['it_developer', 'it_manager', 'admin']] : team ? [team] : [];
+            )`;
+      params.push(team);
+    }
 
     const { rows } = await p.query(
       `
@@ -1236,7 +1399,7 @@ export async function dbGetTeamOverview(team = null) {
                COUNT(t.task_id) FILTER (WHERE t.status = 'completed') AS completed_tasks,
                COUNT(t.task_id) FILTER (WHERE t.status IN ('todo', 'in_progress', 'review', 'rework')) AS in_progress_tasks
         FROM users u
-        LEFT JOIN it_tasks t ON t.assigned_to = u.user_id
+        LEFT JOIN ${taskJoinTable} t ON t.assigned_to = u.user_id
         ${teamWhereClause}
         GROUP BY u.user_id, u.username, u.email, u.profile_image, u.is_it_developer, u.is_it_manager
         ORDER BY total_tasks DESC

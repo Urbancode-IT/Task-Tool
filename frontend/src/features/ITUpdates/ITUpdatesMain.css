@@ -757,14 +757,14 @@
 
 .it-updates-columns {
   display: grid;
-  grid-template-columns: repeat(5, minmax(220px, 1fr));
-  gap: 1rem;
-  min-width: 1020px;
+  grid-template-columns: repeat(5, minmax(200px, 1fr));
+  gap: 0.75rem;
+  min-width: 0;
 }
 
 .it-updates-kanban-wrap {
   width: 100%;
-  overflow-x: auto;
+  overflow-x: hidden;
   overflow-y: hidden;
   padding-bottom: 0.25rem;
   -webkit-overflow-scrolling: touch;
@@ -773,10 +773,13 @@
 .it-updates-column {
   background: var(--clr-slate-50);
   border-radius: var(--radius-lg);
-  padding: 1rem;
+  padding: 1.1rem;
   border: 1px solid var(--clr-slate-100);
   border-top: 3px solid var(--clr-slate-300);
   min-height: 320px;
+  max-height: clamp(320px, calc(100vh - 260px), 720px);
+  display: flex;
+  flex-direction: column;
   transition: border-color var(--transition-base);
 }
 
@@ -803,9 +806,32 @@
 
 .it-updates-column-body {
   min-height: 120px;
+  max-height: clamp(200px, calc(100vh - 340px), 640px);
   border-radius: var(--radius-md);
   padding: 4px;
   transition: background var(--transition-base), border-color var(--transition-base);
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  scrollbar-color: #cbd5e1 transparent;
+}
+
+.it-updates-column-body::-webkit-scrollbar {
+  width: 4px;
+}
+
+.it-updates-column-body::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.it-updates-column-body::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: var(--radius-full);
+}
+
+.it-updates-column-body::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
 }
 
 .it-updates-column-body.it-updates-drop-zone {
@@ -819,14 +845,16 @@
   border-radius: var(--radius-md);
   background: var(--surface-card);
   border: 1px solid var(--clr-slate-100);
-  padding: 0.65rem 0.75rem;
-  margin-bottom: 0.45rem;
+  padding: 1.45rem 0.85rem 0.75rem;
+  margin-bottom: 0.55rem;
   cursor: pointer;
   transition: all var(--transition-fast);
   display: flex;
   flex-direction: column;
-  gap: 0.3rem;
+  gap: 0.35rem;
   box-shadow: var(--shadow-xs);
+  position: relative;
+  overflow: visible;
 }
 
 .it-updates-task-card:hover {
@@ -843,25 +871,34 @@
 
 /* Past due date, task not completed — subtle frame + small Pending tag */
 .it-updates-task-card-toprow {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 0.5rem;
-  width: 100%;
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 0;
+  pointer-events: none;
 }
 
 .it-updates-task-card-pending-tag {
+  position: absolute;
+  top: 0.3rem;
+  left: 0.5rem;
   flex-shrink: 0;
-  font-size: 0.56rem;
+  font-size: 0.52rem;
   font-weight: 700;
-  letter-spacing: 0.05em;
-  padding: 0.16rem 0.45rem;
+  letter-spacing: 0.04em;
+  padding: 0.14rem 0.4rem;
   border-radius: var(--radius-full);
   text-transform: uppercase;
   color: #b91c1c;
   background: rgba(239, 68, 68, 0.1);
   border: 1px solid rgba(239, 68, 68, 0.22);
   line-height: 1.2;
+  pointer-events: auto;
+  max-width: calc(100% - 6.5rem);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .it-updates-task-card-overdue {
@@ -870,14 +907,21 @@
 }
 
 .it-updates-task-card-priority {
-  display: inline-block;
-  font-size: 0.56rem;
+  position: absolute;
+  top: 0.3rem;
+  right: 0.5rem;
+  display: inline-flex;
+  align-items: center;
+  font-size: 0.52rem;
   font-weight: 700;
-  letter-spacing: 0.05em;
-  padding: 0.16rem 0.42rem;
-  border-radius: var(--radius-full);
+  letter-spacing: 0.06em;
+  padding: 0.14rem 0.42rem;
+  border-radius: 999px;
   width: fit-content;
   text-transform: uppercase;
+  box-shadow: none;
+  pointer-events: auto;
+  border: 1px solid transparent;
 }
 
 .it-updates-task-card-title {
@@ -900,18 +944,24 @@
 
 .it-updates-task-card-tags {
   display: flex;
-  flex-wrap: wrap;
-  gap: 0.22rem;
+  flex-wrap: nowrap;
+  gap: 0.3rem;
   margin-top: 0.12rem;
+  overflow: hidden;
 }
 
 .it-updates-task-card-tag {
+  flex: 1 1 0;
+  min-width: 0;
   font-size: 0.6rem;
   font-weight: 500;
   color: var(--clr-slate-500);
   background: var(--clr-slate-100);
   padding: 0.14rem 0.4rem;
   border-radius: var(--radius-full);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .it-updates-task-card-assigned-by {
@@ -1827,8 +1877,8 @@
   }
 
   .it-updates-columns {
-    grid-template-columns: repeat(5, minmax(200px, 1fr));
-    min-width: 1100px;
+    grid-template-columns: repeat(5, minmax(180px, 1fr));
+    min-width: 0;
   }
 
   .it-updates-projects-grid-cards {

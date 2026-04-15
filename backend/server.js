@@ -162,6 +162,19 @@ function mergeTaskReviewTransition(existing, incomingBody, reqUser) {
   return body;
 }
 
+/** Legal & Finance tasks are stored separately and are only for users with admin.access. */
+function requireAdminForLegalFinance(req, res) {
+  const perms = req.user?.permissions || [];
+  if (perms.includes('admin.access')) return true;
+  res.status(403).json({ message: 'Legal & Finance is only available to administrators.' });
+  return false;
+}
+
+function isLegalFinanceTeamString(team) {
+  const t = String(team || '').trim();
+  return t === 'legal_finance';
+}
+
 async function buildUserFromDbUser(dbUser) {
   const user = {
     id: String(dbUser.user_id),
@@ -570,6 +583,7 @@ app.get(`${BASE_PATH}/tasks`, async (req, res) => {
         to_date: req.query.to_date || null,
         team: req.query.team || null,
       };
+      if (isLegalFinanceTeamString(filters.team) && !requireAdminForLegalFinance(req, res)) return;
       const list = await db.dbGetTasksSimple(filters);
       return res.json(list);
     }
@@ -588,7 +602,9 @@ app.get(`${BASE_PATH}/tasks`, async (req, res) => {
 app.post(`${BASE_PATH}/tasks`, async (req, res) => {
   try {
     if (db.useDb()) {
-      const task = await db.dbCreateTask({ ...req.body, team: req.body?.team || req.query?.team });
+      const teamForCreate = req.body?.team || req.query?.team;
+      if (isLegalFinanceTeamString(teamForCreate) && !requireAdminForLegalFinance(req, res)) return;
+      const task = await db.dbCreateTask({ ...req.body, team: teamForCreate });
       if (!task) return res.status(500).json({ message: 'Failed to create task' });
       return res.status(201).json(task);
     }
@@ -615,6 +631,8 @@ app.put(`${BASE_PATH}/tasks/:taskId`, async (req, res) => {
     const team = req.body?.team || req.query?.team;
     if (db.useDb()) {
       const existing = await db.dbGetTaskById(taskId, team);
+      if (existing?.team === 'legal_finance' && !requireAdminForLegalFinance(req, res)) return;
+      if (isLegalFinanceTeamString(team) && !requireAdminForLegalFinance(req, res)) return;
       const body = mergeTaskReviewTransition(existing, { ...req.body, team }, req.user);
       const task = await db.dbUpdateTask(taskId, body);
       if (!task) return res.status(404).json({ message: 'Task not found' });
@@ -634,7 +652,11 @@ app.put(`${BASE_PATH}/tasks/:taskId`, async (req, res) => {
 app.delete(`${BASE_PATH}/tasks/:taskId`, async (req, res) => {
   try {
     if (db.useDb()) {
-      const ok = await db.dbDeleteTask(req.params.taskId, req.query?.team || null);
+      const hintTeam = req.query?.team || null;
+      const existing = await db.dbGetTaskById(req.params.taskId, hintTeam);
+      if (existing?.team === 'legal_finance' && !requireAdminForLegalFinance(req, res)) return;
+      if (isLegalFinanceTeamString(hintTeam) && !requireAdminForLegalFinance(req, res)) return;
+      const ok = await db.dbDeleteTask(req.params.taskId, hintTeam);
       if (!ok) return res.status(404).json({ message: 'Task not found' });
       return res.status(204).send();
     }
@@ -734,7 +756,9 @@ app.get(`${BASE_PATH}/dashboard/stats`, async (req, res) => {
 app.get(`${BASE_PATH}/team-overview`, async (req, res) => {
   try {
     if (db.useDb()) {
-      const list = await db.dbGetTeamOverview(req.query.team || null);
+      const teamKey = req.query.team || null;
+      if (isLegalFinanceTeamString(teamKey) && !requireAdminForLegalFinance(req, res)) return;
+      const list = await db.dbGetTeamOverview(teamKey);
       return res.json(list);
     }
     const byAssignee = tasks.reduce((acc, task) => {
@@ -796,7 +820,13 @@ app.get(`${BASE_PATH}/tasks/:taskId/requirements`, async (req, res) => {
   const { taskId } = req.params;
   try {
     if (db.useDb()) {
-      const list = await db.dbGetRequirements(taskId, req.query?.team || null);
+      let teamHint = req.query?.team || null;
+      if (!teamHint) {
+        const t = await db.dbGetTaskById(taskId, null);
+        teamHint = t?.team || null;
+      }
+      if (isLegalFinanceTeamString(teamHint) && !requireAdminForLegalFinance(req, res)) return;
+      const list = await db.dbGetRequirements(taskId, teamHint);
       return res.json(list);
     }
     res.json(requirementsByTaskId[taskId] || []);
@@ -811,7 +841,13 @@ app.post(`${BASE_PATH}/tasks/:taskId/requirements`, async (req, res) => {
   const { taskId } = req.params;
   try {
     if (db.useDb()) {
-      const req2 = await db.dbCreateRequirement(taskId, req.body, req.body?.team || req.query?.team || null);
+      let teamHint = req.body?.team || req.query?.team || null;
+      if (!teamHint) {
+        const t = await db.dbGetTaskById(taskId, null);
+        teamHint = t?.team || null;
+      }
+      if (isLegalFinanceTeamString(teamHint) && !requireAdminForLegalFinance(req, res)) return;
+      const req2 = await db.dbCreateRequirement(taskId, req.body, teamHint);
       if (!req2) return res.status(500).json({ message: 'Failed to create requirement' });
       return res.status(201).json(req2);
     }
@@ -842,7 +878,13 @@ app.put(`${BASE_PATH}/tasks/:taskId/requirements/:reqId`, async (req, res) => {
   const { taskId, reqId } = req.params;
   try {
     if (db.useDb()) {
-      const updated = await db.dbUpdateRequirement(reqId, req.body, taskId, req.body?.team || req.query?.team || null);
+      let teamHint = req.body?.team || req.query?.team || null;
+      if (!teamHint) {
+        const t = await db.dbGetTaskById(taskId, null);
+        teamHint = t?.team || null;
+      }
+      if (isLegalFinanceTeamString(teamHint) && !requireAdminForLegalFinance(req, res)) return;
+      const updated = await db.dbUpdateRequirement(reqId, req.body, taskId, teamHint);
       if (!updated) return res.status(404).json({ message: 'Requirement not found' });
       return res.json(updated);
     }
@@ -862,7 +904,13 @@ app.delete(`${BASE_PATH}/tasks/:taskId/requirements/:reqId`, async (req, res) =>
   const { taskId, reqId } = req.params;
   try {
     if (db.useDb()) {
-      const ok = await db.dbDeleteRequirement(reqId, taskId, req.query?.team || null);
+      let teamHint = req.query?.team || null;
+      if (!teamHint) {
+        const t = await db.dbGetTaskById(taskId, null);
+        teamHint = t?.team || null;
+      }
+      if (isLegalFinanceTeamString(teamHint) && !requireAdminForLegalFinance(req, res)) return;
+      const ok = await db.dbDeleteRequirement(reqId, taskId, teamHint);
       if (!ok) return res.status(404).json({ message: 'Requirement not found' });
       return res.status(204).send();
     }
@@ -986,7 +1034,12 @@ app.get(`${ADMIN_PATH}/departments`, async (req, res) => {
       const list = await db.dbGetDepartments();
       return res.json(list);
     }
-    res.json([{ name: 'IT Team', code: 'it' }, { name: 'Consultants Team', code: 'consultants' }, { name: 'Digital Marketing Team', code: 'digital_marketing' }]);
+    res.json([
+      { name: 'IT Team', code: 'it' },
+      { name: 'Consultants Team', code: 'consultants' },
+      { name: 'Digital Marketing Team', code: 'digital_marketing' },
+      { name: 'Legal & Finance', code: 'legal_finance' },
+    ]);
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: 'Failed to fetch departments' });

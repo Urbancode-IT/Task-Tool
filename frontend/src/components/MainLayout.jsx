@@ -1,8 +1,9 @@
 import React, { useState, useMemo } from 'react';
-import { MdComputer, MdPeople, MdCampaign, MdAdminPanelSettings } from 'react-icons/md';
+import { MdComputer, MdPeople, MdCampaign, MdAdminPanelSettings, MdGavel } from 'react-icons/md';
 import ITUpdatesMain from '../features/ITUpdates/ITUpdatesMain';
 import ConsultantsMain from '../features/Consultants/ConsultantsMain';
 import DigitalMarketingMain from '../features/DigitalMarketing/DigitalMarketingMain';
+import LegalFinanceMain from '../features/LegalFinance/LegalFinanceMain';
 import AdminMain from '../features/Admin/AdminMain';
 import './MainLayout.css';
 
@@ -10,6 +11,7 @@ const MODULES = [
   { key: 'it_updates', label: 'IT Updates', icon: MdComputer, permission: 'it_updates.view' },
   { key: 'consultants', label: 'Consultants', icon: MdPeople, permission: 'consultants.view' },
   { key: 'digital_marketing', label: 'Digital Marketing', icon: MdCampaign, permission: 'digital_marketing.view' },
+  { key: 'legal_finance', label: 'Legal & Finance', icon: MdGavel, permission: 'admin.access' },
   { key: 'admin', label: 'Management', icon: MdAdminPanelSettings, permission: 'admin.access' },
 ];
 
@@ -40,6 +42,8 @@ export default function MainLayout({ currentUser, onLogout }) {
         return <ConsultantsMain currentUser={user} onLogout={onLogout} />;
       case 'digital_marketing':
         return <DigitalMarketingMain currentUser={user} onLogout={onLogout} />;
+      case 'legal_finance':
+        return <LegalFinanceMain currentUser={user} onLogout={onLogout} />;
       case 'admin':
         return <AdminMain currentUser={user} onLogout={onLogout} />;
       default:
@@ -49,9 +53,13 @@ export default function MainLayout({ currentUser, onLogout }) {
 
   // These modules render their own fixed sidebar (ITUpdatesMain.css shell),
   // so the global header needs left padding to avoid overlap.
-  const hasSidebar = ['it_updates', 'consultants', 'digital_marketing', 'admin'].includes(
-    safeActiveModule
-  );
+  const hasSidebar = [
+    'it_updates',
+    'consultants',
+    'digital_marketing',
+    'legal_finance',
+    'admin',
+  ].includes(safeActiveModule);
 
   return (
     <div className={`main-layout ${hasSidebar ? 'main-layout-with-sidebar' : ''}`}>

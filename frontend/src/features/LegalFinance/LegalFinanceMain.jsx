@@ -1,13 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import {
-  MdCampaign,
-  MdCalendarToday,
   MdChecklist,
   MdClose,
   MdAdd,
   MdDashboard,
-  MdLink,
   MdLogout,
   MdMenu,
   MdOutlineAssignment,
@@ -26,21 +23,19 @@ const TABS = [
   { key: 'My Tasks', label: 'My Tasks', icon: MdChecklist },
   { key: 'All Tasks', label: 'All Tasks', icon: MdViewKanban },
   { key: 'Overview', label: 'Overview', icon: MdTableChart },
-  { key: 'Calendar', label: 'Calendar', icon: MdCalendarToday },
-  { key: 'Link Hub', label: 'Link Hub', icon: MdLink },
   { key: 'EOD Updates', label: 'EOD Updates', icon: MdOutlineAssignment },
 ];
-const MODULE_TEAM = 'digital_marketing';
+const MODULE_TEAM = 'legal_finance';
 
 const EMPTY_ALL_TASKS_FILTERS = { status: '', priority: '' };
 const EMPTY_OVERVIEW_FILTERS = { from_date: '', to_date: '', assigned_to: '' };
 
 const STATUS_LABELS = {
-  todo: 'Idea',
-  in_progress: 'Drafting',
-  review: 'Design Review',
+  todo: 'To do',
+  in_progress: 'In Progress',
+  review: 'Review',
   rework: 'Rework',
-  completed: 'Published',
+  completed: 'Completed',
 };
 
 const STATUS_COLORS = {
@@ -56,23 +51,6 @@ const PRIORITY_COLORS = {
   medium: '#f59e0b',
   high: '#f97316',
   critical: '#ef4444',
-};
-
-const CONTENT_TYPE_COLORS = {
-  poster: '#0ea5e9',
-  blog: '#14b8a6',
-  social_post: '#8b5cf6',
-  video: '#f97316',
-  ad_copy: '#ec4899',
-};
-
-const CHANNEL_COLORS = {
-  Instagram: '#e11d48',
-  Facebook: '#2563eb',
-  LinkedIn: '#0284c7',
-  YouTube: '#dc2626',
-  Website: '#0f766e',
-  Email: '#4f46e5',
 };
 
 const groupTasksByStatus = (tasks) =>
@@ -106,7 +84,7 @@ function Avatar({ user }) {
   );
 }
 
-export default function DigitalMarketingMain({ currentUser, onLogout }) {
+export default function LegalFinanceMain({ currentUser, onLogout }) {
   const [activeTab, setActiveTab] = useState('Dashboard');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -115,7 +93,6 @@ export default function DigitalMarketingMain({ currentUser, onLogout }) {
   const [tasks, setTasks] = useState([]);
   const [eodReports, setEodReports] = useState([]);
   const [teamOverview, setTeamOverview] = useState([]);
-  const [adminUsers, setAdminUsers] = useState([]);
 
   const [taskModal, setTaskModal] = useState({ open: false, task: null });
   const [eodModal, setEodModal] = useState(false);
@@ -123,7 +100,6 @@ export default function DigitalMarketingMain({ currentUser, onLogout }) {
   const [allTasksFiltersApplied, setAllTasksFiltersApplied] = useState(EMPTY_ALL_TASKS_FILTERS);
   const [overviewFiltersDraft, setOverviewFiltersDraft] = useState(EMPTY_OVERVIEW_FILTERS);
   const [overviewFiltersApplied, setOverviewFiltersApplied] = useState(EMPTY_OVERVIEW_FILTERS);
-  const [linkHubMissingOnly, setLinkHubMissingOnly] = useState(false);
 
   const user =
     currentUser ||
@@ -143,18 +119,15 @@ export default function DigitalMarketingMain({ currentUser, onLogout }) {
     setLoading(true);
     setError('');
     try {
-      const [tasksRes, teamRes, adminRes] = await Promise.all([
-        itUpdatesApi.getTasks({ team: 'digital_marketing' }),
-        itUpdatesApi.getTeamOverview({ team: 'digital_marketing' }).catch(() => ({ data: [] })),
-        itUpdatesApi.getTeamOverview({ team: 'it' }).catch(() => ({ data: [] })),
+      const [tasksRes, teamRes] = await Promise.all([
+        itUpdatesApi.getTasks({ team: 'legal_finance' }),
+        itUpdatesApi.getTeamOverview({ team: 'legal_finance' }).catch(() => ({ data: [] })),
       ]);
       setTasks(Array.isArray(tasksRes.data) ? tasksRes.data : []);
       setTeamOverview(Array.isArray(teamRes.data) ? teamRes.data : []);
-      const itTeam = Array.isArray(adminRes.data) ? adminRes.data : [];
-      setAdminUsers(itTeam.filter((u) => u?.is_it_manager));
     } catch (err) {
       setError(
-        err?.response?.data?.message || 'Failed to load digital marketing tasks.'
+        err?.response?.data?.message || 'Failed to load Legal & Finance tasks.'
       );
     } finally {
       setLoading(false);
@@ -226,35 +199,6 @@ export default function DigitalMarketingMain({ currentUser, onLogout }) {
     return result;
   }, [tasks, overviewFiltersApplied]);
 
-  const calendarTasks = useMemo(() => {
-    const toKey = (t) =>
-      t.target_date || t.publish_date || (t.task_date ? String(t.task_date).slice(0, 10) : '');
-    return [...tasks]
-      .filter((t) => Boolean(toKey(t)))
-      .sort((a, b) => String(toKey(a)).localeCompare(String(toKey(b))));
-  }, [tasks]);
-
-  const linkHubTasks = useMemo(() => {
-    const hasAnyLink = (t) => Boolean(t.design_link || t.content_doc_link || t.publish_link);
-    const hasMissingLink = (t) => !t.design_link || !t.content_doc_link || !t.publish_link;
-    return tasks.filter((t) => {
-      if (!hasAnyLink(t)) return false;
-      if (!linkHubMissingOnly) return true;
-      return hasMissingLink(t);
-    });
-  }, [tasks, linkHubMissingOnly]);
-
-  const handleCopyLink = useCallback(async (link) => {
-    try {
-      if (!link) return;
-      if (navigator?.clipboard?.writeText) {
-        await navigator.clipboard.writeText(link);
-      }
-    } catch (_) {
-      // no-op fallback
-    }
-  }, []);
-
   const today = new Date().toISOString().slice(0, 10);
   const completedToday = useMemo(
     () =>
@@ -302,14 +246,6 @@ export default function DigitalMarketingMain({ currentUser, onLogout }) {
       const body = {
         title: payload.task_title,
         task_description: payload.task_description ?? payload.description,
-        campaign_name: payload.campaign_name,
-        content_type: payload.content_type,
-        channel: payload.channel,
-        design_link: payload.design_link,
-        content_doc_link: payload.content_doc_link,
-        publish_link: payload.publish_link,
-        target_date: payload.target_date,
-        publish_date: payload.publish_date,
         projectId: payload.project_id ?? payload.projectId,
         assigned_to: (payload.assigned_to === '' ? userId : payload.assigned_to),
         assigned_by: payload.assigned_by || null,
@@ -427,33 +363,13 @@ export default function DigitalMarketingMain({ currentUser, onLogout }) {
                     <div className="it-updates-task-card-title">
                       {task.title}
                     </div>
-                    <div className="it-updates-task-card-desc">
-                      Assigned to: {task.assignee || 'Unassigned'}
-                    </div>
-                    <div className="it-updates-task-card-desc">
-                      <span
-                        className="it-updates-status-badge"
-                        style={{
-                          backgroundColor: `${CONTENT_TYPE_COLORS[task.content_type] || '#64748b'}18`,
-                          color: CONTENT_TYPE_COLORS[task.content_type] || '#334155',
-                          marginRight: '0.4rem',
-                        }}
-                      >
-                        {(task.content_type || 'asset').replace('_', ' ')}
-                      </span>
-                      <span
-                        className="it-updates-status-badge"
-                        style={{
-                          backgroundColor: `${CHANNEL_COLORS[task.channel] || '#64748b'}18`,
-                          color: CHANNEL_COLORS[task.channel] || '#334155',
-                        }}
-                      >
-                        {task.channel || 'Channel TBD'}
-                      </span>
-                    </div>
-                    {task.campaign_name ? (
-                      <div className="it-updates-task-card-desc">Campaign: {task.campaign_name}</div>
-                    ) : null}
+                    {task.task_description && (
+                      <div className="it-updates-task-card-desc">
+                        {task.task_description.length > 50
+                          ? task.task_description.slice(0, 50) + '...'
+                          : task.task_description}
+                      </div>
+                    )}
                     {Number(task.req_total) > 0 && (
                       <div className="it-updates-task-card-reqs">
                         <div className="it-updates-task-card-reqs-label">
@@ -520,7 +436,7 @@ export default function DigitalMarketingMain({ currentUser, onLogout }) {
           <img src={logoSrc} alt="Seyal" className="it-updates-sidebar-logo" />
           <div className="it-updates-sidebar-brand-text">
             <span className="it-updates-sidebar-title">Seyal</span>
-            <span className="it-updates-sidebar-subtitle">Digital Marketing Team</span>
+            <span className="it-updates-sidebar-subtitle">Legal &amp; Finance</span>
           </div>
         </div>
         <nav className="it-updates-sidebar-nav">
@@ -582,12 +498,10 @@ export default function DigitalMarketingMain({ currentUser, onLogout }) {
                 {tabConfig?.label || activeTab}
               </h1>
               <p className="it-updates-topbar-subtitle">
-                {activeTab === 'Dashboard' && 'Overview of your campaigns and tasks'}
+                {activeTab === 'Dashboard' && 'Overview of your tasks and progress'}
                 {activeTab === 'My Tasks' && 'Tasks assigned to you'}
                 {activeTab === 'All Tasks' && 'All tasks in kanban view'}
                 {activeTab === 'Overview' && 'Detailed task overview and filters'}
-                {activeTab === 'Calendar' && 'Scheduled and published content timeline'}
-                {activeTab === 'Link Hub' && 'Design, content, and publish links in one place'}
                 {activeTab === 'EOD Updates' && 'Your end-of-day reports'}
               </p>
             </div>
@@ -651,10 +565,7 @@ export default function DigitalMarketingMain({ currentUser, onLogout }) {
               <section className="it-updates-dashboard-sections">
                 <div className="it-updates-panel it-updates-panel-full">
                   <div className="it-updates-panel-header">
-                    <h2>
-                      <MdCampaign size={20} style={{ marginRight: '0.4rem', verticalAlign: 'middle' }} />
-                      My Campaigns &amp; Tasks
-                    </h2>
+                    <h2>My Kanban</h2>
                   </div>
                   <DragDropContext onDragEnd={handleDragEnd}>
                     <div className="it-updates-kanban-wrap">
@@ -721,11 +632,11 @@ export default function DigitalMarketingMain({ currentUser, onLogout }) {
                   }
                 >
                   <option value="">All statuses</option>
-                  <option value="todo">Idea</option>
-                  <option value="in_progress">Drafting</option>
-                  <option value="review">Design Review</option>
+                  <option value="todo">To do</option>
+                  <option value="in_progress">In Progress</option>
+                  <option value="review">Review</option>
                   <option value="rework">Rework</option>
-                  <option value="completed">Published</option>
+                  <option value="completed">Completed</option>
                 </select>
                 <select
                   value={allTasksFiltersDraft.priority}
@@ -802,7 +713,7 @@ export default function DigitalMarketingMain({ currentUser, onLogout }) {
                   />
                 </label>
                 <label>
-                  Team Member
+                  Admin
                   <select
                     value={overviewFiltersDraft.assigned_to}
                     onChange={(e) =>
@@ -870,7 +781,8 @@ export default function DigitalMarketingMain({ currentUser, onLogout }) {
                               backgroundColor: STATUS_COLORS[task.status]
                                 ? `${STATUS_COLORS[task.status]}18`
                                 : undefined,
-                              color: STATUS_COLORS[task.status] || '#374151',
+                              color:
+                                STATUS_COLORS[task.status] || '#374151',
                             }}
                           >
                             {STATUS_LABELS[task.status] ?? task.status}
@@ -884,182 +796,6 @@ export default function DigitalMarketingMain({ currentUser, onLogout }) {
               </div>
               {!overviewTasks.length && (
                 <div className="it-updates-empty">No tasks match the filters.</div>
-              )}
-            </section>
-          )}
-
-          {/* ─── Calendar ─── */}
-          {activeTab === 'Calendar' && (
-            <section className="it-updates-panel it-updates-panel-full">
-              <div className="it-updates-panel-header">
-                <h2>Content Calendar</h2>
-              </div>
-              <div className="it-updates-table-wrap">
-                <table className="it-updates-table-overview">
-                  <thead>
-                    <tr>
-                      <th>Target Date</th>
-                      <th>Publish Date</th>
-                      <th>Title</th>
-                      <th>Campaign</th>
-                      <th>Type</th>
-                      <th>Channel</th>
-                      <th>Status</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {calendarTasks.map((task) => (
-                      <tr key={`cal-${task.id}`}>
-                        <td>{task.target_date ? new Date(task.target_date).toLocaleDateString() : '—'}</td>
-                        <td>{task.publish_date ? new Date(task.publish_date).toLocaleDateString() : '—'}</td>
-                        <td>{task.title}</td>
-                        <td>{task.campaign_name || '—'}</td>
-                        <td>
-                          {task.content_type ? (
-                            <span
-                              className="it-updates-status-badge"
-                              style={{
-                                backgroundColor: `${CONTENT_TYPE_COLORS[task.content_type] || '#64748b'}18`,
-                                color: CONTENT_TYPE_COLORS[task.content_type] || '#334155',
-                              }}
-                            >
-                              {task.content_type.replace('_', ' ')}
-                            </span>
-                          ) : '—'}
-                        </td>
-                        <td>
-                          {task.channel ? (
-                            <span
-                              className="it-updates-status-badge"
-                              style={{
-                                backgroundColor: `${CHANNEL_COLORS[task.channel] || '#64748b'}18`,
-                                color: CHANNEL_COLORS[task.channel] || '#334155',
-                              }}
-                            >
-                              {task.channel}
-                            </span>
-                          ) : '—'}
-                        </td>
-                        <td>
-                          <span
-                            className="it-updates-status-badge"
-                            style={{
-                              backgroundColor: STATUS_COLORS[task.status]
-                                ? `${STATUS_COLORS[task.status]}18`
-                                : undefined,
-                              color: STATUS_COLORS[task.status] || '#374151',
-                            }}
-                          >
-                            {STATUS_LABELS[task.status] ?? task.status}
-                          </span>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-              {!calendarTasks.length && (
-                <div className="it-updates-empty">No scheduled items yet. Add target or publish dates in tasks.</div>
-              )}
-            </section>
-          )}
-
-          {/* ─── Link Hub ─── */}
-          {activeTab === 'Link Hub' && (
-            <section className="it-updates-panel it-updates-panel-full">
-              <div className="it-updates-panel-header">
-                <h2>Link Hub</h2>
-                <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem' }}>
-                  <input
-                    type="checkbox"
-                    checked={linkHubMissingOnly}
-                    onChange={(e) => setLinkHubMissingOnly(e.target.checked)}
-                  />
-                  Show only missing links
-                </label>
-              </div>
-              <div className="it-updates-table-wrap">
-                <table className="it-updates-table-overview">
-                  <thead>
-                    <tr>
-                      <th>Task</th>
-                      <th>Campaign</th>
-                      <th>Type</th>
-                      <th>Design</th>
-                      <th>Content Doc</th>
-                      <th>Published</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {linkHubTasks.map((task) => (
-                      <tr key={`link-${task.id}`}>
-                        <td>{task.title}</td>
-                        <td>{task.campaign_name || '—'}</td>
-                        <td>
-                          {task.content_type ? (
-                            <span
-                              className="it-updates-status-badge"
-                              style={{
-                                backgroundColor: `${CONTENT_TYPE_COLORS[task.content_type] || '#64748b'}18`,
-                                color: CONTENT_TYPE_COLORS[task.content_type] || '#334155',
-                              }}
-                            >
-                              {task.content_type.replace('_', ' ')}
-                            </span>
-                          ) : '—'}
-                        </td>
-                        <td>
-                          {task.design_link ? (
-                            <div style={{ display: 'inline-flex', gap: '0.45rem', alignItems: 'center' }}>
-                              <a href={task.design_link} target="_blank" rel="noreferrer">Open</a>
-                              <button
-                                type="button"
-                                className="it-updates-btn it-updates-btn-secondary"
-                                onClick={() => handleCopyLink(task.design_link)}
-                                style={{ padding: '0.15rem 0.45rem', fontSize: '0.75rem' }}
-                              >
-                                Copy
-                              </button>
-                            </div>
-                          ) : '—'}
-                        </td>
-                        <td>
-                          {task.content_doc_link ? (
-                            <div style={{ display: 'inline-flex', gap: '0.45rem', alignItems: 'center' }}>
-                              <a href={task.content_doc_link} target="_blank" rel="noreferrer">Open</a>
-                              <button
-                                type="button"
-                                className="it-updates-btn it-updates-btn-secondary"
-                                onClick={() => handleCopyLink(task.content_doc_link)}
-                                style={{ padding: '0.15rem 0.45rem', fontSize: '0.75rem' }}
-                              >
-                                Copy
-                              </button>
-                            </div>
-                          ) : '—'}
-                        </td>
-                        <td>
-                          {task.publish_link ? (
-                            <div style={{ display: 'inline-flex', gap: '0.45rem', alignItems: 'center' }}>
-                              <a href={task.publish_link} target="_blank" rel="noreferrer">Open</a>
-                              <button
-                                type="button"
-                                className="it-updates-btn it-updates-btn-secondary"
-                                onClick={() => handleCopyLink(task.publish_link)}
-                                style={{ padding: '0.15rem 0.45rem', fontSize: '0.75rem' }}
-                              >
-                                Copy
-                              </button>
-                            </div>
-                          ) : '—'}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-              {!linkHubTasks.length && (
-                <div className="it-updates-empty">No links yet. Add design/content/publish links in tasks.</div>
               )}
             </section>
           )}
@@ -1135,7 +871,7 @@ export default function DigitalMarketingMain({ currentUser, onLogout }) {
           onSave={handleSaveTask}
           onRefresh={loadMyTasks}
           teamMembers={teamOverview}
-          assignedByOptions={adminUsers}
+          assignedByOptions={teamOverview}
         />
       )}
       {eodModal && (
@@ -1155,14 +891,6 @@ function TaskModal({ task, onClose, onSave, onRefresh, teamMembers, assignedByOp
   const [form, setForm] = useState({
     task_title: task?.title ?? '',
     task_description: task?.task_description ?? task?.description ?? '',
-    campaign_name: task?.campaign_name ?? '',
-    content_type: task?.content_type ?? 'poster',
-    channel: task?.channel ?? 'Instagram',
-    design_link: task?.design_link ?? '',
-    content_doc_link: task?.content_doc_link ?? '',
-    publish_link: task?.publish_link ?? '',
-    target_date: task?.target_date ? String(task.target_date).slice(0, 10) : '',
-    publish_date: task?.publish_date ? String(task.publish_date).slice(0, 10) : '',
     assigned_to: task?.assigned_to ?? '',
     assigned_by: task?.assigned_by ?? '',
     status: task?.id != null ? (task?.status ?? 'in_progress') : 'todo',
@@ -1404,16 +1132,11 @@ function TaskModal({ task, onClose, onSave, onRefresh, teamMembers, assignedByOp
     if (saveState.saving) return;
 
     setSaveState({ saving: true, saved: false });
-    let ok = false;
-    try {
-      ok = await onSave({
-        ...form,
-        requirements,
-        due_date: form.due_date || undefined,
-      });
-    } catch {
-      ok = false;
-    }
+    const ok = await onSave({
+      ...form,
+      requirements,
+      due_date: form.due_date || undefined,
+    });
 
     if (ok) {
       setSaveState({ saving: false, saved: true });
@@ -1447,81 +1170,6 @@ function TaskModal({ task, onClose, onSave, onRefresh, teamMembers, assignedByOp
               value={form.task_description}
               onChange={(e) => setForm((f) => ({ ...f, task_description: e.target.value }))}
               rows={2}
-            />
-          </label>
-          <label>
-            Campaign name
-            <input
-              value={form.campaign_name}
-              onChange={(e) => setForm((f) => ({ ...f, campaign_name: e.target.value }))}
-              placeholder="e.g. Summer Launch 2026"
-            />
-          </label>
-          <label>
-            Content type
-            <select
-              value={form.content_type}
-              onChange={(e) => setForm((f) => ({ ...f, content_type: e.target.value }))}
-            >
-              <option value="poster">Poster</option>
-              <option value="blog">Blog</option>
-              <option value="social_post">Social Post</option>
-              <option value="video">Video/Reel</option>
-              <option value="ad_copy">Ad Copy</option>
-            </select>
-          </label>
-          <label>
-            Channel
-            <select
-              value={form.channel}
-              onChange={(e) => setForm((f) => ({ ...f, channel: e.target.value }))}
-            >
-              <option value="Instagram">Instagram</option>
-              <option value="Facebook">Facebook</option>
-              <option value="LinkedIn">LinkedIn</option>
-              <option value="YouTube">YouTube</option>
-              <option value="Website">Website</option>
-              <option value="Email">Email</option>
-            </select>
-          </label>
-          <label>
-            Design link
-            <input
-              value={form.design_link}
-              onChange={(e) => setForm((f) => ({ ...f, design_link: e.target.value }))}
-              placeholder="https://..."
-            />
-          </label>
-          <label>
-            Content doc link
-            <input
-              value={form.content_doc_link}
-              onChange={(e) => setForm((f) => ({ ...f, content_doc_link: e.target.value }))}
-              placeholder="https://..."
-            />
-          </label>
-          <label>
-            Publish link
-            <input
-              value={form.publish_link}
-              onChange={(e) => setForm((f) => ({ ...f, publish_link: e.target.value }))}
-              placeholder="https://..."
-            />
-          </label>
-          <label>
-            Target publish date
-            <input
-              type="date"
-              value={form.target_date}
-              onChange={(e) => setForm((f) => ({ ...f, target_date: e.target.value }))}
-            />
-          </label>
-          <label>
-            Actual publish date
-            <input
-              type="date"
-              value={form.publish_date}
-              onChange={(e) => setForm((f) => ({ ...f, publish_date: e.target.value }))}
             />
           </label>
 
@@ -1665,11 +1313,11 @@ function TaskModal({ task, onClose, onSave, onRefresh, teamMembers, assignedByOp
           <label>
             Status
             <select value={form.status} onChange={(e) => setForm((f) => ({ ...f, status: e.target.value }))}>
-              <option value="todo">Idea</option>
-              <option value="in_progress">Drafting</option>
-              <option value="review">Design Review</option>
+              <option value="todo">To do</option>
+              <option value="in_progress">In Progress</option>
+              <option value="review">Review</option>
               <option value="rework">Rework</option>
-              <option value="completed">Published</option>
+              <option value="completed">Completed</option>
             </select>
           </label>
           <label>
@@ -1795,7 +1443,7 @@ function EodModal({ onClose, onSave }) {
             <textarea
               value={form.achievements}
               onChange={(e) => setForm((f) => ({ ...f, achievements: e.target.value }))}
-              placeholder="e.g. Completed social media posts, ran ad campaigns..."
+              placeholder="e.g. Completed client follow-up, reviewed proposals..."
               rows={4}
               required
             />
