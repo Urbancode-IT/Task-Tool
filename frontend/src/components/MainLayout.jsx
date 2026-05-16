@@ -11,7 +11,12 @@ const MODULES = [
   { key: 'it_updates', label: 'IT Updates', icon: MdComputer, permission: 'it_updates.view' },
   { key: 'consultants', label: 'Consultants', icon: MdPeople, permission: 'consultants.view' },
   { key: 'digital_marketing', label: 'Digital Marketing', icon: MdCampaign, permission: 'digital_marketing.view' },
-  { key: 'legal_finance', label: 'Legal & Finance', icon: MdGavel, permission: 'admin.access' },
+  {
+    key: 'legal_finance',
+    label: 'Legal & Finance',
+    icon: MdGavel,
+    permissions: ['legal_finance.view', 'legal_finance.manage'],
+  },
   { key: 'admin', label: 'Management', icon: MdAdminPanelSettings, permission: 'admin.access' },
 ];
 
@@ -24,9 +29,12 @@ export default function MainLayout({ currentUser, onLogout }) {
 
   const modulesToShow = useMemo(() => {
     if (userPermissions.includes('admin.access')) return MODULES;
-    const filtered = MODULES.filter(
-      (m) => !m.permission || userPermissions.includes(m.permission)
-    );
+    const filtered = MODULES.filter((m) => {
+      if (Array.isArray(m.permissions) && m.permissions.length > 0) {
+        return m.permissions.some((perm) => userPermissions.includes(perm));
+      }
+      return !m.permission || userPermissions.includes(m.permission);
+    });
     return filtered.length > 0 ? filtered : MODULES.filter((m) => m.key === 'it_updates');
   }, [userPermissions]);
 

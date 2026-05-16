@@ -12,6 +12,7 @@ export function getDisplayRole(user) {
   if (p.includes('consultants.view') || p.includes('consultants.manage')) return 'Consultant';
   if (p.includes('digital_marketing.view') || p.includes('digital_marketing.manage'))
     return 'Digital Marketing';
+  if (p.includes('legal_finance.view') || p.includes('legal_finance.manage')) return 'Legal & Finance';
   return user.role && user.role !== 'User' ? user.role : 'User';
 }
 

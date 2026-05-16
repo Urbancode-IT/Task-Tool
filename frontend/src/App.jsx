@@ -98,11 +98,11 @@ function App() {
   // render immediately and verify the session in the background.
   const [user, setUser] = useState(() => {
     const raw = localStorage.getItem('user');
-    if (!raw) return undefined; // no cache -> keep current "checking session" bootstrap
+    if (!raw) return null;
     try {
       return JSON.parse(raw);
     } catch {
-      return null; // cache corrupted -> treat as logged out
+      return null;
     }
   });
 
@@ -110,7 +110,7 @@ function App() {
     let cancelled = false;
     (async () => {
       try {
-        const { data } = await authApi.me();
+        const { data } = await authApi.restoreSession();
         if (!cancelled) {
           if (data?.user) {
             setUser(data.user);
@@ -153,18 +153,6 @@ function App() {
     setUser(null);
     localStorage.removeItem('user');
   };
-
-  if (user === undefined) {
-    return (
-      <div className="auth-root auth-bootstrap" role="status" aria-live="polite">
-        <div className="auth-grid-overlay" />
-        <div className="auth-bootstrap-inner">
-          <span className="auth-bootstrap-spinner" aria-hidden />
-          <span className="auth-bootstrap-text">Checking your session…</span>
-        </div>
-      </div>
-    );
-  }
 
   if (!user) {
     return <LoginPage onLogin={handleLogin} />;

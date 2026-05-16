@@ -43,7 +43,7 @@ function userMatchesTeamFilter(u, filter) {
   if (filter === 'it') return inItTeam;
   if (filter === 'consultant') return codes.includes('consultant');
   if (filter === 'digital') return codes.includes('digital_marketing');
-  if (filter === 'legal_finance') return codes.includes('admin');
+  if (filter === 'legal_finance') return codes.includes('legal_finance') || codes.includes('admin');
   return true;
 }
 
@@ -830,7 +830,8 @@ export default function AdminMain({ currentUser, onLogout }) {
                 </button>
               </div>
               <p className="admin-users-filter-hint">
-                Filter by team. Assign Consultant or Digital Marketing via <strong>Assign roles</strong>.
+                Filter by team. Assign Consultant, Digital Marketing, or Legal &amp; Finance via{' '}
+                <strong>Assign roles</strong>.
               </p>
               <div className="admin-users-team-filter" role="tablist" aria-label="Filter by team">
                 {USERS_TEAM_FILTERS.map(({ key, label }) => (

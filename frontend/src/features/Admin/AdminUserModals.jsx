@@ -109,7 +109,10 @@ export function AdminUserDetailModal({ user, mode, onClose, onEdit, onSave, onDe
             />
             IT Manager (legacy)
           </label>
-          <p className="admin-form-hint">Use &quot;Assign roles&quot; in the table for Consultant, Digital Marketing, and Admin RBAC.</p>
+          <p className="admin-form-hint">
+            Use &quot;Assign roles&quot; in the table for Consultant, Digital Marketing, Legal &amp; Finance, and Admin
+            RBAC.
+          </p>
           <div className="admin-modal-actions">
             <button type="button" className="admin-btn admin-btn-secondary" onClick={onClose}>
               Cancel
@@ -129,6 +132,7 @@ const ROLE_OPTIONS = [
   { value: 'it_manager', label: 'IT Manager' },
   { value: 'consultant', label: 'Consultant' },
   { value: 'digital_marketing', label: 'Digital Marketing' },
+  { value: 'legal_finance', label: 'Legal & Finance' },
   { value: 'admin', label: 'Admin' },
 ];
 

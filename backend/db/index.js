@@ -382,6 +382,56 @@ export async function dbEnsureTables() {
   }
 }
 
+/** Ensure Legal & Finance department, permissions, role, and role_permissions exist (RBAC tables required). */
+export async function dbEnsureLegalFinanceRbac() {
+  const p = getPool();
+  if (!p) return;
+  try {
+    await p.query('SELECT 1 FROM departments LIMIT 1');
+  } catch {
+    return;
+  }
+  try {
+    await p.query(`
+      INSERT INTO departments (name, code, description)
+      SELECT 'Legal & Finance', 'legal_finance', 'Legal and finance workspace'
+      WHERE NOT EXISTS (SELECT 1 FROM departments WHERE code = 'legal_finance')
+    `);
+    await p.query(`
+      INSERT INTO permissions (code, name, module, description)
+      SELECT 'legal_finance.view', 'View Legal & Finance', 'legal_finance', 'Access Legal & Finance module'
+      WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'legal_finance.view')
+    `);
+    await p.query(`
+      INSERT INTO permissions (code, name, module, description)
+      SELECT 'legal_finance.manage', 'Manage Legal & Finance', 'legal_finance', 'Create and edit Legal & Finance tasks'
+      WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'legal_finance.manage')
+    `);
+    await p.query(`
+      INSERT INTO roles (name, code, department_id, description)
+      SELECT 'Legal & Finance', 'legal_finance', d.department_id, 'Legal & Finance team member'
+      FROM departments d
+      WHERE d.code = 'legal_finance'
+        AND NOT EXISTS (SELECT 1 FROM roles WHERE code = 'legal_finance')
+    `);
+    await p.query(`
+      INSERT INTO role_permissions (role_id, permission_id)
+      SELECT r.role_id, p.permission_id
+      FROM roles r
+      CROSS JOIN permissions p
+      WHERE r.code = 'legal_finance'
+        AND p.code IN ('legal_finance.view', 'legal_finance.manage')
+        AND NOT EXISTS (
+          SELECT 1 FROM role_permissions rp
+          WHERE rp.role_id = r.role_id AND rp.permission_id = p.permission_id
+        )
+    `);
+    console.log('DB: Legal & Finance RBAC (role + permissions) ensured.');
+  } catch (err) {
+    console.warn('dbEnsureLegalFinanceRbac:', err.message);
+  }
+}
+
 /** Test DB connection on startup. Returns { ok: true } or { ok: false, error: string }. */
 export async function testConnection() {
   const p = getPool();
@@ -399,8 +449,9 @@ export async function testConnection() {
     const client = await p.connect();
     await client.query('SELECT 1');
     client.release();
-    // Also ensure requirements table
+    // Also ensure requirements table + Legal & Finance RBAC role for admin Assign roles UI
     await dbEnsureTables();
+    await dbEnsureLegalFinanceRbac();
     dbAvailability = true;
     return { ok: true };
   } catch (err) {
@@ -1366,7 +1417,7 @@ export async function dbGetTeamOverview(team = null) {
               FROM user_roles ur
               JOIN roles r ON r.role_id = ur.role_id
               WHERE ur.user_id = u.user_id
-                AND r.code = 'admin'
+                AND r.code IN ('legal_finance', 'admin')
             )`;
     } else if (team) {
       teamWhereClause = `WHERE EXISTS (

@@ -162,11 +162,12 @@ function mergeTaskReviewTransition(existing, incomingBody, reqUser) {
   return body;
 }
 
-/** Legal & Finance tasks are stored separately and are only for users with admin.access. */
-function requireAdminForLegalFinance(req, res) {
+/** Legal & Finance tasks: admins, or users with the Legal & Finance RBAC role (legal_finance.view / manage). */
+function requireLegalFinanceAccess(req, res) {
   const perms = req.user?.permissions || [];
   if (perms.includes('admin.access')) return true;
-  res.status(403).json({ message: 'Legal & Finance is only available to administrators.' });
+  if (perms.includes('legal_finance.view') || perms.includes('legal_finance.manage')) return true;
+  res.status(403).json({ message: 'Legal & Finance is only available to authorised users.' });
   return false;
 }
 
@@ -186,8 +187,16 @@ async function buildUserFromDbUser(dbUser) {
     is_it_manager: Boolean(dbUser.is_it_manager),
   };
   try {
-    user.permissions = await db.dbGetUserPermissionsOrLegacy(dbUser.user_id);
-    user.roleIds = await db.dbGetUserRoleIds(dbUser.user_id);
+    const [perms, roleIds] = await Promise.all([
+      db.dbGetUserPermissions(dbUser.user_id),
+      db.dbGetUserRoleIds(dbUser.user_id),
+    ]);
+    const legacy = [];
+    if (user.is_it_developer || user.is_it_manager) {
+      legacy.push('it_updates.view', 'it_updates.manage', 'it_updates.users');
+    }
+    user.permissions = [...new Set([...(Array.isArray(perms) ? perms : []), ...legacy])];
+    user.roleIds = Array.isArray(roleIds) ? roleIds : [];
   } catch (_) {
     user.permissions = [];
     user.roleIds = [];
@@ -200,6 +209,8 @@ async function buildUserFromDbUser(dbUser) {
   else if (perms.includes('consultants.view') || perms.includes('consultants.manage')) user.role = 'Consultant';
   else if (perms.includes('digital_marketing.view') || perms.includes('digital_marketing.manage'))
     user.role = 'Digital Marketing';
+  else if (perms.includes('legal_finance.view') || perms.includes('legal_finance.manage'))
+    user.role = 'Legal & Finance';
   else user.role = 'User';
   return user;
 }
@@ -259,13 +270,59 @@ app.post('/auth/login', async (req, res) => {
   res.json({ user: safeUser });
 });
 
+/** Resolve session from access cookie, or refresh cookie if access expired (one round-trip for the client). */
+function resolveSessionFromCookies(req, res) {
+  const JWT_SECRET = process.env.JWT_SECRET;
+  if (!JWT_SECRET) {
+    const token = req.cookies?.access_token;
+    if (!token) return { ok: false, status: 401, message: 'Not authenticated' };
+    return { ok: true, decoded: { id: users[0]?.id, email: users[0]?.email }, demo: true };
+  }
+
+  const accessToken = req.cookies?.access_token;
+  if (accessToken === 'demo-token') {
+    const u = users[0];
+    return { ok: true, decoded: { id: u?.id, email: u?.email }, demo: true };
+  }
+
+  if (accessToken) {
+    try {
+      return { ok: true, decoded: jwt.verify(accessToken, JWT_SECRET) };
+    } catch {
+      // access expired — fall through to refresh
+    }
+  }
+
+  const refreshToken = req.cookies?.refresh_token;
+  if (!refreshToken) {
+    return { ok: false, status: 401, message: 'Not authenticated' };
+  }
+
+  const refreshDecoded = verifyRefreshToken(refreshToken);
+  if (!refreshDecoded) {
+    return { ok: false, status: 401, message: 'Invalid or expired refresh token' };
+  }
+
+  const newAccess = signAccessToken({ id: refreshDecoded.id, email: refreshDecoded.email });
+  if (newAccess) {
+    res.cookie('access_token', newAccess, COOKIE_OPTS);
+  } else {
+    res.cookie('access_token', 'demo-token', COOKIE_OPTS);
+  }
+
+  return { ok: true, decoded: refreshDecoded, refreshed: true };
+}
+
 /** Current session (cookies). Used on app load — do not trust localStorage alone. */
 app.get('/auth/me', asyncMw(async (req, res) => {
   const JWT_SECRET = process.env.JWT_SECRET;
 
-  if (!JWT_SECRET) {
-    const token = req.cookies?.access_token;
-    if (!token) return res.status(401).json({ message: 'Not authenticated' });
+  const session = resolveSessionFromCookies(req, res);
+  if (!session.ok) {
+    return res.status(session.status || 401).json({ message: session.message || 'Not authenticated' });
+  }
+
+  if (!JWT_SECRET || session.demo) {
     const u = users[0];
     const { password: _pw, ...safeUser } = u;
     safeUser.permissions = ['it_updates.view', 'it_updates.manage', 'it_updates.users', 'admin.access'];
@@ -273,23 +330,7 @@ app.get('/auth/me', asyncMw(async (req, res) => {
     return res.json({ user: safeUser });
   }
 
-  const token = req.cookies?.access_token;
-  if (!token) return res.status(401).json({ message: 'Not authenticated' });
-
-  if (token === 'demo-token') {
-    const u = users[0];
-    const { password: _pw, ...safeUser } = u;
-    safeUser.permissions = ['it_updates.view', 'it_updates.manage', 'it_updates.users', 'admin.access'];
-    safeUser.roleIds = [];
-    return res.json({ user: safeUser });
-  }
-
-  let decoded;
-  try {
-    decoded = jwt.verify(token, JWT_SECRET);
-  } catch {
-    return res.status(401).json({ message: 'Invalid or expired token' });
-  }
+  const decoded = session.decoded;
 
   if (db.useDb()) {
     const dbUser = await db.dbGetUserById(decoded.id);
@@ -583,7 +624,7 @@ app.get(`${BASE_PATH}/tasks`, async (req, res) => {
         to_date: req.query.to_date || null,
         team: req.query.team || null,
       };
-      if (isLegalFinanceTeamString(filters.team) && !requireAdminForLegalFinance(req, res)) return;
+      if (isLegalFinanceTeamString(filters.team) && !requireLegalFinanceAccess(req, res)) return;
       const list = await db.dbGetTasksSimple(filters);
       return res.json(list);
     }
@@ -603,7 +644,7 @@ app.post(`${BASE_PATH}/tasks`, async (req, res) => {
   try {
     if (db.useDb()) {
       const teamForCreate = req.body?.team || req.query?.team;
-      if (isLegalFinanceTeamString(teamForCreate) && !requireAdminForLegalFinance(req, res)) return;
+      if (isLegalFinanceTeamString(teamForCreate) && !requireLegalFinanceAccess(req, res)) return;
       const task = await db.dbCreateTask({ ...req.body, team: teamForCreate });
       if (!task) return res.status(500).json({ message: 'Failed to create task' });
       return res.status(201).json(task);
@@ -631,8 +672,8 @@ app.put(`${BASE_PATH}/tasks/:taskId`, async (req, res) => {
     const team = req.body?.team || req.query?.team;
     if (db.useDb()) {
       const existing = await db.dbGetTaskById(taskId, team);
-      if (existing?.team === 'legal_finance' && !requireAdminForLegalFinance(req, res)) return;
-      if (isLegalFinanceTeamString(team) && !requireAdminForLegalFinance(req, res)) return;
+      if (existing?.team === 'legal_finance' && !requireLegalFinanceAccess(req, res)) return;
+      if (isLegalFinanceTeamString(team) && !requireLegalFinanceAccess(req, res)) return;
       const body = mergeTaskReviewTransition(existing, { ...req.body, team }, req.user);
       const task = await db.dbUpdateTask(taskId, body);
       if (!task) return res.status(404).json({ message: 'Task not found' });
@@ -654,8 +695,8 @@ app.delete(`${BASE_PATH}/tasks/:taskId`, async (req, res) => {
     if (db.useDb()) {
       const hintTeam = req.query?.team || null;
       const existing = await db.dbGetTaskById(req.params.taskId, hintTeam);
-      if (existing?.team === 'legal_finance' && !requireAdminForLegalFinance(req, res)) return;
-      if (isLegalFinanceTeamString(hintTeam) && !requireAdminForLegalFinance(req, res)) return;
+      if (existing?.team === 'legal_finance' && !requireLegalFinanceAccess(req, res)) return;
+      if (isLegalFinanceTeamString(hintTeam) && !requireLegalFinanceAccess(req, res)) return;
       const ok = await db.dbDeleteTask(req.params.taskId, hintTeam);
       if (!ok) return res.status(404).json({ message: 'Task not found' });
       return res.status(204).send();
@@ -757,7 +798,7 @@ app.get(`${BASE_PATH}/team-overview`, async (req, res) => {
   try {
     if (db.useDb()) {
       const teamKey = req.query.team || null;
-      if (isLegalFinanceTeamString(teamKey) && !requireAdminForLegalFinance(req, res)) return;
+      if (isLegalFinanceTeamString(teamKey) && !requireLegalFinanceAccess(req, res)) return;
       const list = await db.dbGetTeamOverview(teamKey);
       return res.json(list);
     }
@@ -825,7 +866,7 @@ app.get(`${BASE_PATH}/tasks/:taskId/requirements`, async (req, res) => {
         const t = await db.dbGetTaskById(taskId, null);
         teamHint = t?.team || null;
       }
-      if (isLegalFinanceTeamString(teamHint) && !requireAdminForLegalFinance(req, res)) return;
+      if (isLegalFinanceTeamString(teamHint) && !requireLegalFinanceAccess(req, res)) return;
       const list = await db.dbGetRequirements(taskId, teamHint);
       return res.json(list);
     }
@@ -846,7 +887,7 @@ app.post(`${BASE_PATH}/tasks/:taskId/requirements`, async (req, res) => {
         const t = await db.dbGetTaskById(taskId, null);
         teamHint = t?.team || null;
       }
-      if (isLegalFinanceTeamString(teamHint) && !requireAdminForLegalFinance(req, res)) return;
+      if (isLegalFinanceTeamString(teamHint) && !requireLegalFinanceAccess(req, res)) return;
       const req2 = await db.dbCreateRequirement(taskId, req.body, teamHint);
       if (!req2) return res.status(500).json({ message: 'Failed to create requirement' });
       return res.status(201).json(req2);
@@ -883,7 +924,7 @@ app.put(`${BASE_PATH}/tasks/:taskId/requirements/:reqId`, async (req, res) => {
         const t = await db.dbGetTaskById(taskId, null);
         teamHint = t?.team || null;
       }
-      if (isLegalFinanceTeamString(teamHint) && !requireAdminForLegalFinance(req, res)) return;
+      if (isLegalFinanceTeamString(teamHint) && !requireLegalFinanceAccess(req, res)) return;
       const updated = await db.dbUpdateRequirement(reqId, req.body, taskId, teamHint);
       if (!updated) return res.status(404).json({ message: 'Requirement not found' });
       return res.json(updated);
@@ -909,7 +950,7 @@ app.delete(`${BASE_PATH}/tasks/:taskId/requirements/:reqId`, async (req, res) =>
         const t = await db.dbGetTaskById(taskId, null);
         teamHint = t?.team || null;
       }
-      if (isLegalFinanceTeamString(teamHint) && !requireAdminForLegalFinance(req, res)) return;
+      if (isLegalFinanceTeamString(teamHint) && !requireLegalFinanceAccess(req, res)) return;
       const ok = await db.dbDeleteRequirement(reqId, taskId, teamHint);
       if (!ok) return res.status(404).json({ message: 'Requirement not found' });
       return res.status(204).send();

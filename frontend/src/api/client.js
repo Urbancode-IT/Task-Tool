@@ -41,6 +41,7 @@ apiClient.interceptors.response.use(
 
     if (config?.skipAuthRefresh) return Promise.reject(error);
     if (config?.url?.includes('/login')) return Promise.reject(error);
+    if (config?.url?.includes('/auth/me')) return Promise.reject(error);
 
     if (response?.status === 401 && !config?._retry) {
       config._retry = true;
