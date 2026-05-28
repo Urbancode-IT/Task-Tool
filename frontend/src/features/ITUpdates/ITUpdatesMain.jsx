@@ -19,6 +19,7 @@ import {
 import itUpdatesApi from '../../api/itUpdatesApi';
 import { getDisplayRole } from '../../utils/displayRole';
 import { isTaskOverdue } from '../../utils/taskDue';
+import { toastSuccess, toastError } from '../../utils/toast';
 import logoSrc from '../../assets/logo.png';
 import './ITUpdatesMain.css';
 
@@ -315,8 +316,11 @@ const ITUpdatesMain = ({ currentUser, onLogout }) => {
 
       await loadAllData();
       cancelInlineEdit();
+      toastSuccess('Task updated');
     } catch (e) {
-      setError(e?.response?.data?.message || 'Failed to save inline edit');
+      const msg = e?.response?.data?.message || 'Failed to save inline edit';
+      setError(msg);
+      toastError(msg);
       await loadAllData();
       cancelInlineEdit();
     } finally {
@@ -402,6 +406,7 @@ const ITUpdatesMain = ({ currentUser, onLogout }) => {
       );
       try {
         await itUpdatesApi.updateTask(taskId, { status: newStatus, team: MODULE_TEAM });
+        toastSuccess(`Task moved to ${STATUS_LABELS[newStatus] || newStatus}`);
       } catch {
         setTasks((prev) =>
           prev.map((t) =>
@@ -409,6 +414,7 @@ const ITUpdatesMain = ({ currentUser, onLogout }) => {
           )
         );
         setError('Failed to update task status');
+        toastError('Failed to update task status');
       }
     },
     [tasks]
@@ -438,7 +444,8 @@ const ITUpdatesMain = ({ currentUser, onLogout }) => {
         owner_name: payload.owner_name || null,
         teammates: payload.teammates ?? [],
       };
-      if (projectModal.project?.id) {
+      const isEdit = Boolean(projectModal.project?.id);
+      if (isEdit) {
         await itUpdatesApi.updateProject(projectModal.project.id, body);
       } else {
         await itUpdatesApi.createProject(body);
@@ -449,9 +456,12 @@ const ITUpdatesMain = ({ currentUser, onLogout }) => {
       ]);
       setDashboardData(statsRes?.data ?? null);
       setProjects(Array.isArray(projRes?.data) ? projRes.data : []);
+      toastSuccess(isEdit ? 'Project updated' : 'Project created');
       return true;
     } catch (e) {
-      setError(e?.response?.data?.message || 'Failed to save project');
+      const msg = e?.response?.data?.message || 'Failed to save project';
+      setError(msg);
+      toastError(msg);
       return false;
     }
   };
@@ -469,7 +479,8 @@ const ITUpdatesMain = ({ currentUser, onLogout }) => {
         task_date: payload.task_date,
         dueDate: payload.due_date ?? payload.dueDate,
       };
-      if (taskModal.task?.id) {
+      const isEdit = Boolean(taskModal.task?.id);
+      if (isEdit) {
         await itUpdatesApi.updateTask(taskModal.task.id, { ...body, team: MODULE_TEAM });
       } else {
         const res = await itUpdatesApi.createTask({ ...body, team: MODULE_TEAM });
@@ -495,9 +506,12 @@ const ITUpdatesMain = ({ currentUser, onLogout }) => {
       ]);
       setTasks(Array.isArray(tasksRes?.data) ? tasksRes.data : []);
       setDashboardData(statsRes?.data ?? null);
+      toastSuccess(isEdit ? 'Task updated' : 'Task created');
       return true;
     } catch (e) {
-      setError(e?.response?.data?.message || 'Failed to save task');
+      const msg = e?.response?.data?.message || 'Failed to save task';
+      setError(msg);
+      toastError(msg);
       return false;
     }
   };
@@ -511,8 +525,11 @@ const ITUpdatesMain = ({ currentUser, onLogout }) => {
       setEodModal(false);
       const eodRes = await itUpdatesApi.getEodReports();
       setEodReports(Array.isArray(eodRes?.data) ? eodRes.data : []);
+      toastSuccess('EOD report submitted');
     } catch (e) {
-      setError(e?.response?.data?.message || 'Failed to save EOD report');
+      const msg = e?.response?.data?.message || 'Failed to save EOD report';
+      setError(msg);
+      toastError(msg);
     }
   };
 
@@ -1870,9 +1887,11 @@ function TaskModal({ task, projects, developers, managers, onClose, onSave, onRe
       });
       setReviewNote('');
       if (onRefresh) onRefresh();
+      toastSuccess('Task marked complete');
       onClose();
     } catch {
       onError?.('Failed to mark task complete');
+      toastError('Failed to mark task complete');
     }
   };
 
@@ -1888,10 +1907,10 @@ function TaskModal({ task, projects, developers, managers, onClose, onSave, onRe
       });
       setReviewNote('');
       if (onRefresh) onRefresh();
-      // Also mark at least one requirement as pending if they are all completed? 
-      // User might want to do this manually. For now just move status.
+      toastSuccess('Task sent for rework');
     } catch {
       onError?.('Failed to set for rework');
+      toastError('Failed to send task for rework');
     }
   };
 
@@ -2104,21 +2123,17 @@ function TaskModal({ task, projects, developers, managers, onClose, onSave, onRe
             </select>
           </label>
           <label>
-            Assign to 
-            <select
-              value={form.assigned_to}
-              onChange={(e) => setForm((f) => ({ ...f, assigned_to: e.target.value }))}
-            >
-              <option value="">—</option>
-              {(developers.length ? developers : [{ assignee: 'Unassigned', user_id: '' }]).map((u) => (
-                <option key={u.user_id ?? u.assignee} value={u.user_id ?? u.assignee ?? ''}>
-                  {u.username ?? u.assignee}
-                </option>
-              ))}
+            Status
+            <select value={form.status} onChange={(e) => setForm((f) => ({ ...f, status: e.target.value }))}>
+              <option value="todo">To do</option>
+              <option value="in_progress">In Progress</option>
+              <option value="review">Review</option>
+              <option value="rework">Rework</option>
+              <option value="completed">Completed</option>
             </select>
           </label>
           <label>
-            Assigned by 
+            Assigned by
             <select
               value={form.assigned_by}
               onChange={(e) => setForm((f) => ({ ...f, assigned_by: e.target.value }))}
@@ -2132,13 +2147,17 @@ function TaskModal({ task, projects, developers, managers, onClose, onSave, onRe
             </select>
           </label>
           <label>
-            Status
-            <select value={form.status} onChange={(e) => setForm((f) => ({ ...f, status: e.target.value }))}>
-              <option value="todo">To do</option>
-              <option value="in_progress">In Progress</option>
-              <option value="review">Review</option>
-              <option value="rework">Rework</option>
-              <option value="completed">Completed</option>
+            Assign to
+            <select
+              value={form.assigned_to}
+              onChange={(e) => setForm((f) => ({ ...f, assigned_to: e.target.value }))}
+            >
+              <option value="">—</option>
+              {(developers.length ? developers : [{ assignee: 'Unassigned', user_id: '' }]).map((u) => (
+                <option key={u.user_id ?? u.assignee} value={u.user_id ?? u.assignee ?? ''}>
+                  {u.username ?? u.assignee}
+                </option>
+              ))}
             </select>
           </label>
           <label>

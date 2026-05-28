@@ -16,6 +16,7 @@ import {
 import adminApi from '../../api/adminApi';
 import itUpdatesApi from '../../api/itUpdatesApi';
 import { getDisplayRole } from '../../utils/displayRole';
+import { toastSuccess, toastError } from '../../utils/toast';
 import logoSrc from '../../assets/logo.png';
 import { AdminAddUserModal, AdminUserDetailModal } from './AdminUserModals';
 import { formatUserRowRole } from '../../utils/displayRole';
@@ -332,8 +333,11 @@ export default function AdminMain({ currentUser, onLogout }) {
       await adminApi.setUserRoles(editUserRoles.user_id, userRoleIds);
       setEditUserRoles(null);
       loadUsers();
+      toastSuccess('User roles updated');
     } catch (e) {
-      setError(e?.response?.data?.message || 'Failed to update roles');
+      const msg = e?.response?.data?.message || 'Failed to update roles';
+      setError(msg);
+      toastError(msg);
     }
   };
 
@@ -387,8 +391,13 @@ export default function AdminMain({ currentUser, onLogout }) {
       loadReviewTasks();
       loadPendingSummary();
       loadOverdueTasks();
+      toastSuccess(
+        nextStatus === 'completed' ? 'Task approved' : nextStatus === 'rework' ? 'Task sent for rework' : 'Task status updated'
+      );
     } catch (e) {
-      setError(e?.response?.data?.message || 'Failed to update task status');
+      const msg = e?.response?.data?.message || 'Failed to update task status';
+      setError(msg);
+      toastError(msg);
     } finally {
       setReviewSubmitting(false);
     }
@@ -901,10 +910,15 @@ export default function AdminMain({ currentUser, onLogout }) {
                                   if (!window.confirm(`Delete user ${u.username}?`)) return;
                                   adminApi
                                     .deleteUser(u.user_id)
-                                    .then(() => loadUsers())
-                                    .catch((e) =>
-                                      setError(e?.response?.data?.message || 'Failed to delete user')
-                                    );
+                                    .then(() => {
+                                      loadUsers();
+                                      toastSuccess('User deleted');
+                                    })
+                                    .catch((e) => {
+                                      const msg = e?.response?.data?.message || 'Failed to delete user';
+                                      setError(msg);
+                                      toastError(msg);
+                                    });
                                 }}
                               >
                                 <MdDelete size={16} />
@@ -1158,8 +1172,11 @@ export default function AdminMain({ currentUser, onLogout }) {
               }
               setAddUserModal(false);
               loadUsers();
+              toastSuccess('User created');
             } catch (e) {
-              setError(e?.response?.data?.message || 'Failed to create user');
+              const msg = e?.response?.data?.message || 'Failed to create user';
+              setError(msg);
+              toastError(msg);
             }
           }}
         />
@@ -1186,8 +1203,11 @@ export default function AdminMain({ currentUser, onLogout }) {
               await adminApi.updateUser(userDetailModal.user.user_id, body);
               setUserDetailModal({ open: false, user: null, mode: 'view' });
               loadUsers();
+              toastSuccess('User updated');
             } catch (e) {
-              setError(e?.response?.data?.message || 'Failed to update user');
+              const msg = e?.response?.data?.message || 'Failed to update user';
+              setError(msg);
+              toastError(msg);
             }
           }}
           onDelete={async () => {
@@ -1195,8 +1215,11 @@ export default function AdminMain({ currentUser, onLogout }) {
               await adminApi.deleteUser(userDetailModal.user.user_id);
               setUserDetailModal({ open: false, user: null, mode: 'view' });
               loadUsers();
+              toastSuccess('User deleted');
             } catch (e) {
-              setError(e?.response?.data?.message || 'Failed to delete user');
+              const msg = e?.response?.data?.message || 'Failed to delete user';
+              setError(msg);
+              toastError(msg);
             }
           }}
         />

@@ -15,6 +15,7 @@ import {
 import itUpdatesApi from '../../api/itUpdatesApi';
 import { getDisplayRole } from '../../utils/displayRole';
 import { isTaskOverdue } from '../../utils/taskDue';
+import { toastSuccess, toastError } from '../../utils/toast';
 import logoSrc from '../../assets/logo.png';
 import '../ITUpdates/ITUpdatesMain.css';
 
@@ -230,6 +231,7 @@ export default function ConsultantsMain({ currentUser, onLogout }) {
       );
       try {
         await itUpdatesApi.updateTask(taskId, { status: newStatus, team: MODULE_TEAM });
+        toastSuccess(`Task moved to ${STATUS_LABELS[newStatus] || newStatus}`);
       } catch {
         setTasks((prev) =>
           prev.map((t) =>
@@ -237,6 +239,7 @@ export default function ConsultantsMain({ currentUser, onLogout }) {
           )
         );
         setError('Failed to update task status');
+        toastError('Failed to update task status');
       }
     },
     [tasks]
@@ -258,7 +261,8 @@ export default function ConsultantsMain({ currentUser, onLogout }) {
         task_date: payload.task_date,
         dueDate: payload.due_date ?? payload.dueDate,
       };
-      if (taskModal.task?.id) {
+      const isEdit = Boolean(taskModal.task?.id);
+      if (isEdit) {
         await itUpdatesApi.updateTask(taskModal.task.id, { ...body, team: MODULE_TEAM });
       } else {
         const res = await itUpdatesApi.createTask({ ...body, team: MODULE_TEAM });
@@ -278,9 +282,12 @@ export default function ConsultantsMain({ currentUser, onLogout }) {
         }
       }
       await refreshTasksOnly();
+      toastSuccess(isEdit ? 'Task updated' : 'Task created');
       return true;
     } catch (e) {
-      setError(e?.response?.data?.message || 'Failed to save task');
+      const msg = e?.response?.data?.message || 'Failed to save task';
+      setError(msg);
+      toastError(msg);
       return false;
     }
   };
@@ -293,8 +300,11 @@ export default function ConsultantsMain({ currentUser, onLogout }) {
       });
       setEodModal(false);
       await refreshEodReportsOnly();
+      toastSuccess('EOD report submitted');
     } catch (e) {
-      setError(e?.response?.data?.message || 'Failed to save EOD report');
+      const msg = e?.response?.data?.message || 'Failed to save EOD report';
+      setError(msg);
+      toastError(msg);
     }
   };
 
@@ -1108,9 +1118,10 @@ function TaskModal({ task, onClose, onSave, onRefresh, teamMembers, assignedByOp
       });
       setReviewNote('');
       if (onRefresh) onRefresh();
+      toastSuccess('Task marked complete');
       onClose();
     } catch {
-      // ignore
+      toastError('Failed to mark task complete');
     }
   };
 
@@ -1126,8 +1137,9 @@ function TaskModal({ task, onClose, onSave, onRefresh, teamMembers, assignedByOp
       });
       setReviewNote('');
       if (onRefresh) onRefresh();
+      toastSuccess('Task sent for rework');
     } catch {
-      // ignore
+      toastError('Failed to send task for rework');
     }
   };
 
@@ -1293,14 +1305,13 @@ function TaskModal({ task, onClose, onSave, onRefresh, teamMembers, assignedByOp
           </div>
 
           <label>
-            Assign to
-            <select value={form.assigned_to} onChange={(e) => setForm((f) => ({ ...f, assigned_to: e.target.value }))}>
-              <option value="">—</option>
-              {teamMembers.map((u) => (
-                <option key={u.user_id ?? u.assignee} value={u.user_id ?? u.assignee ?? ''}>
-                  {u.username ?? u.assignee}
-                </option>
-              ))}
+            Status
+            <select value={form.status} onChange={(e) => setForm((f) => ({ ...f, status: e.target.value }))}>
+              <option value="todo">To do</option>
+              <option value="in_progress">In Progress</option>
+              <option value="review">Review</option>
+              <option value="rework">Rework</option>
+              <option value="completed">Completed</option>
             </select>
           </label>
           <label>
@@ -1315,13 +1326,14 @@ function TaskModal({ task, onClose, onSave, onRefresh, teamMembers, assignedByOp
             </select>
           </label>
           <label>
-            Status
-            <select value={form.status} onChange={(e) => setForm((f) => ({ ...f, status: e.target.value }))}>
-              <option value="todo">To do</option>
-              <option value="in_progress">In Progress</option>
-              <option value="review">Review</option>
-              <option value="rework">Rework</option>
-              <option value="completed">Completed</option>
+            Assign to
+            <select value={form.assigned_to} onChange={(e) => setForm((f) => ({ ...f, assigned_to: e.target.value }))}>
+              <option value="">—</option>
+              {teamMembers.map((u) => (
+                <option key={u.user_id ?? u.assignee} value={u.user_id ?? u.assignee ?? ''}>
+                  {u.username ?? u.assignee}
+                </option>
+              ))}
             </select>
           </label>
           <label>

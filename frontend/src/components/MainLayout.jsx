@@ -5,6 +5,7 @@ import ConsultantsMain from '../features/Consultants/ConsultantsMain';
 import DigitalMarketingMain from '../features/DigitalMarketing/DigitalMarketingMain';
 import LegalFinanceMain from '../features/LegalFinance/LegalFinanceMain';
 import AdminMain from '../features/Admin/AdminMain';
+import ToastContainer from './Toast';
 import './MainLayout.css';
 
 const MODULES = [
@@ -94,6 +95,7 @@ export default function MainLayout({ currentUser, onLogout }) {
         </div>
       </header>
       <main className="main-layout-content">{renderContent()}</main>
+      <ToastContainer />
     </div>
   );
 }
