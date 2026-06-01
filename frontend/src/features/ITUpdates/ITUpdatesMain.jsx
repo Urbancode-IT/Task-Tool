@@ -20,7 +20,10 @@ import itUpdatesApi from '../../api/itUpdatesApi';
 import { getDisplayRole } from '../../utils/displayRole';
 import { isTaskOverdue } from '../../utils/taskDue';
 import { toastSuccess, toastError } from '../../utils/toast';
+import { taskInPeriod, EMPTY_PERIOD } from '../../utils/taskPeriod';
 import ProjectSearchSelect from '../../components/ProjectSearchSelect';
+import PeriodFilter from '../../components/PeriodFilter';
+import TaskComments from '../../components/TaskComments';
 import logoSrc from '../../assets/logo.png';
 import './ITUpdatesMain.css';
 
@@ -34,7 +37,7 @@ const TABS = [
 ];
 const MODULE_TEAM = 'it';
 
-const EMPTY_ALL_TASKS_FILTERS = { project_id: '', status: '', priority: '' };
+const EMPTY_ALL_TASKS_FILTERS = { project_id: '', status: '', priority: '', assignee: '', period: EMPTY_PERIOD };
 const EMPTY_OVERVIEW_FILTERS = { from_date: '', to_date: '', assigned_to: '', project_id: '' };
 
 const STATUS_LABELS = {
@@ -203,17 +206,22 @@ const ITUpdatesMain = ({ currentUser, onLogout }) => {
     }
   }, []);
 
+  // All Tasks filters client-side; ensure we hold the full task list (the Overview
+  // tab can narrow `tasks` server-side, so reload when entering All Tasks).
   useEffect(() => {
-    if (activeTab === 'All Tasks' && (allTasksFiltersApplied.project_id || allTasksFiltersApplied.status || allTasksFiltersApplied.priority)) {
-      const f = {};
-      if (allTasksFiltersApplied.project_id) f.project_id = allTasksFiltersApplied.project_id;
-      if (allTasksFiltersApplied.status) f.status = allTasksFiltersApplied.status;
-      if (allTasksFiltersApplied.priority) f.priority = allTasksFiltersApplied.priority;
-      fetchTasksWithFilters(f);
-    } else if (activeTab === 'All Tasks') {
-      loadAllData();
-    }
-  }, [activeTab, allTasksFiltersApplied.project_id, allTasksFiltersApplied.status, allTasksFiltersApplied.priority]);
+    if (activeTab === 'All Tasks') loadAllData();
+  }, [activeTab, loadAllData]);
+
+  const allTasksFiltered = useMemo(() => {
+    let result = tasks;
+    const f = allTasksFiltersApplied;
+    if (f.project_id) result = result.filter((t) => String(t.projectId) === String(f.project_id));
+    if (f.status) result = result.filter((t) => t.status === f.status);
+    if (f.priority) result = result.filter((t) => t.priority === f.priority);
+    if (f.assignee) result = result.filter((t) => String(t.assigned_to) === String(f.assignee));
+    if (f.period) result = result.filter((t) => taskInPeriod(t, f.period));
+    return result;
+  }, [tasks, allTasksFiltersApplied]);
 
   const overviewTasks = useMemo(() => tasks, [tasks]);
 
@@ -387,7 +395,7 @@ const ITUpdatesMain = ({ currentUser, onLogout }) => {
     return map;
   }, [projects]);
 
-  const dashboardTaskGroups = useMemo(() => groupTasksByStatus(tasks), [tasks]);
+  const allTasksGroups = useMemo(() => groupTasksByStatus(allTasksFiltered), [allTasksFiltered]);
   const myTaskGroups = useMemo(() => groupTasksByStatus(myTasks), [myTasks]);
 
   const handleDragEnd = useCallback(
@@ -602,8 +610,10 @@ const ITUpdatesMain = ({ currentUser, onLogout }) => {
                       {descSnippet ? (
                         <div className="it-updates-task-card-desc">{descSnippet}</div>
                       ) : null}
+                      <span className="it-updates-task-card-project" title={projectName}>
+                        {projectName}
+                      </span>
                       <div className="it-updates-task-card-tags">
-                        <span className="it-updates-task-card-tag">{projectName}</span>
                         <span className="it-updates-task-card-tag">{task.assignee || 'Unassigned'}</span>
                       </div>
                       {task.req_total > 0 && (
@@ -922,6 +932,25 @@ const ITUpdatesMain = ({ currentUser, onLogout }) => {
                   <option value="high">High</option>
                   <option value="critical">Critical</option>
                 </select>
+                <select
+                  value={allTasksFiltersApplied.assignee}
+                  onChange={(e) =>
+                    setAllTasksFiltersApplied((f) => ({ ...f, assignee: e.target.value }))
+                  }
+                >
+                  <option value="">All staff</option>
+                  {(developers.length ? developers : teamOverview).map((u) => (
+                    <option key={u.user_id ?? u.assignee} value={u.user_id ?? u.assignee ?? ''}>
+                      {u.username ?? u.assignee}
+                    </option>
+                  ))}
+                </select>
+                <PeriodFilter
+                  value={allTasksFiltersApplied.period}
+                  onChange={(period) =>
+                    setAllTasksFiltersApplied((f) => ({ ...f, period }))
+                  }
+                />
               </div>
               <DragDropContext onDragEnd={handleDragEnd}>
                 <div className="it-updates-kanban-wrap">
@@ -929,7 +958,7 @@ const ITUpdatesMain = ({ currentUser, onLogout }) => {
                     {(['todo', 'in_progress', 'review', 'rework', 'completed']).map((statusKey) =>
                       renderKanbanColumn(
                         statusKey,
-                        dashboardTaskGroups[statusKey] || []
+                        allTasksGroups[statusKey] || []
                       )
                     )}
                   </section>
@@ -1341,6 +1370,7 @@ const ITUpdatesMain = ({ currentUser, onLogout }) => {
       {taskModal.open && (
         <TaskModal
           task={taskModal.task}
+          currentUser={user}
           projects={projects}
           developers={developers}
           managers={managers}
@@ -1406,6 +1436,11 @@ function ProjectModal({ project, teammatesOptions, onClose, onSave }) {
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (saveState.saving) return;
+
+    if (!form.project_name.trim()) {
+      toastError('Project name is required.');
+      return;
+    }
 
     setSaveState({ saving: true, saved: false });
     const ok = await onSave(form);
@@ -1621,7 +1656,8 @@ function ProjectModal({ project, teammatesOptions, onClose, onSave }) {
   );
 }
 
-function TaskModal({ task, projects, developers, managers, onClose, onSave, onRefresh, onError }) {
+function TaskModal({ task, currentUser, projects, developers, managers, onClose, onSave, onRefresh, onError }) {
+  const [reqExpanded, setReqExpanded] = useState(false);
   const [form, setForm] = useState({
     task_title: task?.title ?? '',
     task_description: task?.task_description ?? task?.description ?? '',
@@ -1857,6 +1893,15 @@ function TaskModal({ task, projects, developers, managers, onClose, onSave, onRe
     e.preventDefault();
     if (saveState.saving) return;
 
+    if (!form.task_title.trim()) {
+      toastError('Task title is required.');
+      return;
+    }
+    if (!String(form.assigned_to ?? '').trim()) {
+      toastError('Please assign this task to a staff member.');
+      return;
+    }
+
     setSaveState({ saving: true, saved: false });
     let ok = false;
     try {
@@ -1895,6 +1940,16 @@ function TaskModal({ task, projects, developers, managers, onClose, onSave, onRe
               onChange={(e) => setForm((f) => ({ ...f, task_title: e.target.value }))}
               required
             />
+          </label>
+          <label>
+            Status
+            <select value={form.status} onChange={(e) => setForm((f) => ({ ...f, status: e.target.value }))}>
+              <option value="todo">To do</option>
+              <option value="in_progress">In Progress</option>
+              <option value="review">Review</option>
+              <option value="rework">Rework</option>
+              <option value="completed">Completed</option>
+            </select>
           </label>
 
           {isExistingTask &&
@@ -1970,7 +2025,7 @@ function TaskModal({ task, projects, developers, managers, onClose, onSave, onRe
                   <div className="req-th req-th-title" role="columnheader">Requirement</div>
                   <div className="req-th req-th-actions" role="columnheader">Actions</div>
                 </div>
-                {requirements.map((req) => (
+                {(reqExpanded ? requirements : requirements.slice(0, 2)).map((req) => (
                   <div
                     key={req.id}
                     className={`req-table-row ${req.status === 'completed' ? 'req-row-completed' : ''}`}
@@ -2005,6 +2060,11 @@ function TaskModal({ task, projects, developers, managers, onClose, onSave, onRe
                     </div>
                   </div>
                 ))}
+                {totalReqs > 2 && (
+                  <button type="button" className="req-show-more" onClick={() => setReqExpanded((v) => !v)}>
+                    {reqExpanded ? 'Show less' : `Show all ${totalReqs} requirements ▾`}
+                  </button>
+                )}
               </div>
             )}
 
@@ -2056,13 +2116,12 @@ function TaskModal({ task, projects, developers, managers, onClose, onSave, onRe
             </select>
           </label>
           <label>
-            Status
-            <select value={form.status} onChange={(e) => setForm((f) => ({ ...f, status: e.target.value }))}>
-              <option value="todo">To do</option>
-              <option value="in_progress">In Progress</option>
-              <option value="review">Review</option>
-              <option value="rework">Rework</option>
-              <option value="completed">Completed</option>
+            Priority
+            <select value={form.priority} onChange={(e) => setForm((f) => ({ ...f, priority: e.target.value }))}>
+              <option value="low">Low</option>
+              <option value="medium">Medium</option>
+              <option value="high">High</option>
+              <option value="critical">Critical</option>
             </select>
           </label>
           <label>
@@ -2094,21 +2153,12 @@ function TaskModal({ task, projects, developers, managers, onClose, onSave, onRe
             </select>
           </label>
           <label>
-            Priority
-            <select value={form.priority} onChange={(e) => setForm((f) => ({ ...f, priority: e.target.value }))}>
-              <option value="low">Low</option>
-              <option value="medium">Medium</option>
-              <option value="high">High</option>
-              <option value="critical">Critical</option>
-            </select>
+            Due date (Optional)
+            <input type="date" value={form.due_date} onChange={(e) => setForm((f) => ({ ...f, due_date: e.target.value }))} />
           </label>
           <label>
             Task date
             <input type="date" value={form.task_date} onChange={(e) => setForm((f) => ({ ...f, task_date: e.target.value }))} />
-          </label>
-          <label>
-            Due date (Optional)
-            <input type="date" value={form.due_date} onChange={(e) => setForm((f) => ({ ...f, due_date: e.target.value }))} />
           </label>
 
           {isExistingTask && form.status === 'review' && (
@@ -2146,6 +2196,18 @@ function TaskModal({ task, projects, developers, managers, onClose, onSave, onRe
             </div>
           )}
 
+          {isExistingTask && (
+            <TaskComments
+              taskId={task.id}
+              team={MODULE_TEAM}
+              currentUser={currentUser}
+              canComment={
+                String(currentUser?.id ?? currentUser?.user_id ?? '') === String(task?.assigned_to ?? '') ||
+                String(currentUser?.id ?? currentUser?.user_id ?? '') === String(task?.assigned_by ?? '')
+              }
+            />
+          )}
+
           <div className="it-updates-modal-actions">
             <button type="button" className="it-updates-btn it-updates-btn-secondary" onClick={onClose}>
               Cancel
@@ -2181,6 +2243,14 @@ function EodModal({ onClose, onSave }) {
 
   const handleSubmit = (e) => {
     e.preventDefault();
+    if (!form.report_date) {
+      toastError('Report date is required.');
+      return;
+    }
+    if (!form.achievements.trim()) {
+      toastError('Please add a work summary before submitting.');
+      return;
+    }
     onSave({
       ...form,
       mood: form.status, // Map status to mood field in DB

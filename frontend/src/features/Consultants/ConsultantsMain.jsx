@@ -16,6 +16,9 @@ import itUpdatesApi from '../../api/itUpdatesApi';
 import { getDisplayRole } from '../../utils/displayRole';
 import { isTaskOverdue } from '../../utils/taskDue';
 import { toastSuccess, toastError } from '../../utils/toast';
+import { taskInPeriod, EMPTY_PERIOD } from '../../utils/taskPeriod';
+import PeriodFilter from '../../components/PeriodFilter';
+import TaskComments from '../../components/TaskComments';
 import logoSrc from '../../assets/logo.png';
 import '../ITUpdates/ITUpdatesMain.css';
 
@@ -28,7 +31,7 @@ const TABS = [
 ];
 const MODULE_TEAM = 'consultant';
 
-const EMPTY_ALL_TASKS_FILTERS = { status: '', priority: '' };
+const EMPTY_ALL_TASKS_FILTERS = { status: '', priority: '', assignee: '', period: EMPTY_PERIOD };
 const EMPTY_OVERVIEW_FILTERS = { from_date: '', to_date: '', assigned_to: '' };
 
 const STATUS_LABELS = {
@@ -188,6 +191,10 @@ export default function ConsultantsMain({ currentUser, onLogout }) {
     let result = tasks;
     if (allTasksFiltersApplied.status) result = result.filter((t) => t.status === allTasksFiltersApplied.status);
     if (allTasksFiltersApplied.priority) result = result.filter((t) => t.priority === allTasksFiltersApplied.priority);
+    if (allTasksFiltersApplied.assignee)
+      result = result.filter((t) => String(t.assigned_to) === String(allTasksFiltersApplied.assignee));
+    if (allTasksFiltersApplied.period)
+      result = result.filter((t) => taskInPeriod(t, allTasksFiltersApplied.period));
     return result;
   }, [tasks, allTasksFiltersApplied]);
 
@@ -375,6 +382,11 @@ export default function ConsultantsMain({ currentUser, onLogout }) {
                     <div className="it-updates-task-card-title">
                       {task.title}
                     </div>
+                    {task.project_name ? (
+                      <span className="it-updates-task-card-project" title={task.project_name}>
+                        {task.project_name}
+                      </span>
+                    ) : null}
                     {task.task_description && (
                       <div className="it-updates-task-card-desc">
                         {task.task_description.length > 50
@@ -650,6 +662,25 @@ export default function ConsultantsMain({ currentUser, onLogout }) {
                   <option value="high">High</option>
                   <option value="critical">Critical</option>
                 </select>
+                <select
+                  value={allTasksFiltersApplied.assignee}
+                  onChange={(e) =>
+                    setAllTasksFiltersApplied((f) => ({ ...f, assignee: e.target.value }))
+                  }
+                >
+                  <option value="">All staff</option>
+                  {teamOverview.map((u) => (
+                    <option key={u.user_id ?? u.assignee} value={u.user_id ?? u.assignee ?? ''}>
+                      {u.username ?? u.assignee}
+                    </option>
+                  ))}
+                </select>
+                <PeriodFilter
+                  value={allTasksFiltersApplied.period}
+                  onChange={(period) =>
+                    setAllTasksFiltersApplied((f) => ({ ...f, period }))
+                  }
+                />
               </div>
               <DragDropContext onDragEnd={handleDragEnd}>
                 <div className="it-updates-kanban-wrap">
@@ -825,6 +856,7 @@ export default function ConsultantsMain({ currentUser, onLogout }) {
       {taskModal.open && (
         <TaskModal
           task={taskModal.task}
+          currentUser={user}
           onClose={closeTaskModal}
           onSave={handleSaveTask}
           onRefresh={loadMyTasks}
@@ -845,7 +877,8 @@ export default function ConsultantsMain({ currentUser, onLogout }) {
 /* ─────────────────────────────────────────────
    Task Modal
 ───────────────────────────────────────────── */
-function TaskModal({ task, onClose, onSave, onRefresh, teamMembers, assignedByOptions }) {
+function TaskModal({ task, currentUser, onClose, onSave, onRefresh, teamMembers, assignedByOptions }) {
+  const [reqExpanded, setReqExpanded] = useState(false);
   const [form, setForm] = useState({
     task_title: task?.title ?? '',
     task_description: task?.task_description ?? task?.description ?? '',
@@ -1091,6 +1124,15 @@ function TaskModal({ task, onClose, onSave, onRefresh, teamMembers, assignedByOp
     e.preventDefault();
     if (saveState.saving) return;
 
+    if (!form.task_title.trim()) {
+      toastError('Task title is required.');
+      return;
+    }
+    if (!String(form.assigned_to ?? '').trim()) {
+      toastError('Please assign this task to a staff member.');
+      return;
+    }
+
     setSaveState({ saving: true, saved: false });
     const ok = await onSave({
       ...form,
@@ -1199,7 +1241,7 @@ function TaskModal({ task, onClose, onSave, onRefresh, teamMembers, assignedByOp
                   <div className="req-th req-th-title" role="columnheader">Requirement</div>
                   <div className="req-th req-th-actions" role="columnheader">Actions</div>
                 </div>
-                {requirements.map((req) => (
+                {(reqExpanded ? requirements : requirements.slice(0, 2)).map((req) => (
                   <div key={req.id} className={`req-table-row ${req.status === 'completed' ? 'req-row-completed' : ''}`} role="row">
                     <div className="req-td req-td-done">
                       <button
@@ -1224,6 +1266,11 @@ function TaskModal({ task, onClose, onSave, onRefresh, teamMembers, assignedByOp
                     </div>
                   </div>
                 ))}
+                {totalReqs > 2 && (
+                  <button type="button" className="req-show-more" onClick={() => setReqExpanded((v) => !v)}>
+                    {reqExpanded ? 'Show less' : `Show all ${totalReqs} requirements ▾`}
+                  </button>
+                )}
               </div>
             )}
 
@@ -1333,6 +1380,18 @@ function TaskModal({ task, onClose, onSave, onRefresh, teamMembers, assignedByOp
             </div>
           )}
 
+          {isExistingTask && (
+            <TaskComments
+              taskId={task.id}
+              team={MODULE_TEAM}
+              currentUser={currentUser}
+              canComment={
+                String(currentUser?.id ?? currentUser?.user_id ?? '') === String(task?.assigned_to ?? '') ||
+                String(currentUser?.id ?? currentUser?.user_id ?? '') === String(task?.assigned_by ?? '')
+              }
+            />
+          )}
+
           <div className="it-updates-modal-actions">
             <button type="button" className="it-updates-btn it-updates-btn-secondary" onClick={onClose}>
               Cancel
@@ -1371,6 +1430,14 @@ function EodModal({ onClose, onSave }) {
 
   const handleSubmit = (e) => {
     e.preventDefault();
+    if (!form.report_date) {
+      toastError('Report date is required.');
+      return;
+    }
+    if (!form.achievements.trim()) {
+      toastError('Please add a work summary before submitting.');
+      return;
+    }
     onSave({
       ...form,
       mood: form.status,

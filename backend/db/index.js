@@ -744,16 +744,23 @@ export async function dbGetTasksSimple(filters = {}) {
     );
     const hasReqs = tableCheck[0]?.exists;
 
+    // Only join the projects table when this task table actually has a project_id column.
+    const { rows: projColCheck } = await p.query(
+      "SELECT EXISTS (SELECT FROM information_schema.columns WHERE table_schema = 'public' AND table_name = $1 AND column_name = 'project_id') AS exists",
+      [taskTable]
+    );
+    const hasProject = projColCheck[0]?.exists;
+
     let query = `
-      SELECT t.*, 
-             u_assigned.username AS assignee_username, 
+      SELECT t.*,
+             u_assigned.username AS assignee_username,
              u_assigned.profile_image AS assignee_profile_image,
              u_by.username AS assigned_by_username,
-             u_review.username AS reviewer_username
+             u_review.username AS reviewer_username${hasProject ? ',\n             pr.project_name AS project_name' : ''}
       FROM ${taskTable} t
       LEFT JOIN users u_assigned ON t.assigned_to = u_assigned.user_id
       LEFT JOIN users u_by ON t.assigned_by = u_by.user_id
-      LEFT JOIN users u_review ON t.reviewed_by = u_review.user_id
+      LEFT JOIN users u_review ON t.reviewed_by = u_review.user_id${hasProject ? '\n      LEFT JOIN it_projects pr ON pr.project_id = t.project_id' : ''}
     `;
 
     const whereParts = [];
@@ -869,6 +876,7 @@ export async function dbGetTasksSimple(filters = {}) {
       assignee_profile_image: r.assignee_profile_image,
       projectId: r.project_id ? String(r.project_id) : null,
       project_id: r.project_id,
+      project_name: r.project_name ?? null,
       dueDate: r.due_date,
       task_date: r.task_date,
       created_at: r.created_at,
@@ -1246,13 +1254,18 @@ export async function dbGetTaskComments(taskId) {
   const p = getPool();
   if (!p) return [];
   const { rows } = await p.query(
-    'SELECT * FROM task_comments WHERE task_id = $1 ORDER BY created_at',
+    `SELECT c.*, u.username AS author_username
+     FROM task_comments c
+     LEFT JOIN users u ON c.user_id = u.user_id
+     WHERE c.task_id = $1
+     ORDER BY c.created_at`,
     [taskId]
   );
   return rows.map((r) => ({
     id: String(r.comment_id),
     taskId: String(r.task_id),
-    author: r.user_id ? String(r.user_id) : 'System',
+    userId: r.user_id != null ? String(r.user_id) : null,
+    author: r.author_username || (r.user_id ? `User #${r.user_id}` : 'System'),
     message: r.comment_text,
     createdAt: r.created_at,
   }));
@@ -1270,10 +1283,23 @@ export async function dbAddTaskComment(taskId, data) {
     [taskId, data.user_id || null, data.message ?? data.comment_text ?? '']
   );
   if (!row) return null;
+  let authorName = data.author || null;
+  if (!authorName && row.user_id != null) {
+    try {
+      const { rows: [u] } = await p.query(
+        'SELECT username FROM users WHERE user_id = $1',
+        [row.user_id]
+      );
+      authorName = u?.username || null;
+    } catch {
+      authorName = null;
+    }
+  }
   return {
     id: String(row.comment_id),
     taskId: String(row.task_id),
-    author: data.author || 'System',
+    userId: row.user_id != null ? String(row.user_id) : null,
+    author: authorName || 'System',
     message: row.comment_text,
     createdAt: row.created_at,
   };

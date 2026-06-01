@@ -1,0 +1,106 @@
+.task-comments {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--clr-slate-200);
+}
+
+.task-comments-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.65rem;
+}
+
+.task-comments-title {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--clr-slate-700);
+}
+
+.task-comments-count {
+  font-size: 0.7rem;
+  font-weight: 600;
+  background: var(--clr-slate-100);
+  color: var(--clr-slate-500);
+  border-radius: 999px;
+  padding: 0.1rem 0.5rem;
+}
+
+.task-comments-empty,
+.task-comments-note {
+  font-size: 0.8rem;
+  color: var(--clr-slate-400);
+  margin: 0 0 0.65rem;
+}
+
+.task-comments-list {
+  list-style: none;
+  margin: 0 0 0.75rem;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.task-comment {
+  background: var(--clr-slate-50, #f8fafc);
+  border: 1px solid var(--clr-slate-200);
+  border-radius: var(--radius-md);
+  padding: 0.55rem 0.7rem;
+}
+
+.task-comment-meta {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.25rem;
+}
+
+.task-comment-author {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--clr-slate-700);
+}
+
+.task-comment-time {
+  font-size: 0.68rem;
+  color: var(--clr-slate-400);
+}
+
+.task-comment-body {
+  font-size: 0.82rem;
+  color: var(--clr-slate-600);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.task-comments-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.task-comments-input {
+  width: 100%;
+  resize: vertical;
+  padding: 0.55rem 0.7rem;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--clr-slate-200);
+  font-size: 0.82rem;
+  font-family: inherit;
+  color: var(--clr-slate-700);
+}
+
+.task-comments-input:focus {
+  outline: none;
+  border-color: var(--clr-primary-400);
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+}
+
+.task-comments-post {
+  align-self: flex-end;
+}

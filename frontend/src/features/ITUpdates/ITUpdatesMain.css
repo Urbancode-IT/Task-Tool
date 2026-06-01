@@ -964,6 +964,27 @@
   text-overflow: ellipsis;
 }
 
+/* Distinct, bold project name pill on task cards */
+.it-updates-task-card-project {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  align-self: flex-start;
+  max-width: 100%;
+  margin-top: 0.1rem;
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  color: var(--clr-primary-600, #4f46e5);
+  background: rgba(99, 102, 241, 0.12);
+  border: 1px solid rgba(99, 102, 241, 0.25);
+  padding: 0.16rem 0.5rem;
+  border-radius: var(--radius-full);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .it-updates-task-card-assigned-by {
   font-size: 0.62rem;
   color: var(--clr-slate-400);
@@ -1208,6 +1229,126 @@
   border-color: var(--clr-primary-400);
   outline: none;
   box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+}
+
+/* ─── Period (time-interval) filter — dropdown button ─── */
+.it-updates-period-filter {
+  position: relative;
+  display: inline-block;
+}
+
+.it-updates-period-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.5rem 0.7rem;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--clr-slate-200);
+  background: var(--surface-card);
+  color: var(--clr-slate-700);
+  font-size: 0.82rem;
+  cursor: pointer;
+  transition: border-color var(--transition-fast);
+}
+
+.it-updates-period-trigger:hover {
+  border-color: var(--clr-primary-400);
+}
+
+.it-updates-period-trigger-icon {
+  color: var(--clr-slate-400);
+  flex-shrink: 0;
+}
+
+.it-updates-period-trigger-label {
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.it-updates-period-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 30;
+  min-width: 190px;
+  padding: 0.3rem;
+  background: var(--surface-card);
+  border: 1px solid var(--clr-slate-200);
+  border-radius: var(--radius-md);
+  box-shadow: 0 10px 25px rgba(15, 23, 42, 0.12);
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.it-updates-period-option {
+  text-align: left;
+  border: none;
+  background: transparent;
+  padding: 0.45rem 0.6rem;
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--clr-slate-600);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.it-updates-period-option:hover {
+  background: var(--clr-slate-100);
+}
+
+.it-updates-period-option.active {
+  background: rgba(99, 102, 241, 0.12);
+  color: var(--clr-primary-600, #4f46e5);
+  font-weight: 600;
+}
+
+.it-updates-period-range {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin-top: 0.35rem;
+  padding-top: 0.45rem;
+  border-top: 1px solid var(--clr-slate-200);
+}
+
+.it-updates-period-range label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  font-size: 0.68rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--clr-slate-400);
+}
+
+.it-updates-period-range input[type='date'] {
+  padding: 0.4rem 0.55rem;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--clr-slate-200);
+  font-size: 0.78rem;
+  background: var(--surface-card);
+  color: var(--clr-slate-700);
+}
+
+/* ─── Requirements "show more" toggle ─── */
+.req-show-more {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  margin-top: 0.5rem;
+  border: none;
+  background: transparent;
+  color: var(--clr-primary-600, #4f46e5);
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.req-show-more:hover {
+  text-decoration: underline;
 }
 
 .it-updates-overview-filters {
@@ -1590,7 +1731,8 @@
 .it-updates-modal-form > .it-updates-modal-actions,
 .it-updates-modal-form > .it-updates-review-meta,
 .it-updates-modal-form > .it-updates-rework-block,
-.it-updates-modal-form > .req-section {
+.it-updates-modal-form > .req-section,
+.it-updates-modal-form > .task-comments {
   grid-column: 1 / -1;
 }
 
@@ -2090,6 +2232,7 @@
   display: grid;
   grid-template-columns: 34px 1fr 110px;
   align-items: center;
+  column-gap: 0.6rem;
   padding: 0.55rem 0.75rem;
   background: var(--clr-slate-50);
   border-bottom: 1px solid var(--clr-slate-100);
@@ -2112,7 +2255,8 @@
   display: grid;
   grid-template-columns: 34px 1fr 110px;
   align-items: center;
-  padding: 0.55rem 0.75rem;
+  column-gap: 0.6rem;
+  padding: 0.8rem 0.75rem;
   border-bottom: 1px solid var(--clr-slate-100);
   transition: background var(--transition-fast), border-color var(--transition-fast);
 }
