@@ -8,6 +8,7 @@
 export const PERIOD_PRESETS = [
   { key: 'all', label: 'All' },
   { key: 'today', label: 'Today' },
+  { key: 'yesterday', label: 'Yesterday' },
   { key: 'week', label: 'This week' },
   { key: 'month', label: 'This month' },
 ];
@@ -23,6 +24,11 @@ export function presetRange(preset, now = new Date()) {
   switch (preset) {
     case 'today':
       return [toYmd(today), toYmd(today)];
+    case 'yesterday': {
+      const yesterday = new Date(today);
+      yesterday.setDate(today.getDate() - 1);
+      return [toYmd(yesterday), toYmd(yesterday)];
+    }
     case 'week': {
       // Week starts Monday.
       const day = (today.getDay() + 6) % 7; // 0 = Monday
