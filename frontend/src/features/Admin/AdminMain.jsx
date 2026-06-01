@@ -17,6 +17,7 @@ import adminApi from '../../api/adminApi';
 import itUpdatesApi from '../../api/itUpdatesApi';
 import { getDisplayRole } from '../../utils/displayRole';
 import { toastSuccess, toastError } from '../../utils/toast';
+import ProjectSearchSelect from '../../components/ProjectSearchSelect';
 import logoSrc from '../../assets/logo.png';
 import { AdminAddUserModal, AdminUserDetailModal } from './AdminUserModals';
 import { formatUserRowRole } from '../../utils/displayRole';
@@ -129,7 +130,6 @@ export default function AdminMain({ currentUser, onLogout }) {
   const [usersTeamFilter, setUsersTeamFilter] = useState('all');
   const [tasksTeamFilter, setTasksTeamFilter] = useState('all');
   const [overviewTeamFilter, setOverviewTeamFilter] = useState('all');
-  const [overviewFiltersDraft, setOverviewFiltersDraft] = useState(EMPTY_ADMIN_OVERVIEW_FILTERS);
   const [overviewFiltersApplied, setOverviewFiltersApplied] = useState(EMPTY_ADMIN_OVERVIEW_FILTERS);
   const [overviewTasks, setOverviewTasks] = useState([]);
   const [overviewLoading, setOverviewLoading] = useState(false);
@@ -680,7 +680,6 @@ export default function AdminMain({ currentUser, onLogout }) {
               {activeTab === 'review_tasks' && (
                 <div className="admin-review-panel">
                   <div className="admin-review-header">
-                    <h3 className="admin-subheading">Review Tasks</h3>
                     <span className="admin-review-count">{reviewTasks.length}</span>
                   </div>
                   {reviewLoading ? (
@@ -769,7 +768,6 @@ export default function AdminMain({ currentUser, onLogout }) {
               {activeTab === 'overdue_tasks' && (
                 <div className="admin-review-panel">
                   <div className="admin-review-header">
-                    <h3 className="admin-subheading">Overdue Tasks</h3>
                     <span className="admin-review-count">{overdueTasks.length}</span>
                   </div>
                   {overdueLoading ? (
@@ -968,9 +966,9 @@ export default function AdminMain({ currentUser, onLogout }) {
                   From date
                   <input
                     type="date"
-                    value={overviewFiltersDraft.from_date}
+                    value={overviewFiltersApplied.from_date}
                     onChange={(e) =>
-                      setOverviewFiltersDraft((f) => ({ ...f, from_date: e.target.value }))
+                      setOverviewFiltersApplied((f) => ({ ...f, from_date: e.target.value }))
                     }
                   />
                 </label>
@@ -978,18 +976,18 @@ export default function AdminMain({ currentUser, onLogout }) {
                   To date
                   <input
                     type="date"
-                    value={overviewFiltersDraft.to_date}
+                    value={overviewFiltersApplied.to_date}
                     onChange={(e) =>
-                      setOverviewFiltersDraft((f) => ({ ...f, to_date: e.target.value }))
+                      setOverviewFiltersApplied((f) => ({ ...f, to_date: e.target.value }))
                     }
                   />
                 </label>
                 <label>
                   Status
                   <select
-                    value={overviewFiltersDraft.status}
+                    value={overviewFiltersApplied.status}
                     onChange={(e) =>
-                      setOverviewFiltersDraft((f) => ({ ...f, status: e.target.value }))
+                      setOverviewFiltersApplied((f) => ({ ...f, status: e.target.value }))
                     }
                   >
                     <option value="">All</option>
@@ -1003,9 +1001,9 @@ export default function AdminMain({ currentUser, onLogout }) {
                 <label>
                   Priority
                   <select
-                    value={overviewFiltersDraft.priority}
+                    value={overviewFiltersApplied.priority}
                     onChange={(e) =>
-                      setOverviewFiltersDraft((f) => ({ ...f, priority: e.target.value }))
+                      setOverviewFiltersApplied((f) => ({ ...f, priority: e.target.value }))
                     }
                   >
                     <option value="">All</option>
@@ -1018,9 +1016,9 @@ export default function AdminMain({ currentUser, onLogout }) {
                 <label>
                   Assignee
                   <select
-                    value={overviewFiltersDraft.assigned_to}
+                    value={overviewFiltersApplied.assigned_to}
                     onChange={(e) =>
-                      setOverviewFiltersDraft((f) => ({ ...f, assigned_to: e.target.value }))
+                      setOverviewFiltersApplied((f) => ({ ...f, assigned_to: e.target.value }))
                     }
                   >
                     <option value="">All</option>
@@ -1033,39 +1031,15 @@ export default function AdminMain({ currentUser, onLogout }) {
                 </label>
                 <label>
                   Project
-                  <select
-                    value={overviewFiltersDraft.project_id}
-                    onChange={(e) =>
-                      setOverviewFiltersDraft((f) => ({ ...f, project_id: e.target.value }))
+                  <ProjectSearchSelect
+                    projects={projects}
+                    value={overviewFiltersApplied.project_id}
+                    onChange={(id) =>
+                      setOverviewFiltersApplied((f) => ({ ...f, project_id: id }))
                     }
-                  >
-                    <option value="">All</option>
-                    {projects.map((p) => (
-                      <option key={p.id ?? p.project_id} value={p.id ?? p.project_id}>
-                        {p.name ?? p.project_name}
-                      </option>
-                    ))}
-                  </select>
+                    placeholder="All"
+                  />
                 </label>
-                <div className="it-updates-filter-actions">
-                  <button
-                    type="button"
-                    className="it-updates-btn it-updates-btn-primary"
-                    onClick={() => setOverviewFiltersApplied({ ...overviewFiltersDraft })}
-                  >
-                    Apply
-                  </button>
-                  <button
-                    type="button"
-                    className="it-updates-btn it-updates-btn-secondary"
-                    onClick={() => {
-                      setOverviewFiltersDraft(EMPTY_ADMIN_OVERVIEW_FILTERS);
-                      setOverviewFiltersApplied(EMPTY_ADMIN_OVERVIEW_FILTERS);
-                    }}
-                  >
-                    Clear
-                  </button>
-                </div>
               </div>
 
               {overviewLoading ? (

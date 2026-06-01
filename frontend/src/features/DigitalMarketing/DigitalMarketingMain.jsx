@@ -120,9 +120,7 @@ export default function DigitalMarketingMain({ currentUser, onLogout }) {
 
   const [taskModal, setTaskModal] = useState({ open: false, task: null });
   const [eodModal, setEodModal] = useState(false);
-  const [allTasksFiltersDraft, setAllTasksFiltersDraft] = useState(EMPTY_ALL_TASKS_FILTERS);
   const [allTasksFiltersApplied, setAllTasksFiltersApplied] = useState(EMPTY_ALL_TASKS_FILTERS);
-  const [overviewFiltersDraft, setOverviewFiltersDraft] = useState(EMPTY_OVERVIEW_FILTERS);
   const [overviewFiltersApplied, setOverviewFiltersApplied] = useState(EMPTY_OVERVIEW_FILTERS);
   const [linkHubMissingOnly, setLinkHubMissingOnly] = useState(false);
 
@@ -603,6 +601,16 @@ export default function DigitalMarketingMain({ currentUser, onLogout }) {
             </div>
           </div>
           <div className="it-updates-topbar-right">
+            {(activeTab === 'My Tasks' || activeTab === 'All Tasks') && (
+              <button
+                type="button"
+                className="it-updates-btn it-updates-btn-primary"
+                onClick={() => openTaskModal(null)}
+              >
+                <MdAdd size={18} />
+                Add task
+              </button>
+            )}
             <button
               type="button"
               className="it-updates-btn it-updates-btn-secondary"
@@ -686,17 +694,6 @@ export default function DigitalMarketingMain({ currentUser, onLogout }) {
           {/* ─── My Tasks ─── */}
           {activeTab === 'My Tasks' && (
             <>
-              <div className="it-updates-tasks-header">
-                <h2 className="it-updates-tasks-title">My Tasks</h2>
-                <button
-                  type="button"
-                  className="it-updates-btn it-updates-btn-primary"
-                  onClick={() => openTaskModal(null)}
-                >
-                  <MdAdd size={18} />
-                  Add task
-                </button>
-              </div>
               <DragDropContext onDragEnd={handleDragEnd}>
                 <div className="it-updates-kanban-wrap">
                   <section className="it-updates-columns">
@@ -712,22 +709,11 @@ export default function DigitalMarketingMain({ currentUser, onLogout }) {
           {/* ─── All Tasks ─── */}
           {activeTab === 'All Tasks' && (
             <>
-              <div className="it-updates-tasks-header">
-                <h2 className="it-updates-tasks-title">All Tasks</h2>
-                <button
-                  type="button"
-                  className="it-updates-btn it-updates-btn-primary"
-                  onClick={() => openTaskModal(null)}
-                >
-                  <MdAdd size={18} />
-                  Add task
-                </button>
-              </div>
               <div className="it-updates-filters">
                 <select
-                  value={allTasksFiltersDraft.status}
+                  value={allTasksFiltersApplied.status}
                   onChange={(e) =>
-                    setAllTasksFiltersDraft((f) => ({ ...f, status: e.target.value }))
+                    setAllTasksFiltersApplied((f) => ({ ...f, status: e.target.value }))
                   }
                 >
                   <option value="">All statuses</option>
@@ -738,9 +724,9 @@ export default function DigitalMarketingMain({ currentUser, onLogout }) {
                   <option value="completed">Published</option>
                 </select>
                 <select
-                  value={allTasksFiltersDraft.priority}
+                  value={allTasksFiltersApplied.priority}
                   onChange={(e) =>
-                    setAllTasksFiltersDraft((f) => ({ ...f, priority: e.target.value }))
+                    setAllTasksFiltersApplied((f) => ({ ...f, priority: e.target.value }))
                   }
                 >
                   <option value="">All priorities</option>
@@ -749,25 +735,6 @@ export default function DigitalMarketingMain({ currentUser, onLogout }) {
                   <option value="high">High</option>
                   <option value="critical">Critical</option>
                 </select>
-                <div className="it-updates-filter-actions">
-                  <button
-                    type="button"
-                    className="it-updates-btn it-updates-btn-primary"
-                    onClick={() => setAllTasksFiltersApplied({ ...allTasksFiltersDraft })}
-                  >
-                    Apply
-                  </button>
-                  <button
-                    type="button"
-                    className="it-updates-btn it-updates-btn-secondary"
-                    onClick={() => {
-                      setAllTasksFiltersDraft(EMPTY_ALL_TASKS_FILTERS);
-                      setAllTasksFiltersApplied(EMPTY_ALL_TASKS_FILTERS);
-                    }}
-                  >
-                    Clear
-                  </button>
-                </div>
               </div>
               <DragDropContext onDragEnd={handleDragEnd}>
                 <div className="it-updates-kanban-wrap">
@@ -787,17 +754,14 @@ export default function DigitalMarketingMain({ currentUser, onLogout }) {
           {/* ─── Overview ─── */}
           {activeTab === 'Overview' && (
             <section className="it-updates-panel">
-              <div className="it-updates-panel-header">
-                <h2>Tasks Overview</h2>
-              </div>
               <div className="it-updates-overview-filters">
                 <label>
                   From date
                   <input
                     type="date"
-                    value={overviewFiltersDraft.from_date}
+                    value={overviewFiltersApplied.from_date}
                     onChange={(e) =>
-                      setOverviewFiltersDraft((f) => ({ ...f, from_date: e.target.value }))
+                      setOverviewFiltersApplied((f) => ({ ...f, from_date: e.target.value }))
                     }
                   />
                 </label>
@@ -805,18 +769,18 @@ export default function DigitalMarketingMain({ currentUser, onLogout }) {
                   To date
                   <input
                     type="date"
-                    value={overviewFiltersDraft.to_date}
+                    value={overviewFiltersApplied.to_date}
                     onChange={(e) =>
-                      setOverviewFiltersDraft((f) => ({ ...f, to_date: e.target.value }))
+                      setOverviewFiltersApplied((f) => ({ ...f, to_date: e.target.value }))
                     }
                   />
                 </label>
                 <label>
                   Team Member
                   <select
-                    value={overviewFiltersDraft.assigned_to}
+                    value={overviewFiltersApplied.assigned_to}
                     onChange={(e) =>
-                      setOverviewFiltersDraft((f) => ({ ...f, assigned_to: e.target.value }))
+                      setOverviewFiltersApplied((f) => ({ ...f, assigned_to: e.target.value }))
                     }
                   >
                     <option value="">All</option>
@@ -830,25 +794,6 @@ export default function DigitalMarketingMain({ currentUser, onLogout }) {
                     ))}
                   </select>
                 </label>
-                <div className="it-updates-filter-actions">
-                  <button
-                    type="button"
-                    className="it-updates-btn it-updates-btn-primary"
-                    onClick={() => setOverviewFiltersApplied({ ...overviewFiltersDraft })}
-                  >
-                    Apply
-                  </button>
-                  <button
-                    type="button"
-                    className="it-updates-btn it-updates-btn-secondary"
-                    onClick={() => {
-                      setOverviewFiltersDraft(EMPTY_OVERVIEW_FILTERS);
-                      setOverviewFiltersApplied(EMPTY_OVERVIEW_FILTERS);
-                    }}
-                  >
-                    Clear
-                  </button>
-                </div>
               </div>
               <div className="it-updates-table-wrap">
                 <table className="it-updates-table-overview">
@@ -1078,7 +1023,6 @@ export default function DigitalMarketingMain({ currentUser, onLogout }) {
           {activeTab === 'EOD Updates' && (
             <section className="it-updates-panel it-updates-panel-full">
               <div className="it-updates-panel-header">
-                <h2>EOD Updates</h2>
                 <button
                   type="button"
                   className="it-updates-btn it-updates-btn-primary"
