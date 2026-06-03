@@ -11,15 +11,31 @@ export function projectLogoSrc(name) {
 }
 
 export default function ProjectLogo({ src, name, size = 18, className = '' }) {
-  // Prefer the project's own uploaded logo; fall back to the name-based map.
+  // Prefer the project's own uploaded logo, then the name-based map.
   const resolved = (src && String(src).trim()) || projectLogoSrc(name);
-  if (!resolved) return null;
+
+  if (resolved) {
+    return (
+      <img
+        src={resolved}
+        alt={name ? `${name} logo` : 'Project logo'}
+        title={name || undefined}
+        className={`project-logo-badge ${className}`.trim()}
+        style={{ width: size, height: size }}
+      />
+    );
+  }
+
+  // No logo available — show an icon with the project's starting letter.
+  const letter = (String(name || '').trim()[0] || '?').toUpperCase();
   return (
-    <img
-      src={resolved}
-      alt={name ? `${name} logo` : 'Project logo'}
-      className={`project-logo-badge ${className}`.trim()}
-      style={{ width: size, height: size }}
-    />
+    <span
+      className={`project-logo-badge project-logo-initial ${className}`.trim()}
+      title={name || undefined}
+      aria-label={name ? `${name} logo` : 'Project logo'}
+      style={{ width: size, height: size, fontSize: Math.round(size * 0.5) }}
+    >
+      {letter}
+    </span>
   );
 }

@@ -19,6 +19,7 @@ import { getDisplayRole } from '../../utils/displayRole';
 import { toastSuccess, toastError } from '../../utils/toast';
 import ProjectSearchSelect from '../../components/ProjectSearchSelect';
 import logoSrc from '../../assets/logo.png';
+import SidebarUser from '../../components/SidebarUser';
 import { AdminAddUserModal, AdminUserDetailModal } from './AdminUserModals';
 import { formatUserRowRole } from '../../utils/displayRole';
 import '../ITUpdates/ITUpdatesMain.css';
@@ -518,25 +519,7 @@ export default function AdminMain({ currentUser, onLogout }) {
           })}
         </nav>
         <div className="it-updates-sidebar-footer">
-          <div className="it-updates-sidebar-user">
-            <Avatar user={user} />
-            <div className="it-updates-sidebar-user-info">
-              <div className="it-updates-sidebar-username">
-                {user?.name || user?.username || user?.email}
-              </div>
-              <div className="it-updates-sidebar-userrole">{getDisplayRole(user)}</div>
-            </div>
-            {onLogout && (
-              <button
-                type="button"
-                className="it-updates-sidebar-logout"
-                onClick={onLogout}
-                title="Sign out"
-              >
-                <MdLogout size={16} />
-              </button>
-            )}
-          </div>
+          <SidebarUser user={user} onLogout={onLogout} />
         </div>
       </aside>
 

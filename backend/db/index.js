@@ -91,7 +91,7 @@ export async function dbGetUserById(userId) {
   if (!Number.isFinite(id)) return null;
   try {
     const { rows } = await p.query(
-      'SELECT user_id, username, email, is_it_developer, is_it_manager FROM users WHERE user_id = $1',
+      'SELECT user_id, username, email, profile_image, is_it_developer, is_it_manager FROM users WHERE user_id = $1',
       [id]
     );
     const row = rows[0];
@@ -213,6 +213,25 @@ export async function dbUpdateUser(userId, { username, email, password_hash, is_
   }
 }
 
+/** Update only the profile image for a user (self-service avatar). Returns updated row or null. */
+export async function dbUpdateUserProfileImage(userId, image) {
+  const p = getPool();
+  if (!p) return null;
+  const id = parseInt(String(userId), 10);
+  if (!Number.isFinite(id)) return null;
+  try {
+    const { rows } = await p.query(
+      `UPDATE users SET profile_image = $1 WHERE user_id = $2
+       RETURNING user_id, username, email, profile_image, is_it_developer, is_it_manager`,
+      [image || null, id]
+    );
+    return rows[0] || null;
+  } catch (err) {
+    console.error('dbUpdateUserProfileImage:', err.message);
+    return null;
+  }
+}
+
 /** Delete a user. Returns true if deleted. */
 export async function dbDeleteUser(userId) {
   const p = getPool();
@@ -245,6 +264,15 @@ export async function dbEnsureTables() {
     `);
   } catch (err) {
     console.warn('dbEnsureTables: project ownership columns check failed:', err.message);
+  }
+
+  // Profile pictures are stored inline as data URLs, so the column must be TEXT
+  // (not a narrow VARCHAR) to avoid truncation.
+  try {
+    await p.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS profile_image TEXT;`);
+    await p.query(`ALTER TABLE users ALTER COLUMN profile_image TYPE TEXT;`);
+  } catch (err) {
+    console.warn('dbEnsureTables: users.profile_image check failed:', err.message);
   }
 
   const taskTablesForReview = [
@@ -763,6 +791,7 @@ export async function dbGetTasksSimple(filters = {}) {
              u_assigned.username AS assignee_username,
              u_assigned.profile_image AS assignee_profile_image,
              u_by.username AS assigned_by_username,
+             u_by.profile_image AS assigned_by_profile_image,
              u_review.username AS reviewer_username${hasProject ? ',\n             pr.project_name AS project_name,\n             pr.logo AS project_logo' : ''}
       FROM ${taskTable} t
       LEFT JOIN users u_assigned ON t.assigned_to = u_assigned.user_id
@@ -881,6 +910,7 @@ export async function dbGetTasksSimple(filters = {}) {
       assigned_by: r.assigned_by,
       assigned_by_name: r.assigned_by_username,
       assignee_profile_image: r.assignee_profile_image,
+      assigned_by_profile_image: r.assigned_by_profile_image ?? null,
       projectId: r.project_id ? String(r.project_id) : null,
       project_id: r.project_id,
       project_name: r.project_name ?? null,

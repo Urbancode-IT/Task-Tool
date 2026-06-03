@@ -26,6 +26,7 @@ import PeriodFilter from '../../components/PeriodFilter';
 import TaskComments from '../../components/TaskComments';
 import logoSrc from '../../assets/logo.png';
 import ProjectLogo from '../../components/ProjectLogo';
+import SidebarUser from '../../components/SidebarUser';
 import './ITUpdatesMain.css';
 
 const TABS = [
@@ -100,6 +101,7 @@ function Avatar({ user, size = 'md' }) {
       <img
         src={src}
         alt=""
+        title={name}
         className={`it-updates-avatar it-updates-avatar-img ${size}`}
       />
     );
@@ -608,19 +610,13 @@ const ITUpdatesMain = ({ currentUser, onLogout }) => {
                           </span>
                         ) : null}
                       </div>
-                      <div className="it-updates-task-card-title">
-                        <ProjectLogo src={task.project_logo} name={task.project_name} />
-                        {task.title}
-                      </div>
+                      <div className="it-updates-task-card-title">{task.title}</div>
                       {descSnippet ? (
                         <div className="it-updates-task-card-desc">{descSnippet}</div>
                       ) : null}
                       <span className="it-updates-task-card-project" title={projectName}>
                         {projectName}
                       </span>
-                      <div className="it-updates-task-card-tags">
-                        <span className="it-updates-task-card-tag">{task.assignee || 'Unassigned'}</span>
-                      </div>
                       {task.req_total > 0 && (
                         <div className="it-updates-task-card-reqs">
                           <div className="it-updates-task-card-reqs-label">
@@ -635,8 +631,29 @@ const ITUpdatesMain = ({ currentUser, onLogout }) => {
                           </div>
                         </div>
                       )}
-                      <div className="it-updates-task-card-assigned-by">
-                        Assigned by: {task.assigned_by_name || '—'}
+                      <div className="it-updates-task-card-footer">
+                        <ProjectLogo
+                          src={task.project_logo}
+                          name={task.project_name}
+                          size={30}
+                          className="it-updates-task-card-logo"
+                        />
+                        <div className="it-updates-task-card-people">
+                          {task.assigned_by_name ? (
+                            <span className="it-updates-task-card-person">
+                              <Avatar
+                                user={{ username: task.assigned_by_name, profile_image: task.assigned_by_profile_image }}
+                                size="small"
+                              />
+                            </span>
+                          ) : null}
+                          <span className="it-updates-task-card-person">
+                            <Avatar
+                              user={{ username: task.assignee, profile_image: task.assignee_profile_image }}
+                              size="small"
+                            />
+                          </span>
+                        </div>
                       </div>
                       {task.status === 'completed' &&
                         (task.reviewed_by_username || task.review_comment) && (
@@ -705,25 +722,7 @@ const ITUpdatesMain = ({ currentUser, onLogout }) => {
         </nav>
 
         <div className="it-updates-sidebar-footer">
-          <div className="it-updates-sidebar-user">
-            <Avatar user={user} size="small" />
-            <div className="it-updates-sidebar-user-info">
-              <div className="it-updates-sidebar-username">
-                {user?.name || user?.username || user?.email}
-              </div>
-              <div className="it-updates-sidebar-userrole">{getDisplayRole(user)}</div>
-            </div>
-            {onLogout && (
-              <button
-                type="button"
-                className="it-updates-sidebar-logout"
-                onClick={onLogout}
-                title="Sign out"
-              >
-                <MdLogout size={16} />
-              </button>
-            )}
-          </div>
+          <SidebarUser user={user} onLogout={onLogout} />
         </div>
       </aside>
 

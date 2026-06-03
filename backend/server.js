@@ -183,6 +183,7 @@ async function buildUserFromDbUser(dbUser) {
     name: dbUser.username,
     username: dbUser.username,
     email: dbUser.email,
+    profile_image: dbUser.profile_image ?? null,
     is_it_developer: Boolean(dbUser.is_it_developer),
     is_it_manager: Boolean(dbUser.is_it_manager),
   };
@@ -345,6 +346,22 @@ app.get('/auth/me', asyncMw(async (req, res) => {
   safeUser.permissions = ['it_updates.view', 'it_updates.manage', 'it_updates.users', 'admin.access'];
   safeUser.roleIds = [];
   res.json({ user: safeUser });
+}));
+
+/** Self-service: update the signed-in user's profile picture. */
+app.put('/auth/me/avatar', asyncMw(async (req, res) => {
+  const session = resolveSessionFromCookies(req, res);
+  if (!session.ok) {
+    return res.status(session.status || 401).json({ message: session.message || 'Not authenticated' });
+  }
+  if (!db.useDb() || session.demo) {
+    return res.status(400).json({ message: 'Profile updates require a database connection.' });
+  }
+  const image = req.body?.profile_image ?? req.body?.image ?? null;
+  const updatedRow = await db.dbUpdateUserProfileImage(session.decoded.id, image);
+  if (!updatedRow) return res.status(500).json({ message: 'Failed to update profile picture' });
+  const user = await buildUserFromDbUser(updatedRow);
+  res.json({ user });
 }));
 
 app.post('/auth/refresh', (req, res) => {
