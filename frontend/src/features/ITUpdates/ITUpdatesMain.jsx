@@ -398,6 +398,15 @@ const ITUpdatesMain = ({ currentUser, onLogout }) => {
     return map;
   }, [projects]);
 
+  const projectById = useMemo(() => {
+    const map = new Map();
+    (projects || []).forEach((p) => {
+      const id = p?.id ?? p?.project_id;
+      if (id != null) map.set(String(id), p);
+    });
+    return map;
+  }, [projects]);
+
   const allTasksGroups = useMemo(() => groupTasksByStatus(allTasksFiltered), [allTasksFiltered]);
   const myTaskGroups = useMemo(() => groupTasksByStatus(myTasks), [myTasks]);
 
@@ -577,6 +586,8 @@ const ITUpdatesMain = ({ currentUser, onLogout }) => {
                     task?.projectId != null
                       ? projectNameById.get(String(task.projectId)) || task.projectId || 'No project'
                       : 'No project';
+                  const cardProject =
+                    task?.projectId != null ? projectById.get(String(task.projectId)) : null;
                   const desc = (task.task_description || task.description || '').trim();
                   const descSnippet = desc.length > 50 ? desc.slice(0, 50) + '...' : desc;
                   const overdue = isTaskOverdue(task);
@@ -633,8 +644,8 @@ const ITUpdatesMain = ({ currentUser, onLogout }) => {
                       )}
                       <div className="it-updates-task-card-footer">
                         <ProjectLogo
-                          src={task.project_logo}
-                          name={task.project_name}
+                          src={cardProject?.logo || task.project_logo}
+                          name={cardProject?.name || cardProject?.project_name || task.project_name}
                           size={30}
                           className="it-updates-task-card-logo"
                         />

@@ -27,7 +27,9 @@ export default function ProjectLogo({ src, name, size = 18, className = '' }) {
   }
 
   // No logo available — show an icon with the project's starting letter.
-  const letter = (String(name || '').trim()[0] || '?').toUpperCase();
+  // If there is no project name either, render nothing (avoid a stray "?").
+  const letter = (String(name || '').trim()[0] || '').toUpperCase();
+  if (!letter) return null;
   return (
     <span
       className={`project-logo-badge project-logo-initial ${className}`.trim()}
