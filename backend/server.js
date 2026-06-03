@@ -75,7 +75,7 @@ app.use(
 
 // NOTE: CORS middleware above handles preflight requests; no extra OPTIONS route needed.
 
-app.use(express.json());
+app.use(express.json({ limit: '5mb' }));
 app.use(cookieParser());
 
 // In-memory demo users (used for login when no DB or for dev)

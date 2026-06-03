@@ -443,6 +443,7 @@ const ITUpdatesMain = ({ currentUser, onLogout }) => {
         name: payload.project_name ?? payload.name,
         project_code: normalizedProjectCode,
         project_url: payload.project_url,
+        logo: payload.logo ?? null,
         description: payload.description,
         status: payload.status,
         priority: payload.priority,
@@ -608,7 +609,7 @@ const ITUpdatesMain = ({ currentUser, onLogout }) => {
                         ) : null}
                       </div>
                       <div className="it-updates-task-card-title">
-                        <ProjectLogo name={task.project_name} />
+                        <ProjectLogo src={task.project_logo} name={task.project_name} />
                         {task.title}
                       </div>
                       {descSnippet ? (
@@ -815,7 +816,7 @@ const ITUpdatesMain = ({ currentUser, onLogout }) => {
                       <div key={project.project_id ?? project.id} className="it-updates-dashboard-project-card">
                         <div className="it-updates-dashboard-project-top">
                           <span className="it-updates-dashboard-project-name">
-                            <ProjectLogo name={project.project_name ?? project.name} size={20} />
+                            <ProjectLogo src={project.logo} name={project.project_name ?? project.name} size={20} />
                             {project.project_name ?? project.name}
                           </span>
                           <span
@@ -993,7 +994,7 @@ const ITUpdatesMain = ({ currentUser, onLogout }) => {
                   >
                     <div className="it-updates-project-top">
                       <span className="it-updates-project-name">
-                        <ProjectLogo name={project.name ?? project.project_name} size={20} />
+                        <ProjectLogo src={project.logo} name={project.name ?? project.project_name} size={20} />
                         {project.name ?? project.project_name}
                       </span>
                       <span
@@ -1417,6 +1418,7 @@ function ProjectModal({ project, teammatesOptions, onClose, onSave }) {
     project_name: project?.name ?? project?.project_name ?? '',
     project_code: project?.project_code ?? '',
     project_url: project?.project_url ?? '',
+    logo: project?.logo ?? '',
     description: project?.description ?? '',
     status: project?.status ?? 'active',
     priority: project?.priority ?? 'medium',
@@ -1438,6 +1440,22 @@ function ProjectModal({ project, teammatesOptions, onClose, onSave }) {
     document.addEventListener('mousedown', onClickOutside);
     return () => document.removeEventListener('mousedown', onClickOutside);
   }, []);
+
+  const handleLogoChange = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      toastError('Please choose an image file for the logo.');
+      return;
+    }
+    if (file.size > 512 * 1024) {
+      toastError('Logo is too large. Please choose an image under 512 KB.');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => setForm((f) => ({ ...f, logo: String(reader.result || '') }));
+    reader.readAsDataURL(file);
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -1486,6 +1504,32 @@ function ProjectModal({ project, teammatesOptions, onClose, onSave }) {
               onChange={(e) => setForm((f) => ({ ...f, project_url: e.target.value }))}
             />
           </label>
+          <label>
+            Logo
+            <span className="it-updates-file-input">
+              <input type="file" accept="image/*" onChange={handleLogoChange} />
+              <span className="it-updates-file-btn">
+                <MdAdd size={16} />
+                Choose image
+              </span>
+              <span className="it-updates-file-name">
+                {form.logo ? 'Image selected' : 'No file chosen'}
+              </span>
+            </span>
+          </label>
+          {form.logo && (
+            <div className="it-updates-logo-preview">
+              <img src={form.logo} alt="Project logo preview" />
+              <span>Logo selected</span>
+              <button
+                type="button"
+                className="it-updates-logo-remove"
+                onClick={() => setForm((f) => ({ ...f, logo: '' }))}
+              >
+                Remove
+              </button>
+            </div>
+          )}
           <label>
             Description
             <textarea

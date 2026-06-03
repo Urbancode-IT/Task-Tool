@@ -377,7 +377,7 @@ export default function LegalFinanceMain({ currentUser, onLogout }) {
                       ) : null}
                     </div>
                     <div className="it-updates-task-card-title">
-                      <ProjectLogo name={task.project_name} />
+                      <ProjectLogo src={task.project_logo} name={task.project_name} />
                       {task.title}
                     </div>
                     {task.project_name ? (

@@ -240,7 +240,8 @@ export async function dbEnsureTables() {
       ADD COLUMN IF NOT EXISTS owner_user_id INT,
       ADD COLUMN IF NOT EXISTS owner_name VARCHAR(200),
       ADD COLUMN IF NOT EXISTS teammates TEXT,
-      ADD COLUMN IF NOT EXISTS project_url TEXT;
+      ADD COLUMN IF NOT EXISTS project_url TEXT,
+      ADD COLUMN IF NOT EXISTS logo TEXT;
     `);
   } catch (err) {
     console.warn('dbEnsureTables: project ownership columns check failed:', err.message);
@@ -499,6 +500,7 @@ export async function dbGetProjects(status = null) {
         project_name: r.project_name,
         project_code: r.project_code,
         project_url: r.project_url || '',
+        logo: r.logo || null,
         description: r.description,
         status: r.status,
         priority: r.priority,
@@ -528,14 +530,15 @@ export async function dbCreateProject(data) {
     rows: [row],
   } = await p.query(
     `INSERT INTO it_projects (
-      project_name, project_code, project_url, description, status, priority, start_date, end_date, owner_user_id, owner_name, teammates
+      project_name, project_code, project_url, logo, description, status, priority, start_date, end_date, owner_user_id, owner_name, teammates
     )
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
      RETURNING *`,
     [
       data.name ?? data.project_name ?? 'Untitled Project',
       data.project_code ?? null,
       data.project_url ?? null,
+      data.logo ?? null,
       data.description ?? null,
       data.status ?? 'active',
       data.priority ?? 'medium',
@@ -552,6 +555,7 @@ export async function dbCreateProject(data) {
     name: row.project_name,
     project_code: row.project_code,
     project_url: row.project_url || '',
+    logo: row.logo || null,
     description: row.description,
     status: row.status,
     priority: row.priority,
@@ -573,6 +577,7 @@ export async function dbUpdateProject(projectId, data) {
     'project_name',
     'project_code',
     'project_url',
+    'logo',
     'description',
     'status',
     'priority',
@@ -617,6 +622,7 @@ export async function dbUpdateProject(projectId, data) {
     name: row.project_name,
     project_code: row.project_code,
     project_url: row.project_url || '',
+    logo: row.logo || null,
     description: row.description,
     status: row.status,
     priority: row.priority,
@@ -644,6 +650,7 @@ export async function dbGetProjectById(projectId) {
     name: row.project_name,
     project_code: row.project_code,
     project_url: row.project_url || '',
+    logo: row.logo || null,
     description: row.description,
     status: row.status,
     priority: row.priority,
@@ -756,7 +763,7 @@ export async function dbGetTasksSimple(filters = {}) {
              u_assigned.username AS assignee_username,
              u_assigned.profile_image AS assignee_profile_image,
              u_by.username AS assigned_by_username,
-             u_review.username AS reviewer_username${hasProject ? ',\n             pr.project_name AS project_name' : ''}
+             u_review.username AS reviewer_username${hasProject ? ',\n             pr.project_name AS project_name,\n             pr.logo AS project_logo' : ''}
       FROM ${taskTable} t
       LEFT JOIN users u_assigned ON t.assigned_to = u_assigned.user_id
       LEFT JOIN users u_by ON t.assigned_by = u_by.user_id
@@ -877,6 +884,7 @@ export async function dbGetTasksSimple(filters = {}) {
       projectId: r.project_id ? String(r.project_id) : null,
       project_id: r.project_id,
       project_name: r.project_name ?? null,
+      project_logo: r.project_logo ?? null,
       dueDate: r.due_date,
       task_date: r.task_date,
       created_at: r.created_at,
@@ -1365,13 +1373,13 @@ export async function dbGetDashboardStatsFull() {
       p.query("SELECT COUNT(*) AS n FROM it_tasks WHERE status IN ('todo', 'in_progress', 'review', 'rework')"),
       p.query("SELECT COUNT(*) AS n FROM it_tasks WHERE status = 'completed'"),
       p.query(`
-        SELECT p.project_id, p.project_name, p.priority,
+        SELECT p.project_id, p.project_name, p.priority, p.logo,
                COUNT(t.task_id) AS total_tasks,
                COUNT(t.task_id) FILTER (WHERE t.status = 'completed') AS completed_tasks
         FROM it_projects p
         LEFT JOIN it_tasks t ON t.project_id = p.project_id
         WHERE p.status = 'active'
-        GROUP BY p.project_id, p.project_name, p.priority
+        GROUP BY p.project_id, p.project_name, p.priority, p.logo
         ORDER BY p.project_id
       `),
       p.query(`
@@ -1394,6 +1402,7 @@ export async function dbGetDashboardStatsFull() {
       project_id: r.project_id,
       project_name: r.project_name,
       priority: r.priority,
+      logo: r.logo || null,
       total_tasks: Number(r.total_tasks ?? 0),
       completed_tasks: Number(r.completed_tasks ?? 0),
       completion_percentage: r.total_tasks > 0
