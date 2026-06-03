@@ -542,6 +542,17 @@
   padding: 1.2rem 1.25rem;
   transition: all var(--transition-base);
   position: relative;
+  overflow: hidden;
+  z-index: 0;
+}
+
+.project-logo-badge {
+  border-radius: 5px;
+  margin-right: 7px;
+  vertical-align: -4px;
+  object-fit: contain;
+  flex-shrink: 0;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.18);
 }
 
 .it-updates-dashboard-project-card:hover {
@@ -855,7 +866,9 @@
   box-shadow: var(--shadow-xs);
   position: relative;
   overflow: visible;
+  z-index: 0;
 }
+
 
 .it-updates-task-card:hover {
   box-shadow: var(--shadow-md);
@@ -1113,7 +1126,11 @@
   background: var(--surface-card);
   transition: all var(--transition-base);
   box-shadow: var(--shadow-xs);
+  position: relative;
+  overflow: hidden;
+  z-index: 0;
 }
+
 
 .it-updates-project-card:hover {
   box-shadow: var(--shadow-lg);

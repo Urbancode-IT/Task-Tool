@@ -23,6 +23,7 @@ import { taskInPeriod, EMPTY_PERIOD } from '../../utils/taskPeriod';
 import PeriodFilter from '../../components/PeriodFilter';
 import TaskComments from '../../components/TaskComments';
 import logoSrc from '../../assets/logo.png';
+import ProjectLogo from '../../components/ProjectLogo';
 import '../ITUpdates/ITUpdatesMain.css';
 
 const TABS = [
@@ -440,6 +441,7 @@ export default function DigitalMarketingMain({ currentUser, onLogout }) {
                       ) : null}
                     </div>
                     <div className="it-updates-task-card-title">
+                      <ProjectLogo name={task.project_name} />
                       {task.title}
                     </div>
                     <div className="it-updates-task-card-desc">
@@ -725,7 +727,7 @@ export default function DigitalMarketingMain({ currentUser, onLogout }) {
                     setAllTasksFiltersApplied((f) => ({ ...f, status: e.target.value }))
                   }
                 >
-                  <option value="">All statuses</option>
+                  <option value="">Statuses</option>
                   <option value="todo">Idea</option>
                   <option value="in_progress">Drafting</option>
                   <option value="review">Design Review</option>
@@ -738,7 +740,7 @@ export default function DigitalMarketingMain({ currentUser, onLogout }) {
                     setAllTasksFiltersApplied((f) => ({ ...f, priority: e.target.value }))
                   }
                 >
-                  <option value="">All priorities</option>
+                  <option value="">Priorities</option>
                   <option value="low">Low</option>
                   <option value="medium">Medium</option>
                   <option value="high">High</option>
@@ -750,7 +752,7 @@ export default function DigitalMarketingMain({ currentUser, onLogout }) {
                     setAllTasksFiltersApplied((f) => ({ ...f, assignee: e.target.value }))
                   }
                 >
-                  <option value="">All staff</option>
+                  <option value="">Members</option>
                   {teamOverview.map((u) => (
                     <option key={u.user_id ?? u.assignee} value={u.user_id ?? u.assignee ?? ''}>
                       {u.username ?? u.assignee}

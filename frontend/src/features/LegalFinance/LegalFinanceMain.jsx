@@ -20,6 +20,7 @@ import { taskInPeriod, EMPTY_PERIOD } from '../../utils/taskPeriod';
 import PeriodFilter from '../../components/PeriodFilter';
 import TaskComments from '../../components/TaskComments';
 import logoSrc from '../../assets/logo.png';
+import ProjectLogo from '../../components/ProjectLogo';
 import '../ITUpdates/ITUpdatesMain.css';
 
 const TABS = [
@@ -376,6 +377,7 @@ export default function LegalFinanceMain({ currentUser, onLogout }) {
                       ) : null}
                     </div>
                     <div className="it-updates-task-card-title">
+                      <ProjectLogo name={task.project_name} />
                       {task.title}
                     </div>
                     {task.project_name ? (
@@ -639,7 +641,7 @@ export default function LegalFinanceMain({ currentUser, onLogout }) {
                     setAllTasksFiltersApplied((f) => ({ ...f, status: e.target.value }))
                   }
                 >
-                  <option value="">All statuses</option>
+                  <option value="">Statuses</option>
                   <option value="todo">To do</option>
                   <option value="in_progress">In Progress</option>
                   <option value="review">Review</option>
@@ -652,7 +654,7 @@ export default function LegalFinanceMain({ currentUser, onLogout }) {
                     setAllTasksFiltersApplied((f) => ({ ...f, priority: e.target.value }))
                   }
                 >
-                  <option value="">All priorities</option>
+                  <option value="">Priorities</option>
                   <option value="low">Low</option>
                   <option value="medium">Medium</option>
                   <option value="high">High</option>
@@ -664,7 +666,7 @@ export default function LegalFinanceMain({ currentUser, onLogout }) {
                     setAllTasksFiltersApplied((f) => ({ ...f, assignee: e.target.value }))
                   }
                 >
-                  <option value="">All staff</option>
+                  <option value="">Members</option>
                   {teamOverview.map((u) => (
                     <option key={u.user_id ?? u.assignee} value={u.user_id ?? u.assignee ?? ''}>
                       {u.username ?? u.assignee}

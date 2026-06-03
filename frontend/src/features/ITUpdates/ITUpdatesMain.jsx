@@ -25,6 +25,7 @@ import ProjectSearchSelect from '../../components/ProjectSearchSelect';
 import PeriodFilter from '../../components/PeriodFilter';
 import TaskComments from '../../components/TaskComments';
 import logoSrc from '../../assets/logo.png';
+import ProjectLogo from '../../components/ProjectLogo';
 import './ITUpdatesMain.css';
 
 const TABS = [
@@ -606,7 +607,10 @@ const ITUpdatesMain = ({ currentUser, onLogout }) => {
                           </span>
                         ) : null}
                       </div>
-                      <div className="it-updates-task-card-title">{task.title}</div>
+                      <div className="it-updates-task-card-title">
+                        <ProjectLogo name={task.project_name} />
+                        {task.title}
+                      </div>
                       {descSnippet ? (
                         <div className="it-updates-task-card-desc">{descSnippet}</div>
                       ) : null}
@@ -811,6 +815,7 @@ const ITUpdatesMain = ({ currentUser, onLogout }) => {
                       <div key={project.project_id ?? project.id} className="it-updates-dashboard-project-card">
                         <div className="it-updates-dashboard-project-top">
                           <span className="it-updates-dashboard-project-name">
+                            <ProjectLogo name={project.project_name ?? project.name} size={20} />
                             {project.project_name ?? project.name}
                           </span>
                           <span
@@ -913,7 +918,7 @@ const ITUpdatesMain = ({ currentUser, onLogout }) => {
                     setAllTasksFiltersApplied((f) => ({ ...f, status: e.target.value }))
                   }
                 >
-                  <option value="">All statuses</option>
+                  <option value="">Statuses</option>
                   <option value="todo">To do</option>
                   <option value="in_progress">In Progress</option>
                   <option value="review">Review</option>
@@ -926,7 +931,7 @@ const ITUpdatesMain = ({ currentUser, onLogout }) => {
                     setAllTasksFiltersApplied((f) => ({ ...f, priority: e.target.value }))
                   }
                 >
-                  <option value="">All priorities</option>
+                  <option value="">Priorities</option>
                   <option value="low">Low</option>
                   <option value="medium">Medium</option>
                   <option value="high">High</option>
@@ -938,7 +943,7 @@ const ITUpdatesMain = ({ currentUser, onLogout }) => {
                     setAllTasksFiltersApplied((f) => ({ ...f, assignee: e.target.value }))
                   }
                 >
-                  <option value="">All staff</option>
+                  <option value="">Members</option>
                   {(developers.length ? developers : teamOverview).map((u) => (
                     <option key={u.user_id ?? u.assignee} value={u.user_id ?? u.assignee ?? ''}>
                       {u.username ?? u.assignee}
@@ -988,6 +993,7 @@ const ITUpdatesMain = ({ currentUser, onLogout }) => {
                   >
                     <div className="it-updates-project-top">
                       <span className="it-updates-project-name">
+                        <ProjectLogo name={project.name ?? project.project_name} size={20} />
                         {project.name ?? project.project_name}
                       </span>
                       <span

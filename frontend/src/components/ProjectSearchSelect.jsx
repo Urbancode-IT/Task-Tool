@@ -106,7 +106,7 @@ export default function ProjectSearchSelect({
               clearSelection();
             }}
           >
-            All projects
+            Projects
           </li>
           {matches.map((o) => (
             <li
