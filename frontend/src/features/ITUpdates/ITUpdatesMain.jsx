@@ -2261,10 +2261,7 @@ function TaskModal({ task, currentUser, projects, developers, managers, onClose,
               taskId={task.id}
               team={MODULE_TEAM}
               currentUser={currentUser}
-              canComment={
-                String(currentUser?.id ?? currentUser?.user_id ?? '') === String(task?.assigned_to ?? '') ||
-                String(currentUser?.id ?? currentUser?.user_id ?? '') === String(task?.assigned_by ?? '')
-              }
+              canComment={Boolean(currentUser?.id ?? currentUser?.user_id)}
             />
           )}
 

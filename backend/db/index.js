@@ -275,6 +275,41 @@ export async function dbEnsureTables() {
     console.warn('dbEnsureTables: users.profile_image check failed:', err.message);
   }
 
+  // Rich comments: replies (parent_id), edited flag, @mentions, and likes.
+  try {
+    await p.query(`
+      ALTER TABLE task_comments
+      ADD COLUMN IF NOT EXISTS parent_id INT,
+      ADD COLUMN IF NOT EXISTS edited_at TIMESTAMPTZ,
+      ADD COLUMN IF NOT EXISTS mentions TEXT;
+    `);
+    await p.query(`
+      CREATE TABLE IF NOT EXISTS comment_likes (
+        comment_id INT NOT NULL REFERENCES task_comments(comment_id) ON DELETE CASCADE,
+        user_id INT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+        created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (comment_id, user_id)
+      );
+    `);
+  } catch (err) {
+    console.warn('dbEnsureTables: task_comments enrichments failed:', err.message);
+  }
+
+  // Dedupe table so each deadline alert (per task/team/kind) is emailed only once.
+  try {
+    await p.query(`
+      CREATE TABLE IF NOT EXISTS task_deadline_notifications (
+        task_id INT NOT NULL,
+        team VARCHAR(40) NOT NULL,
+        kind VARCHAR(20) NOT NULL,
+        created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (task_id, team, kind)
+      );
+    `);
+  } catch (err) {
+    console.warn('dbEnsureTables: task_deadline_notifications failed:', err.message);
+  }
+
   const taskTablesForReview = [
     'it_tasks',
     'consultant_tasks',
@@ -1288,59 +1323,272 @@ export async function dbDeleteTask(taskId, teamInput = null) {
   return rowCount > 0;
 }
 
+function mapCommentRow(r) {
+  const likedIds = Array.isArray(r.liked_user_ids)
+    ? r.liked_user_ids.filter((v) => v != null).map((v) => String(v))
+    : [];
+  return {
+    id: String(r.comment_id),
+    taskId: String(r.task_id),
+    userId: r.user_id != null ? String(r.user_id) : null,
+    author: r.author_username || (r.user_id ? `User #${r.user_id}` : 'System'),
+    authorImage: r.author_profile_image ?? null,
+    message: r.comment_text,
+    createdAt: r.created_at,
+    editedAt: r.edited_at ?? null,
+    parentId: r.parent_id != null ? String(r.parent_id) : null,
+    mentions: r.mentions
+      ? String(r.mentions).split(',').map((s) => s.trim()).filter(Boolean)
+      : [],
+    likeCount: Number(r.like_count || 0),
+    likedUserIds: likedIds,
+  };
+}
+
 export async function dbGetTaskComments(taskId) {
   const p = getPool();
   if (!p) return [];
   const { rows } = await p.query(
-    `SELECT c.*, u.username AS author_username
+    `SELECT c.*,
+            u.username AS author_username,
+            u.profile_image AS author_profile_image,
+            (SELECT COUNT(*) FROM comment_likes l WHERE l.comment_id = c.comment_id) AS like_count,
+            (SELECT COALESCE(ARRAY_AGG(l.user_id), '{}') FROM comment_likes l WHERE l.comment_id = c.comment_id) AS liked_user_ids
      FROM task_comments c
      LEFT JOIN users u ON c.user_id = u.user_id
      WHERE c.task_id = $1
      ORDER BY c.created_at`,
     [taskId]
   );
-  return rows.map((r) => ({
-    id: String(r.comment_id),
-    taskId: String(r.task_id),
-    userId: r.user_id != null ? String(r.user_id) : null,
-    author: r.author_username || (r.user_id ? `User #${r.user_id}` : 'System'),
-    message: r.comment_text,
-    createdAt: r.created_at,
-  }));
+  return rows.map(mapCommentRow);
+}
+
+function normalizeMentions(mentions) {
+  if (Array.isArray(mentions)) {
+    return [...new Set(mentions.map((v) => String(v).trim()).filter(Boolean))].join(',');
+  }
+  if (typeof mentions === 'string') return mentions.trim() || null;
+  return null;
 }
 
 export async function dbAddTaskComment(taskId, data) {
   const p = getPool();
   if (!p) return null;
+  const parentId =
+    data.parent_id != null && String(data.parent_id).trim() !== ''
+      ? parseInt(String(data.parent_id), 10)
+      : null;
   const {
     rows: [row],
   } = await p.query(
-    `INSERT INTO task_comments (task_id, user_id, comment_text)
-     VALUES ($1, $2, $3)
+    `INSERT INTO task_comments (task_id, user_id, comment_text, parent_id, mentions)
+     VALUES ($1, $2, $3, $4, $5)
      RETURNING *`,
-    [taskId, data.user_id || null, data.message ?? data.comment_text ?? '']
+    [
+      taskId,
+      data.user_id || null,
+      data.message ?? data.comment_text ?? '',
+      Number.isFinite(parentId) ? parentId : null,
+      normalizeMentions(data.mentions),
+    ]
   );
   if (!row) return null;
   let authorName = data.author || null;
-  if (!authorName && row.user_id != null) {
+  let authorImage = null;
+  if (row.user_id != null) {
     try {
       const { rows: [u] } = await p.query(
-        'SELECT username FROM users WHERE user_id = $1',
+        'SELECT username, profile_image FROM users WHERE user_id = $1',
         [row.user_id]
       );
-      authorName = u?.username || null;
+      authorName = authorName || u?.username || null;
+      authorImage = u?.profile_image ?? null;
     } catch {
-      authorName = null;
+      /* ignore */
     }
   }
-  return {
-    id: String(row.comment_id),
-    taskId: String(row.task_id),
-    userId: row.user_id != null ? String(row.user_id) : null,
-    author: authorName || 'System',
-    message: row.comment_text,
-    createdAt: row.created_at,
-  };
+  return mapCommentRow({
+    ...row,
+    author_username: authorName,
+    author_profile_image: authorImage,
+    like_count: 0,
+    liked_user_ids: [],
+  });
+}
+
+/** Edit a comment. Only the author may edit. Returns updated comment or null. */
+export async function dbUpdateTaskComment(commentId, userId, data) {
+  const p = getPool();
+  if (!p) return null;
+  const { rows } = await p.query(
+    `UPDATE task_comments
+     SET comment_text = $1, mentions = $2, edited_at = CURRENT_TIMESTAMP
+     WHERE comment_id = $3 AND user_id = $4
+     RETURNING *`,
+    [data.message ?? data.comment_text ?? '', normalizeMentions(data.mentions), commentId, userId]
+  );
+  const row = rows[0];
+  if (!row) return null;
+  const { rows: [enriched] } = await p.query(
+    `SELECT c.*,
+            u.username AS author_username,
+            u.profile_image AS author_profile_image,
+            (SELECT COUNT(*) FROM comment_likes l WHERE l.comment_id = c.comment_id) AS like_count,
+            (SELECT COALESCE(ARRAY_AGG(l.user_id), '{}') FROM comment_likes l WHERE l.comment_id = c.comment_id) AS liked_user_ids
+     FROM task_comments c LEFT JOIN users u ON c.user_id = u.user_id
+     WHERE c.comment_id = $1`,
+    [row.comment_id]
+  );
+  return mapCommentRow(enriched);
+}
+
+/** Delete a comment (and its replies). Author only, unless isAdmin. Returns true if deleted. */
+export async function dbDeleteTaskComment(commentId, userId, isAdmin = false) {
+  const p = getPool();
+  if (!p) return false;
+  const id = parseInt(String(commentId), 10);
+  if (!Number.isFinite(id)) return false;
+  // Remove replies first to satisfy any FK expectations.
+  await p.query('DELETE FROM task_comments WHERE parent_id = $1', [id]);
+  const { rowCount } = isAdmin
+    ? await p.query('DELETE FROM task_comments WHERE comment_id = $1', [id])
+    : await p.query('DELETE FROM task_comments WHERE comment_id = $1 AND user_id = $2', [id, userId]);
+  return rowCount > 0;
+}
+
+/** Resolve a list of user ids to { user_id, username, email } (for mention emails). */
+export async function dbGetUsersByIds(ids) {
+  const p = getPool();
+  if (!p) return [];
+  const intIds = (Array.isArray(ids) ? ids : [])
+    .map((v) => parseInt(String(v), 10))
+    .filter((n) => Number.isFinite(n));
+  if (intIds.length === 0) return [];
+  try {
+    const { rows } = await p.query(
+      'SELECT user_id, username, email FROM users WHERE user_id = ANY($1::int[])',
+      [intIds]
+    );
+    return rows;
+  } catch (err) {
+    console.error('dbGetUsersByIds:', err.message);
+    return [];
+  }
+}
+
+const DEADLINE_TEAMS = [
+  { team: 'it', table: 'it_tasks' },
+  { team: 'consultant', table: 'consultant_tasks' },
+  { team: 'digital_marketing', table: 'digital_marketing_tasks' },
+  { team: 'legal_finance', table: 'legal_finance_tasks' },
+];
+
+/**
+ * Tasks that are due within `withinDays` days or already overdue and not completed.
+ * Returns rows with assignee/assigner emails for alerting.
+ */
+export async function dbGetDueTasksForAlerts(withinDays = 1) {
+  const p = getPool();
+  if (!p) return [];
+  const out = [];
+  for (const { team, table } of DEADLINE_TEAMS) {
+    try {
+      const { rows: exists } = await p.query(
+        "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_schema = 'public' AND table_name = $1) AS ex",
+        [table]
+      );
+      if (!exists[0]?.ex) continue;
+      const { rows } = await p.query(
+        `SELECT t.task_id, t.task_title, t.due_date, t.status,
+                ua.username AS assignee_name, ua.email AS assignee_email,
+                ub.username AS assigner_name, ub.email AS assigner_email
+         FROM ${table} t
+         LEFT JOIN users ua ON ua.user_id = t.assigned_to
+         LEFT JOIN users ub ON ub.user_id = t.assigned_by
+         WHERE t.due_date IS NOT NULL
+           AND t.status <> 'completed'
+           AND t.due_date <= CURRENT_DATE + ($1::int)`,
+        [withinDays]
+      );
+      rows.forEach((r) => {
+        const due = r.due_date ? new Date(r.due_date) : null;
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const kind = due && due < today ? 'overdue' : 'due_soon';
+        out.push({
+          team,
+          task_id: r.task_id,
+          title: r.task_title,
+          due_date: r.due_date,
+          kind,
+          recipients: [
+            { name: r.assignee_name, email: r.assignee_email },
+            { name: r.assigner_name, email: r.assigner_email },
+          ].filter((x) => x.email),
+        });
+      });
+    } catch (err) {
+      console.warn(`dbGetDueTasksForAlerts(${table}):`, err.message);
+    }
+  }
+  return out;
+}
+
+/** True if this exact deadline alert was already recorded. */
+export async function dbWasDeadlineNotified(taskId, team, kind) {
+  const p = getPool();
+  if (!p) return true; // fail safe: do not spam if we cannot check
+  try {
+    const { rowCount } = await p.query(
+      'SELECT 1 FROM task_deadline_notifications WHERE task_id = $1 AND team = $2 AND kind = $3',
+      [taskId, team, kind]
+    );
+    return rowCount > 0;
+  } catch (err) {
+    console.warn('dbWasDeadlineNotified:', err.message);
+    return true;
+  }
+}
+
+/** Record that a deadline alert was sent. */
+export async function dbMarkDeadlineNotified(taskId, team, kind) {
+  const p = getPool();
+  if (!p) return;
+  try {
+    await p.query(
+      `INSERT INTO task_deadline_notifications (task_id, team, kind)
+       VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`,
+      [taskId, team, kind]
+    );
+  } catch (err) {
+    console.warn('dbMarkDeadlineNotified:', err.message);
+  }
+}
+
+/** Toggle a like for a comment by a user. Returns { liked, likeCount }. */
+export async function dbToggleCommentLike(commentId, userId) {
+  const p = getPool();
+  if (!p) return null;
+  const cId = parseInt(String(commentId), 10);
+  const uId = parseInt(String(userId), 10);
+  if (!Number.isFinite(cId) || !Number.isFinite(uId)) return null;
+  const { rowCount } = await p.query(
+    'DELETE FROM comment_likes WHERE comment_id = $1 AND user_id = $2',
+    [cId, uId]
+  );
+  let liked = false;
+  if (rowCount === 0) {
+    await p.query(
+      'INSERT INTO comment_likes (comment_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
+      [cId, uId]
+    );
+    liked = true;
+  }
+  const { rows } = await p.query(
+    'SELECT COUNT(*)::int AS n FROM comment_likes WHERE comment_id = $1',
+    [cId]
+  );
+  return { liked, likeCount: Number(rows[0]?.n || 0) };
 }
 
 export async function dbGetDashboardStats() {

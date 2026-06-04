@@ -44,6 +44,22 @@ const itUpdatesApi = {
     return apiClient.post(`${BASE_PATH}/tasks/${taskId}/comments`, commentData);
   },
 
+  updateTaskComment: (taskId, commentId, commentData) => {
+    return apiClient.put(`${BASE_PATH}/tasks/${taskId}/comments/${commentId}`, commentData);
+  },
+
+  deleteTaskComment: (taskId, commentId, userId) => {
+    return apiClient.delete(`${BASE_PATH}/tasks/${taskId}/comments/${commentId}`, {
+      params: { user_id: userId },
+    });
+  },
+
+  likeTaskComment: (taskId, commentId, userId) => {
+    return apiClient.post(`${BASE_PATH}/tasks/${taskId}/comments/${commentId}/like`, {
+      user_id: userId,
+    });
+  },
+
   getDashboardStats: () => {
     return apiClient.get(`${BASE_PATH}/dashboard/stats`);
   },

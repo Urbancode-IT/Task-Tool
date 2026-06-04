@@ -8,6 +8,7 @@ import { fileURLToPath } from 'url';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import * as db from './db/index.js';
+import { sendMail, isMailConfigured } from './mailer.js';
 import { requireAuth, attachUserPermissions, requirePermission, signAccessToken, signRefreshToken, verifyRefreshToken } from './middlewares/authMiddleware.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -753,6 +754,16 @@ app.post(`${BASE_PATH}/tasks/:taskId/comments`, async (req, res) => {
     if (db.useDb()) {
       const comment = await db.dbAddTaskComment(taskId, { ...req.body, author });
       if (!comment) return res.status(500).json({ message: 'Failed to add comment' });
+      const mentionIds = Array.isArray(req.body.mentions) ? req.body.mentions : [];
+      if (mentionIds.length) {
+        notifyMentions({
+          taskId,
+          team: req.body.team,
+          mentionIds,
+          commenterName: comment.author,
+          html: comment.message,
+        }).catch((e) => console.error('notifyMentions:', e.message));
+      }
       return res.status(201).json(comment);
     }
     const comment = {
@@ -768,6 +779,60 @@ app.post(`${BASE_PATH}/tasks/:taskId/comments`, async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: 'Failed to add comment' });
+  }
+});
+
+// Edit a comment (author only)
+app.put(`${BASE_PATH}/tasks/:taskId/comments/:commentId`, async (req, res) => {
+  const { commentId } = req.params;
+  const userId = req.body?.user_id;
+  if (!userId) return res.status(400).json({ message: 'user_id is required' });
+  try {
+    if (db.useDb()) {
+      const updated = await db.dbUpdateTaskComment(commentId, userId, req.body);
+      if (!updated) return res.status(403).json({ message: 'You can only edit your own comment.' });
+      return res.json(updated);
+    }
+    return res.status(400).json({ message: 'Database connection required' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Failed to update comment' });
+  }
+});
+
+// Delete a comment (author only)
+app.delete(`${BASE_PATH}/tasks/:taskId/comments/:commentId`, async (req, res) => {
+  const { commentId } = req.params;
+  const userId = req.query.user_id || req.body?.user_id;
+  if (!userId) return res.status(400).json({ message: 'user_id is required' });
+  try {
+    if (db.useDb()) {
+      const ok = await db.dbDeleteTaskComment(commentId, userId, false);
+      if (!ok) return res.status(403).json({ message: 'You can only delete your own comment.' });
+      return res.status(204).send();
+    }
+    return res.status(400).json({ message: 'Database connection required' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Failed to delete comment' });
+  }
+});
+
+// Toggle a like on a comment
+app.post(`${BASE_PATH}/tasks/:taskId/comments/:commentId/like`, async (req, res) => {
+  const { commentId } = req.params;
+  const userId = req.body?.user_id;
+  if (!userId) return res.status(400).json({ message: 'user_id is required' });
+  try {
+    if (db.useDb()) {
+      const result = await db.dbToggleCommentLike(commentId, userId);
+      if (!result) return res.status(500).json({ message: 'Failed to like comment' });
+      return res.json(result);
+    }
+    return res.status(400).json({ message: 'Database connection required' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Failed to like comment' });
   }
 });
 
@@ -1310,6 +1375,83 @@ app.get('/', (req, res) => {
   res.send('IT Updates backend is running');
 });
 
+// ---- Email notifications (Gmail API) ----
+function stripHtml(html) {
+  return String(html || '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+function appLink() {
+  const raw = process.env.CLIENT_ORIGIN || '';
+  return raw.split(',')[0].trim().replace(/\/+$/, '');
+}
+
+/** Email each mentioned user that they were tagged in a comment. Fire-and-forget. */
+async function notifyMentions({ taskId, team, mentionIds, commenterName, html }) {
+  if (!isMailConfigured()) {
+    console.warn('[mentions] skipped: email not configured (GMAIL_* env missing).');
+    return;
+  }
+  const users = await db.dbGetUsersByIds(mentionIds);
+  const withEmail = users.filter((u) => u.email).length;
+  console.log(
+    `[mentions] task ${taskId}: ids=[${mentionIds.join(',')}] resolved=${users.length} withEmail=${withEmail}`
+  );
+  if (!users.length) return;
+  let title = `Task #${taskId}`;
+  try {
+    const t = await db.dbGetTaskById(taskId, team);
+    if (t?.title) title = t.title;
+  } catch {
+    /* ignore */
+  }
+  const link = appLink();
+  const who = commenterName || 'Someone';
+  for (const u of users) {
+    if (!u.email) continue;
+    await sendMail({
+      to: u.email,
+      subject: `${who} mentioned you on "${title}"`,
+      html:
+        `<p>Hi ${u.username || ''},</p>` +
+        `<p><strong>${who}</strong> mentioned you in a comment on <strong>${title}</strong>:</p>` +
+        `<blockquote style="border-left:3px solid #ddd;padding-left:10px;color:#444;">${html || ''}</blockquote>` +
+        (link ? `<p><a href="${link}">Open Seyal</a></p>` : ''),
+    });
+  }
+}
+
+/** Check for tasks due soon / overdue and email assignee + assigner once per state. */
+async function runDeadlineCheck() {
+  if (!db.useDb() || !isMailConfigured()) return;
+  try {
+    const tasks = await db.dbGetDueTasksForAlerts(1);
+    const link = appLink();
+    for (const t of tasks) {
+      if (await db.dbWasDeadlineNotified(t.task_id, t.team, t.kind)) continue;
+      const dueStr = t.due_date ? new Date(t.due_date).toLocaleDateString() : '';
+      const subject = t.kind === 'overdue' ? `Overdue: "${t.title}"` : `Due soon: "${t.title}"`;
+      const intro =
+        t.kind === 'overdue'
+          ? `The task <strong>${t.title}</strong> is overdue (was due ${dueStr}).`
+          : `The task <strong>${t.title}</strong> is due on ${dueStr}.`;
+      let sentAny = false;
+      for (const r of t.recipients) {
+        const ok = await sendMail({
+          to: r.email,
+          subject,
+          html:
+            `<p>Hi ${r.name || ''},</p><p>${intro}</p>` +
+            (link ? `<p><a href="${link}">Open Seyal</a></p>` : ''),
+        });
+        sentAny = sentAny || ok;
+      }
+      if (sentAny) await db.dbMarkDeadlineNotified(t.task_id, t.team, t.kind);
+    }
+  } catch (err) {
+    console.error('[deadline-check]', err.message);
+  }
+}
+
 async function start() {
   const result = await db.testConnection();
   if (result.ok) {
@@ -1330,6 +1472,14 @@ async function start() {
   }
   app.listen(PORT, () => {
     console.log(`IT Updates backend listening on http://localhost:${PORT}`);
+    if (isMailConfigured()) {
+      console.log('Email configured (Gmail API). Deadline alerts enabled (hourly).');
+      // First run shortly after startup, then hourly.
+      setTimeout(runDeadlineCheck, 30_000);
+      setInterval(runDeadlineCheck, 60 * 60 * 1000);
+    } else {
+      console.log('Email not configured (GMAIL_* env missing). Mentions/deadline emails disabled.');
+    }
   });
 }
 start();
