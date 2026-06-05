@@ -416,7 +416,7 @@ export default function LegalFinanceMain({ currentUser, onLogout }) {
                       <ProjectLogo
                         src={task.project_logo}
                         name={task.project_name}
-                        size={30}
+                        size={26}
                         className="it-updates-task-card-logo"
                       />
                       <div className="it-updates-task-card-people">

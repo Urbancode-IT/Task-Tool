@@ -647,7 +647,7 @@ const ITUpdatesMain = ({ currentUser, onLogout }) => {
                         <ProjectLogo
                           src={cardProject?.logo || task.project_logo}
                           name={cardProject?.name || cardProject?.project_name || task.project_name}
-                          size={30}
+                          size={26}
                           className="it-updates-task-card-logo"
                         />
                         <div className="it-updates-task-card-people">

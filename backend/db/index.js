@@ -467,6 +467,33 @@ export async function dbEnsureTables() {
   } catch (err) {
     console.warn('dbEnsureTables: legal_finance_task_requirements:', err.message);
   }
+
+  // Per-requirement timer columns — FINAL pass. The earlier ADD COLUMN block runs
+  // before the requirement tables are created (it_task_requirements /
+  // legal_finance_task_requirements are CREATEd above), so on a fresh database those
+  // tables would otherwise be created without the timer columns. Re-run the ALTER here,
+  // after creation, so the columns are guaranteed to exist on every requirement table.
+  for (const tbl of [
+    'it_task_requirements',
+    'consultant_task_requirements',
+    'digital_marketing_task_requirements',
+    'legal_finance_task_requirements',
+  ]) {
+    try {
+      const { rows } = await p.query(
+        "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_schema = 'public' AND table_name = $1) AS ex",
+        [tbl]
+      );
+      if (!rows[0]?.ex) continue;
+      await p.query(
+        `ALTER TABLE ${tbl}
+         ADD COLUMN IF NOT EXISTS time_spent_seconds INT DEFAULT 0,
+         ADD COLUMN IF NOT EXISTS timer_started_at TIMESTAMPTZ;`
+      );
+    } catch (err) {
+      console.warn(`dbEnsureTables: ${tbl} timer columns (final pass):`, err.message);
+    }
+  }
 }
 
 /** Ensure Legal & Finance department, permissions, role, and role_permissions exist (RBAC tables required). */
