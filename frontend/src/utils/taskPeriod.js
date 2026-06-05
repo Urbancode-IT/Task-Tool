@@ -6,7 +6,7 @@
  */
 
 export const PERIOD_PRESETS = [
-  { key: 'all', label: 'All' },
+  { key: 'all', label: 'Schedule' },
   { key: 'today', label: 'Today' },
   { key: 'yesterday', label: 'Yesterday' },
   { key: 'week', label: 'This week' },

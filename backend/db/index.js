@@ -310,6 +310,29 @@ export async function dbEnsureTables() {
     console.warn('dbEnsureTables: task_deadline_notifications failed:', err.message);
   }
 
+  // Per-requirement time tracking (start/pause/resume timer).
+  for (const tbl of [
+    'it_task_requirements',
+    'consultant_task_requirements',
+    'digital_marketing_task_requirements',
+    'legal_finance_task_requirements',
+  ]) {
+    try {
+      const { rows } = await p.query(
+        "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_schema = 'public' AND table_name = $1) AS ex",
+        [tbl]
+      );
+      if (!rows[0]?.ex) continue;
+      await p.query(
+        `ALTER TABLE ${tbl}
+         ADD COLUMN IF NOT EXISTS time_spent_seconds INT DEFAULT 0,
+         ADD COLUMN IF NOT EXISTS timer_started_at TIMESTAMPTZ;`
+      );
+    } catch (err) {
+      console.warn(`dbEnsureTables: ${tbl} timer columns:`, err.message);
+    }
+  }
+
   const taskTablesForReview = [
     'it_tasks',
     'consultant_tasks',
@@ -1331,7 +1354,7 @@ function mapCommentRow(r) {
     id: String(r.comment_id),
     taskId: String(r.task_id),
     userId: r.user_id != null ? String(r.user_id) : null,
-    author: r.author_username || (r.user_id ? `User #${r.user_id}` : 'System'),
+    author: r.author_username || 'User',
     authorImage: r.author_profile_image ?? null,
     message: r.comment_text,
     createdAt: r.created_at,
@@ -1420,6 +1443,15 @@ export async function dbAddTaskComment(taskId, data) {
 export async function dbUpdateTaskComment(commentId, userId, data) {
   const p = getPool();
   if (!p) return null;
+  // Capture the mentions present before the edit so the caller can notify only
+  // members who were newly tagged during this edit.
+  const { rows: priorRows } = await p.query(
+    'SELECT mentions FROM task_comments WHERE comment_id = $1 AND user_id = $2',
+    [commentId, userId]
+  );
+  const priorMentions = priorRows[0]?.mentions
+    ? String(priorRows[0].mentions).split(',').map((s) => s.trim()).filter(Boolean)
+    : [];
   const { rows } = await p.query(
     `UPDATE task_comments
      SET comment_text = $1, mentions = $2, edited_at = CURRENT_TIMESTAMP
@@ -1439,7 +1471,11 @@ export async function dbUpdateTaskComment(commentId, userId, data) {
      WHERE c.comment_id = $1`,
     [row.comment_id]
   );
-  return mapCommentRow(enriched);
+  const mapped = mapCommentRow(enriched);
+  // Members tagged in this edit who were not tagged before (for mail notification).
+  const priorSet = new Set(priorMentions);
+  mapped.newlyMentioned = mapped.mentions.filter((id) => !priorSet.has(id));
+  return mapped;
 }
 
 /** Delete a comment (and its replies). Author only, unless isAdmin. Returns true if deleted. */
@@ -1884,7 +1920,44 @@ const mapRequirement = (r) => ({
   sort_order: r.sort_order,
   created_at: r.created_at,
   updated_at: r.updated_at,
+  // Time tracking: accumulated seconds + running-since timestamp (null when paused).
+  timeSpentSeconds: Number(r.time_spent_seconds || 0),
+  timerStartedAt: r.timer_started_at ?? null,
+  timerRunning: Boolean(r.timer_started_at),
 });
+
+/** Start or pause a requirement's timer. action: 'start' | 'pause'. Returns updated requirement. */
+export async function dbRequirementTimer(reqId, action, taskId = null, teamInput = null) {
+  const p = getPool();
+  if (!p) return null;
+  try {
+    const team = resolveTeamFromInput(teamInput || (taskId ? await detectTaskTeamById(taskId) : null));
+    const reqTable = reqTableForTeam(team);
+    if (action === 'start') {
+      await p.query(
+        `UPDATE ${reqTable}
+         SET timer_started_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+         WHERE requirement_id = $1 AND timer_started_at IS NULL`,
+        [reqId]
+      );
+    } else if (action === 'pause') {
+      await p.query(
+        `UPDATE ${reqTable}
+         SET time_spent_seconds = COALESCE(time_spent_seconds, 0)
+               + GREATEST(0, FLOOR(EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - timer_started_at)))::int),
+             timer_started_at = NULL,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE requirement_id = $1 AND timer_started_at IS NOT NULL`,
+        [reqId]
+      );
+    }
+    const { rows } = await p.query(`SELECT * FROM ${reqTable} WHERE requirement_id = $1`, [reqId]);
+    return rows[0] ? mapRequirement(rows[0]) : null;
+  } catch (err) {
+    console.error('dbRequirementTimer:', err.message);
+    return null;
+  }
+}
 
 export async function dbGetRequirements(taskId, teamInput = null) {
   const p = getPool();
@@ -1983,6 +2056,13 @@ export async function dbUpdateRequirement(reqId, data, taskId = null, teamInput 
       values.push(val);
       i++;
     }
+  }
+  if (data.status === 'completed') {
+    // Ticking a requirement complete seizes its timer: bank any running time and stop it.
+    updates.push(
+      `time_spent_seconds = COALESCE(time_spent_seconds, 0) + CASE WHEN timer_started_at IS NOT NULL THEN GREATEST(0, FLOOR(EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - timer_started_at)))::int) ELSE 0 END`
+    );
+    updates.push('timer_started_at = NULL');
   }
   if (updates.length === 0) return dbGetRequirementById(reqId);
   updates.push('updated_at = CURRENT_TIMESTAMP');

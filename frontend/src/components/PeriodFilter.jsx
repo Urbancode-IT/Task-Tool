@@ -28,7 +28,7 @@ export default function PeriodFilter({ value, onChange }) {
       : v.from
         ? `From ${v.from}`
         : `Until ${v.to}`
-    : PERIOD_PRESETS.find((p) => p.key === (v.preset || 'all'))?.label || 'All';
+    : PERIOD_PRESETS.find((p) => p.key === (v.preset || 'all'))?.label || 'Schedule';
 
   const selectPreset = (preset) => {
     onChange({ preset, from: '', to: '' });

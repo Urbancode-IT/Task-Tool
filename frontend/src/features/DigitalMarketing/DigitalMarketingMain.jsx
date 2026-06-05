@@ -25,6 +25,7 @@ import TaskComments from '../../components/TaskComments';
 import logoSrc from '../../assets/logo.png';
 import ProjectLogo from '../../components/ProjectLogo';
 import SidebarUser from '../../components/SidebarUser';
+import RequirementTimer from '../../components/RequirementTimer';
 import '../ITUpdates/ITUpdatesMain.css';
 
 const TABS = [
@@ -1601,6 +1602,13 @@ function TaskModal({ task, currentUser, onClose, onSave, onRefresh, teamMembers,
                       <span className={`req-row-title ${req.status === 'completed' ? 'req-title-done' : ''}`}>{req.title}</span>
                     </div>
                     <div className="req-td req-td-actions">
+                      <RequirementTimer
+                        req={req}
+                        taskId={task.id}
+                        team={MODULE_TEAM}
+                        disabled={String(req.id).startsWith('temp-')}
+                        onUpdate={(u) => setRequirements((prev) => prev.map((r) => (r.id === req.id ? u : r)))}
+                      />
                       <button type="button" className="req-action-btn" onClick={() => startEditReq(req)} title="Edit">✏️</button>
                       <button type="button" className="req-action-btn req-action-btn-danger" onClick={() => handleDeleteRequirement(req.id)} title="Delete">🗑️</button>
                     </div>

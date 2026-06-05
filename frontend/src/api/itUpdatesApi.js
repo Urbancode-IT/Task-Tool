@@ -108,6 +108,13 @@ const itUpdatesApi = {
   deleteRequirement: (taskId, reqId, params = {}) => {
     return apiClient.delete(`${BASE_PATH}/tasks/${taskId}/requirements/${reqId}`, { params });
   },
+
+  requirementTimer: (taskId, reqId, action, params = {}) => {
+    return apiClient.post(`${BASE_PATH}/tasks/${taskId}/requirements/${reqId}/timer`, {
+      action,
+      ...params,
+    });
+  },
 };
 
 export default itUpdatesApi;

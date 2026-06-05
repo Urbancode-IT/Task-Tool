@@ -791,6 +791,16 @@ app.put(`${BASE_PATH}/tasks/:taskId/comments/:commentId`, async (req, res) => {
     if (db.useDb()) {
       const updated = await db.dbUpdateTaskComment(commentId, userId, req.body);
       if (!updated) return res.status(403).json({ message: 'You can only edit your own comment.' });
+      const newMentionIds = Array.isArray(updated.newlyMentioned) ? updated.newlyMentioned : [];
+      if (newMentionIds.length) {
+        notifyMentions({
+          taskId: req.params.taskId,
+          team: req.body.team,
+          mentionIds: newMentionIds,
+          commenterName: updated.author,
+          html: updated.message,
+        }).catch((e) => console.error('notifyMentions:', e.message));
+      }
       return res.json(updated);
     }
     return res.status(400).json({ message: 'Database connection required' });
@@ -1019,6 +1029,30 @@ app.put(`${BASE_PATH}/tasks/:taskId/requirements/:reqId`, async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: 'Failed to update requirement' });
+  }
+});
+
+// Start / pause a requirement's timer
+app.post(`${BASE_PATH}/tasks/:taskId/requirements/:reqId/timer`, async (req, res) => {
+  const { taskId, reqId } = req.params;
+  const action = req.body?.action;
+  if (action !== 'start' && action !== 'pause') {
+    return res.status(400).json({ message: "action must be 'start' or 'pause'" });
+  }
+  try {
+    if (!db.useDb()) return res.status(400).json({ message: 'Database connection required' });
+    let teamHint = req.body?.team || req.query?.team || null;
+    if (!teamHint) {
+      const t = await db.dbGetTaskById(taskId, null);
+      teamHint = t?.team || null;
+    }
+    if (isLegalFinanceTeamString(teamHint) && !requireLegalFinanceAccess(req, res)) return;
+    const updated = await db.dbRequirementTimer(reqId, action, taskId, teamHint);
+    if (!updated) return res.status(404).json({ message: 'Requirement not found' });
+    return res.json(updated);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Failed to update timer' });
   }
 });
 

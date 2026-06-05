@@ -27,6 +27,7 @@ import TaskComments from '../../components/TaskComments';
 import logoSrc from '../../assets/logo.png';
 import ProjectLogo from '../../components/ProjectLogo';
 import SidebarUser from '../../components/SidebarUser';
+import RequirementTimer from '../../components/RequirementTimer';
 import './ITUpdatesMain.css';
 
 const TABS = [
@@ -2111,6 +2112,13 @@ function TaskModal({ task, currentUser, projects, developers, managers, onClose,
                       </span>
                     </div>
                     <div className="req-td req-td-actions">
+                      <RequirementTimer
+                        req={req}
+                        taskId={task.id}
+                        team={MODULE_TEAM}
+                        disabled={String(req.id).startsWith('temp-')}
+                        onUpdate={(u) => setRequirements((prev) => prev.map((r) => (r.id === req.id ? u : r)))}
+                      />
                       <button type="button" className="req-action-btn" onClick={() => startEditReq(req)} title="Edit">
                         ✏️
                       </button>
