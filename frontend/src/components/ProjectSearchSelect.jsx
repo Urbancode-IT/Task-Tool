@@ -25,6 +25,7 @@ export default function ProjectSearchSelect({
   const options = useMemo(
     () =>
       (projects || [])
+        .filter(Boolean)
         .map((p) => ({
           id: String(p.id ?? p.project_id ?? ''),
           name: p.name ?? p.project_name ?? '',

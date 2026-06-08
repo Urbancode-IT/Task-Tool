@@ -8,7 +8,7 @@ import { fileURLToPath } from 'url';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import * as db from './db/index.js';
-import { sendMail, isMailConfigured } from './mailer.js';
+import { sendMail, isMailConfigured, renderEmail } from './mailer.js';
 import { requireAuth, attachUserPermissions, requirePermission, signAccessToken, signRefreshToken, verifyRefreshToken } from './middlewares/authMiddleware.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -1445,11 +1445,15 @@ async function notifyMentions({ taskId, team, mentionIds, commenterName, html })
     await sendMail({
       to: u.email,
       subject: `${who} mentioned you on "${title}"`,
-      html:
-        `<p>Hi ${u.username || ''},</p>` +
-        `<p><strong>${who}</strong> mentioned you in a comment on <strong>${title}</strong>:</p>` +
-        `<blockquote style="border-left:3px solid #ddd;padding-left:10px;color:#444;">${html || ''}</blockquote>` +
-        (link ? `<p><a href="${link}">Open Seyal</a></p>` : ''),
+      html: renderEmail({
+        preheader: `${who} mentioned you on "${title}"`,
+        ctaUrl: link,
+        ctaLabel: 'Open task',
+        contentHtml:
+          `<p style="margin:0 0 14px;">Hi ${u.username || ''},</p>` +
+          `<p style="margin:0 0 14px;"><strong>${who}</strong> mentioned you in a comment on <strong>${title}</strong>:</p>` +
+          `<blockquote style="margin:0;border-left:3px solid #6366f1;background:#f8fafc;padding:12px 16px;border-radius:0 8px 8px 0;color:#475569;">${html || ''}</blockquote>`,
+      }),
     });
   }
 }
@@ -1473,9 +1477,14 @@ async function runDeadlineCheck() {
         const ok = await sendMail({
           to: r.email,
           subject,
-          html:
-            `<p>Hi ${r.name || ''},</p><p>${intro}</p>` +
-            (link ? `<p><a href="${link}">Open Seyal</a></p>` : ''),
+          html: renderEmail({
+            preheader: subject,
+            ctaUrl: link,
+            ctaLabel: 'Open task',
+            contentHtml:
+              `<p style="margin:0 0 14px;">Hi ${r.name || ''},</p>` +
+              `<p style="margin:0 0 14px;">${intro}</p>`,
+          }),
         });
         sentAny = sentAny || ok;
       }

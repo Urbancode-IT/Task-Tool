@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Seyal — Current Email UI (preview)</title>
+<style>
+  body { margin:0; background:#f1f3f5; font-family:Segoe UI, Arial, sans-serif; color:#202124; padding:24px; }
+  h1 { font-size:18px; font-weight:600; }
+  .note { color:#5f6368; font-size:13px; margin-bottom:24px; }
+  .stage { max-width:680px; margin:0 auto; }
+  .client { background:#fff; border:1px solid #dadce0; border-radius:10px; overflow:hidden; margin-bottom:28px; box-shadow:0 1px 3px rgba(0,0,0,.08); }
+  .client-head { padding:14px 18px; border-bottom:1px solid #e8eaed; }
+  .subject { font-size:15px; font-weight:600; }
+  .meta { font-size:12px; color:#5f6368; margin-top:4px; }
+  .body { padding:18px 22px; font-size:14px; line-height:1.5; }
+  .label { max-width:680px; margin:0 auto 8px; font-size:12px; color:#5f6368; text-transform:uppercase; letter-spacing:.05em; }
+  /* The email bodies below are the EXACT current markup from server.js */
+</style>
+</head>
+<body>
+  <div class="stage">
+    <h1>Seyal — Current notification email UI</h1>
+    <p class="note">This renders the exact HTML currently produced by the backend. No template, logo, or styling is applied beyond default browser/email-client rendering.</p>
+
+    <div class="label">1. Mention notification</div>
+    <div class="client">
+      <div class="client-head">
+        <div class="subject">Atchaya mentioned you on "Migrate billing service"</div>
+        <div class="meta">From: Seyal &lt;urbancodeitteam@gmail.com&gt; &nbsp;•&nbsp; To: you@ojcommerce.com</div>
+      </div>
+      <div class="body">
+        <!-- BEGIN current mention email markup -->
+        <p>Hi dharma,</p>
+        <p><strong>Atchaya</strong> mentioned you in a comment on <strong>Migrate billing service</strong>:</p>
+        <blockquote style="border-left:3px solid #ddd;padding-left:10px;color:#444;">@dharma can you review the schema change before EOD?</blockquote>
+        <p><a href="https://seyal.urbancode.in">Open Seyal</a></p>
+        <!-- END current mention email markup -->
+      </div>
+    </div>
+
+    <div class="label">2. Deadline notification (due soon / overdue)</div>
+    <div class="client">
+      <div class="client-head">
+        <div class="subject">Due soon: "Migrate billing service"</div>
+        <div class="meta">From: Seyal &lt;urbancodeitteam@gmail.com&gt; &nbsp;•&nbsp; To: you@ojcommerce.com</div>
+      </div>
+      <div class="body">
+        <!-- BEGIN current deadline email markup -->
+        <p>Hi dharma,</p><p>The task <strong>Migrate billing service</strong> is due on 6/10/2026.</p>
+        <p><a href="https://seyal.urbancode.in">Open Seyal</a></p>
+        <!-- END current deadline email markup -->
+      </div>
+    </div>
+  </div>
+</body>
+</html>

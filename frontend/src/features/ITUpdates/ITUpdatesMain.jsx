@@ -175,9 +175,9 @@ const ITUpdatesMain = ({ currentUser, onLogout }) => {
         itUpdatesApi.getTasks({ team: 'it' }),
       ]);
       setDashboardData(statsRes.data);
-      setTeamOverview(Array.isArray(teamRes.data) ? teamRes.data : []);
-      setProjects(Array.isArray(projRes.data) ? projRes.data : []);
-      setTasks(Array.isArray(tasksRes.data) ? tasksRes.data : []);
+      setTeamOverview(Array.isArray(teamRes.data) ? teamRes.data.filter(Boolean) : []);
+      setProjects(Array.isArray(projRes.data) ? projRes.data.filter(Boolean) : []);
+      setTasks(Array.isArray(tasksRes.data) ? tasksRes.data.filter(Boolean) : []);
     } catch (err) {
       setError(
         err?.response?.data?.message ||
@@ -476,7 +476,7 @@ const ITUpdatesMain = ({ currentUser, onLogout }) => {
         itUpdatesApi.getProjects(),
       ]);
       setDashboardData(statsRes?.data ?? null);
-      setProjects(Array.isArray(projRes?.data) ? projRes.data : []);
+      setProjects(Array.isArray(projRes?.data) ? projRes.data.filter(Boolean) : []);
       toastSuccess(isEdit ? 'Project updated' : 'Project created');
       return true;
     } catch (e) {
@@ -583,10 +583,6 @@ const ITUpdatesMain = ({ currentUser, onLogout }) => {
                 index={idx}
               >
                 {(provided, snapshot) => {
-                  const projectName =
-                    task?.projectId != null
-                      ? projectNameById.get(String(task.projectId)) || task.projectId || 'No project'
-                      : 'No project';
                   const cardProject =
                     task?.projectId != null ? projectById.get(String(task.projectId)) : null;
                   const desc = (task.task_description || task.description || '').trim();
@@ -626,9 +622,6 @@ const ITUpdatesMain = ({ currentUser, onLogout }) => {
                       {descSnippet ? (
                         <div className="it-updates-task-card-desc">{descSnippet}</div>
                       ) : null}
-                      <span className="it-updates-task-card-project" title={projectName}>
-                        {projectName}
-                      </span>
                       {task.req_total > 0 && (
                         <div className="it-updates-task-card-reqs">
                           <div className="it-updates-task-card-reqs-label">
