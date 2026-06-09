@@ -373,13 +373,13 @@ const ITUpdatesMain = ({ currentUser, onLogout }) => {
   const dashboardProjects = useMemo(() => {
     const d = dashboardData;
     if (d?.projects?.length) return d.projects;
-    return (projects || []).map((p) => ({
-      project_id: p.id ?? p.project_id,
-      project_name: p.name ?? p.project_name,
-      priority: p.priority ?? 'medium',
-      total_tasks: p.total_tasks ?? 0,
-      completed_tasks: p.completed_tasks ?? 0,
-      completion_percentage: p.completion_percentage ?? p.progress ?? 0,
+    return (projects || []).filter(Boolean).map((p) => ({
+      project_id: p?.id ?? p?.project_id,
+      project_name: p?.name ?? p?.project_name,
+      priority: p?.priority ?? 'medium',
+      total_tasks: p?.total_tasks ?? 0,
+      completed_tasks: p?.completed_tasks ?? 0,
+      completion_percentage: p?.completion_percentage ?? p?.progress ?? 0,
     }));
   }, [dashboardData, projects]);
 
