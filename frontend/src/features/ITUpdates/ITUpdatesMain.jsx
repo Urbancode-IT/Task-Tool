@@ -2107,7 +2107,7 @@ function TaskModal({ task, currentUser, projects, developers, managers, onClose,
                     <div className="req-td req-td-actions">
                       <RequirementTimer
                         req={req}
-                        taskId={task.id}
+                        taskId={task?.id}
                         team={MODULE_TEAM}
                         disabled={String(req.id).startsWith('temp-')}
                         onUpdate={(u) => setRequirements((prev) => prev.map((r) => (r.id === req.id ? u : r)))}
