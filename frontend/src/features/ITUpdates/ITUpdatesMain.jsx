@@ -269,7 +269,7 @@ const ITUpdatesMain = ({ currentUser, onLogout }) => {
       const res = await itUpdatesApi.getRequirements(task.id, { team: MODULE_TEAM });
       const list = Array.isArray(res?.data) ? res.data : [];
       setInlineRequirements(
-        list.map((r) => ({
+        list.filter(Boolean).map((r) => ({
           id: r.id ?? r.requirement_id ?? r.req_id ?? r.requirementId,
           title: r.title ?? '',
           description: r.description ?? null,
@@ -1743,7 +1743,7 @@ function TaskModal({ task, currentUser, projects, developers, managers, onClose,
       setReqLoading(true);
       try {
         const res = await itUpdatesApi.getRequirements(task.id, { team: MODULE_TEAM });
-        if (!cancelled) setRequirements(Array.isArray(res.data) ? res.data : []);
+        if (!cancelled) setRequirements(Array.isArray(res.data) ? res.data.filter(Boolean) : []);
       } catch {
         if (!cancelled) setRequirements([]);
       } finally {
@@ -1776,7 +1776,7 @@ function TaskModal({ task, currentUser, projects, developers, managers, onClose,
           team: MODULE_TEAM,
         }, { team: MODULE_TEAM });
         setRequirements((prev) => {
-          const newList = [...prev, res.data];
+          const newList = res?.data ? [...prev, res.data] : prev;
           handleStatusTransitions(newList);
           return newList;
         });
@@ -1813,7 +1813,7 @@ function TaskModal({ task, currentUser, projects, developers, managers, onClose,
           team: MODULE_TEAM,
         }, { team: MODULE_TEAM });
         setRequirements((prev) => {
-          const newList = prev.map((r) => (r.id === editingReqId ? res.data : r));
+          const newList = res?.data ? prev.map((r) => (r.id === editingReqId ? res.data : r)) : prev;
           handleStatusTransitions(newList);
           return newList;
         });
@@ -1855,7 +1855,7 @@ function TaskModal({ task, currentUser, projects, developers, managers, onClose,
       if (isExistingTask && !String(req.id).startsWith('temp-')) {
         const res = await itUpdatesApi.updateRequirement(task.id, req.id, { status: newStatus, team: MODULE_TEAM }, { team: MODULE_TEAM });
         setRequirements((prev) => {
-          const newList = prev.map((r) => (r.id === req.id ? res.data : r));
+          const newList = res?.data ? prev.map((r) => (r.id === req.id ? res.data : r)) : prev;
           handleStatusTransitions(newList);
           return newList;
         });
@@ -2079,7 +2079,7 @@ function TaskModal({ task, currentUser, projects, developers, managers, onClose,
                   <div className="req-th req-th-title" role="columnheader">Requirement</div>
                   <div className="req-th req-th-actions" role="columnheader">Actions</div>
                 </div>
-                {(reqExpanded ? requirements : requirements.slice(0, 2)).map((req) => (
+                {(reqExpanded ? requirements : requirements.slice(0, 2)).filter(Boolean).map((req) => (
                   <div
                     key={req.id}
                     className={`req-table-row ${req.status === 'completed' ? 'req-row-completed' : ''}`}
@@ -2164,17 +2164,12 @@ function TaskModal({ task, currentUser, projects, developers, managers, onClose,
           </div>
           <label>
             Project
-            <select
+            <ProjectSearchSelect
+              projects={projects}
               value={form.project_id}
-              onChange={(e) => setForm((f) => ({ ...f, project_id: e.target.value }))}
-            >
-              <option value="">—</option>
-              {projects.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name ?? p.project_name}
-                </option>
-              ))}
-            </select>
+              onChange={(id) => setForm((f) => ({ ...f, project_id: id }))}
+              placeholder="Search projects..."
+            />
           </label>
           <label>
             Priority

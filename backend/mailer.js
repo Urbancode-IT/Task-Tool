@@ -152,6 +152,9 @@ export async function sendMail({ to, subject, html }) {
       console.error('[mailer] Gmail send failed:', resp.status, await resp.text());
       return false;
     }
+    let info = {};
+    try { info = await resp.json(); } catch { /* ignore */ }
+    console.log(`[mailer] sent to ${to} (gmail id: ${info.id || 'n/a'})`);
     return true;
   } catch (err) {
     console.error('[mailer] error sending email:', err.message);

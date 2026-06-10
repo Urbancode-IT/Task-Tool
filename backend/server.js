@@ -754,7 +754,12 @@ app.post(`${BASE_PATH}/tasks/:taskId/comments`, async (req, res) => {
     if (db.useDb()) {
       const comment = await db.dbAddTaskComment(taskId, { ...req.body, author });
       if (!comment) return res.status(500).json({ message: 'Failed to add comment' });
-      const mentionIds = Array.isArray(req.body.mentions) ? req.body.mentions : [];
+      // Recipients = client-sent mentions, unioned with chips parsed from the saved
+      // comment HTML. The fallback ensures a tagged person is notified even if the
+      // client did not send the mentions array.
+      const clientMentions = (Array.isArray(req.body.mentions) ? req.body.mentions : []).map(String);
+      const htmlMentions = extractMentionUidsFromHtml(comment.message);
+      const mentionIds = [...new Set([...clientMentions, ...htmlMentions])];
       if (mentionIds.length) {
         notifyMentions({
           taskId,
@@ -1419,6 +1424,15 @@ function appLink() {
   return raw.split(',')[0].trim().replace(/\/+$/, '');
 }
 
+/** Extract mentioned user ids from stored comment HTML (data-uid on .tc-mention chips). */
+function extractMentionUidsFromHtml(html) {
+  const ids = [];
+  const re = /data-uid=["']?(\d+)/gi;
+  let m;
+  while ((m = re.exec(String(html || ''))) !== null) ids.push(m[1]);
+  return [...new Set(ids)];
+}
+
 /** Email each mentioned user that they were tagged in a comment. Fire-and-forget. */
 async function notifyMentions({ taskId, team, mentionIds, commenterName, html }) {
   if (!isMailConfigured()) {
@@ -1442,7 +1456,7 @@ async function notifyMentions({ taskId, team, mentionIds, commenterName, html })
   const who = commenterName || 'Someone';
   for (const u of users) {
     if (!u.email) continue;
-    await sendMail({
+    const ok = await sendMail({
       to: u.email,
       subject: `${who} mentioned you on "${title}"`,
       html: renderEmail({
@@ -1455,6 +1469,7 @@ async function notifyMentions({ taskId, team, mentionIds, commenterName, html })
           `<blockquote style="margin:0;border-left:3px solid #6366f1;background:#f8fafc;padding:12px 16px;border-radius:0 8px 8px 0;color:#475569;">${html || ''}</blockquote>`,
       }),
     });
+    console.log(`[mentions] email to user ${u.user_id}: ${ok ? 'sent' : 'FAILED'}`);
   }
 }
 
