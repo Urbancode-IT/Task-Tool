@@ -16,10 +16,8 @@ const PROJECT_COLORS = ['#6366f1', '#06b6d4', '#10b981', '#f59e0b', '#ef4444', '
 
 const pad = (n) => String(n).padStart(2, '0');
 const toYmd = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-const isWeekend = (ymd) => {
-  const day = new Date(`${ymd}T00:00:00`).getDay();
-  return day === 0 || day === 6;
-};
+// Working week is 6 days (Mon–Sat); only Sunday (0) is a non-working day.
+const isNonWorkingDay = (ymd) => new Date(`${ymd}T00:00:00`).getDay() === 0;
 const round1 = (n) => Math.round(n * 10) / 10;
 
 /**
@@ -84,7 +82,7 @@ export default function MemberDashboard({ currentUser, members = [], isAdmin = f
 
   const totalHours = useMemo(() => round1((data.totalSeconds || 0) / 3600), [data.totalSeconds]);
   const workingDays = useMemo(
-    () => days.filter((d) => !d.leave && !isWeekend(d.date)).length,
+    () => days.filter((d) => !d.leave && !isNonWorkingDay(d.date)).length,
     [days]
   );
   const capacityHours = workingDays * WORK_HOURS_PER_DAY;
