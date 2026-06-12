@@ -15,6 +15,7 @@ import {
   MdMenu,
   MdCalendarToday,
   MdEdit,
+  MdHome,
 } from 'react-icons/md';
 import itUpdatesApi from '../../api/itUpdatesApi';
 import { getDisplayRole } from '../../utils/displayRole';
@@ -28,10 +29,12 @@ import logoSrc from '../../assets/logo.png';
 import ProjectLogo from '../../components/ProjectLogo';
 import SidebarUser from '../../components/SidebarUser';
 import RequirementTimer from '../../components/RequirementTimer';
+import MemberDashboard from './MemberDashboard';
 import './ITUpdatesMain.css';
 
 const TABS = [
-  { key: 'Dashboard', label: 'Dashboard', icon: MdDashboard },
+  { key: 'Dashboard', label: 'Home', icon: MdHome },
+  { key: 'My Dashboard', label: 'Dashboard', icon: MdDashboard },
   { key: 'My Tasks', label: 'My Tasks', icon: MdChecklist },
   { key: 'All Tasks', label: 'All Tasks', icon: MdViewKanban },
   { key: 'Projects', label: 'Projects', icon: MdFolder },
@@ -145,6 +148,11 @@ const ITUpdatesMain = ({ currentUser, onLogout }) => {
     })();
 
   const visibleTabs = useMemo(() => TABS, []);
+
+  const isAdmin = useMemo(
+    () => Array.isArray(user?.permissions) && user.permissions.includes('admin.access'),
+    [user]
+  );
 
   const developers = useMemo(
     () => teamOverview.filter((u) => Boolean(u.is_it_developer)),
@@ -747,6 +755,7 @@ const ITUpdatesMain = ({ currentUser, onLogout }) => {
               <h1 className="it-updates-topbar-title">{tabConfig?.label || activeTab}</h1>
               <p className="it-updates-topbar-subtitle">
                 {activeTab === 'Dashboard' && 'Overview of your projects and team activity'}
+                {activeTab === 'My Dashboard' && (isAdmin ? "Members' working hours, projects and leave" : 'Your working hours, projects and leave')}
                 {activeTab === 'My Tasks' && 'Tasks assigned to you'}
                 {activeTab === 'All Tasks' && 'All tasks across projects'}
                 {activeTab === 'Projects' && 'Manage your projects'}
@@ -793,6 +802,13 @@ const ITUpdatesMain = ({ currentUser, onLogout }) => {
         )}
 
         <main className="it-updates-main">
+          {activeTab === 'My Dashboard' && (
+            <MemberDashboard
+              currentUser={user}
+              members={teamOverview}
+              isAdmin={isAdmin}
+            />
+          )}
           {activeTab === 'Dashboard' && (
             <>
               <section className="it-updates-stats-row">

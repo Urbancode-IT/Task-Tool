@@ -1061,6 +1061,94 @@ app.post(`${BASE_PATH}/tasks/:taskId/requirements/:reqId/timer`, async (req, res
   }
 });
 
+// ---- Member dashboard (worked hours vs 8h/day, projects, leave) ----
+// Returns the requester's identity + whether they are an admin. In demo mode
+// (no JWT secret) req.user is absent, so treat the session as admin.
+function dashboardActor(req) {
+  const u = req.user;
+  if (!u) return { id: null, isAdmin: true };
+  const perms = u.permissions || [];
+  return { id: u.id != null ? parseInt(String(u.id), 10) : null, isAdmin: perms.includes('admin.access') };
+}
+
+// A member may view only their own dashboard; admins may view anyone's.
+app.get(
+  `${BASE_PATH}/members/:userId/dashboard`,
+  requireAuth,
+  attachUserPermissions,
+  async (req, res) => {
+    try {
+      if (!db.useDb()) return res.json({ daily: [], byProject: [], projects: [], leaves: [], totalSeconds: 0 });
+      const actor = dashboardActor(req);
+      const targetId = parseInt(String(req.params.userId), 10);
+      if (!actor.isAdmin && actor.id != null && actor.id !== targetId) {
+        return res.status(403).json({ message: 'You can only view your own dashboard.' });
+      }
+      const { from, to, team } = req.query;
+      const data = await db.dbGetMemberDashboard(targetId, from || null, to || null, team || 'it');
+      return res.json(data);
+    } catch (err) {
+      console.error('member dashboard:', err.message);
+      res.status(500).json({ message: 'Failed to load dashboard' });
+    }
+  }
+);
+
+// List a member's leave days in a range (self or admin).
+app.get(`${BASE_PATH}/leaves`, requireAuth, attachUserPermissions, async (req, res) => {
+  try {
+    if (!db.useDb()) return res.json([]);
+    const actor = dashboardActor(req);
+    const targetId = req.query.user_id ? parseInt(String(req.query.user_id), 10) : actor.id;
+    if (!actor.isAdmin && actor.id != null && actor.id !== targetId) {
+      return res.status(403).json({ message: 'You can only view your own leave.' });
+    }
+    const leaves = await db.dbGetLeaves(targetId, req.query.from || null, req.query.to || null);
+    res.json(leaves);
+  } catch (err) {
+    console.error('get leaves:', err.message);
+    res.status(500).json({ message: 'Failed to load leave' });
+  }
+});
+
+// Mark a day as leave (self only — uses the authenticated user).
+app.post(`${BASE_PATH}/leaves`, requireAuth, attachUserPermissions, async (req, res) => {
+  try {
+    if (!db.useDb()) return res.status(400).json({ message: 'Database connection required' });
+    const actor = dashboardActor(req);
+    const targetId = req.body?.user_id ? parseInt(String(req.body.user_id), 10) : actor.id;
+    if (targetId == null) return res.status(400).json({ message: 'user_id required' });
+    if (!actor.isAdmin && actor.id != null && actor.id !== targetId) {
+      return res.status(403).json({ message: 'You can only set your own leave.' });
+    }
+    const date = req.body?.leave_date || req.body?.date;
+    if (!date) return res.status(400).json({ message: 'leave_date required' });
+    const ok = await db.dbSetLeave(targetId, date, true);
+    res.status(ok ? 201 : 500).json({ success: ok });
+  } catch (err) {
+    console.error('set leave:', err.message);
+    res.status(500).json({ message: 'Failed to set leave' });
+  }
+});
+
+// Remove a leave day (self only).
+app.delete(`${BASE_PATH}/leaves/:date`, requireAuth, attachUserPermissions, async (req, res) => {
+  try {
+    if (!db.useDb()) return res.status(400).json({ message: 'Database connection required' });
+    const actor = dashboardActor(req);
+    const targetId = req.query.user_id ? parseInt(String(req.query.user_id), 10) : actor.id;
+    if (targetId == null) return res.status(400).json({ message: 'user_id required' });
+    if (!actor.isAdmin && actor.id != null && actor.id !== targetId) {
+      return res.status(403).json({ message: 'You can only clear your own leave.' });
+    }
+    const ok = await db.dbSetLeave(targetId, req.params.date, false);
+    res.json({ success: ok });
+  } catch (err) {
+    console.error('clear leave:', err.message);
+    res.status(500).json({ message: 'Failed to clear leave' });
+  }
+});
+
 // DELETE a requirement
 app.delete(`${BASE_PATH}/tasks/:taskId/requirements/:reqId`, async (req, res) => {
   const { taskId, reqId } = req.params;
@@ -1419,9 +1507,21 @@ function stripHtml(html) {
   return String(html || '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
 }
 
+// Public URL used in notification emails. CLIENT_ORIGIN is a CORS allow-list whose
+// first entry may be an unrelated app, so never blindly take [0]. Prefer an explicit
+// APP_URL, then the seyal.urbancode.in origin, then any non-local https origin.
 function appLink() {
-  const raw = process.env.CLIENT_ORIGIN || '';
-  return raw.split(',')[0].trim().replace(/\/+$/, '');
+  const explicit = (process.env.APP_URL || '').trim();
+  if (explicit) return explicit.replace(/\/+$/, '');
+  const origins = (process.env.CLIENT_ORIGIN || '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const preferred =
+    origins.find((o) => /seyal\.urbancode\.in/i.test(o)) ||
+    origins.find((o) => /^https:\/\//i.test(o) && !/localhost|127\.0\.0\.1/i.test(o)) ||
+    origins[0];
+  return (preferred || 'https://seyal.urbancode.in').replace(/\/+$/, '');
 }
 
 /** Extract mentioned user ids from stored comment HTML (data-uid on .tc-mention chips). */
@@ -1461,12 +1561,13 @@ async function notifyMentions({ taskId, team, mentionIds, commenterName, html })
       subject: `${who} mentioned you on "${title}"`,
       html: renderEmail({
         preheader: `${who} mentioned you on "${title}"`,
+        heading: 'You were mentioned in a comment',
         ctaUrl: link,
         ctaLabel: 'Open task',
         contentHtml:
-          `<p style="margin:0 0 14px;">Hi ${u.username || ''},</p>` +
-          `<p style="margin:0 0 14px;"><strong>${who}</strong> mentioned you in a comment on <strong>${title}</strong>:</p>` +
-          `<blockquote style="margin:0;border-left:3px solid #6366f1;background:#f8fafc;padding:12px 16px;border-radius:0 8px 8px 0;color:#475569;">${html || ''}</blockquote>`,
+          `<p style="margin:0 0 16px;">Hi ${u.username || 'there'},</p>` +
+          `<p style="margin:0 0 16px;"><strong>${who}</strong> mentioned you in a comment on <strong>${title}</strong>:</p>` +
+          `<blockquote style="margin:0;border-left:3px solid #6366f1;background:#f8fafc;padding:14px 18px;border-radius:0 10px 10px 0;color:#475569;">${html || ''}</blockquote>`,
       }),
     });
     console.log(`[mentions] email to user ${u.user_id}: ${ok ? 'sent' : 'FAILED'}`);
@@ -1494,11 +1595,12 @@ async function runDeadlineCheck() {
           subject,
           html: renderEmail({
             preheader: subject,
+            heading: t.kind === 'overdue' ? 'Task overdue' : 'Task due soon',
             ctaUrl: link,
             ctaLabel: 'Open task',
             contentHtml:
-              `<p style="margin:0 0 14px;">Hi ${r.name || ''},</p>` +
-              `<p style="margin:0 0 14px;">${intro}</p>`,
+              `<p style="margin:0 0 16px;">Hi ${r.name || 'there'},</p>` +
+              `<p style="margin:0 0 16px;">${intro}</p>`,
           }),
         });
         sentAny = sentAny || ok;

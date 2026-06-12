@@ -38,24 +38,35 @@ async function getAccessToken() {
   return cachedToken.value;
 }
 
+const EMAIL_FONT =
+  "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif";
+
 /**
- * Wrap inner email content in the branded Seyal shell.
- * Table-based with inline styles for broad email-client compatibility.
- * Colors mirror the app theme (indigo primary #4f46e5 / #6366f1, slate neutrals).
- * @param {{contentHtml?:string, ctaUrl?:string, ctaLabel?:string, preheader?:string}} opts
+ * Wrap inner email content in the branded Seyal shell — a professional,
+ * table-based layout with inline styles for broad email-client compatibility.
+ * Colors mirror the app theme (indigo #4f46e5 / #6366f1, slate neutrals).
+ * @param {{heading?:string, contentHtml?:string, ctaUrl?:string, ctaLabel?:string, preheader?:string}} opts
  */
-export function renderEmail({ contentHtml = '', ctaUrl = '', ctaLabel = 'Open Seyal', preheader = '' } = {}) {
+export function renderEmail({ heading = '', contentHtml = '', ctaUrl = '', ctaLabel = 'Open Seyal', preheader = '' } = {}) {
+  const headingHtml = heading
+    ? `<h1 style="margin:0 0 16px;font-family:${EMAIL_FONT};font-size:19px;line-height:1.35;font-weight:700;color:#0f172a;">${heading}</h1>`
+    : '';
+
   const button = ctaUrl
-    ? `<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:28px 0 4px;">
+    ? `<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:28px auto 8px;">
         <tr>
-          <td align="center" bgcolor="#4f46e5" style="border-radius:8px;">
+          <td align="center" bgcolor="#4f46e5" style="border-radius:10px;">
             <a href="${ctaUrl}" target="_blank"
-              style="display:inline-block;padding:12px 30px;font-family:'Segoe UI',Arial,sans-serif;font-size:14px;font-weight:600;line-height:1;color:#ffffff;text-decoration:none;border-radius:8px;">
-              ${ctaLabel}
+              style="display:inline-block;padding:13px 34px;font-family:${EMAIL_FONT};font-size:15px;font-weight:600;line-height:1;color:#ffffff;text-decoration:none;border-radius:10px;">
+              ${ctaLabel} &rarr;
             </a>
           </td>
         </tr>
-      </table>`
+      </table>
+      <p style="margin:6px 0 0;font-family:${EMAIL_FONT};font-size:12px;line-height:1.5;color:#94a3b8;text-align:center;">
+        Or open this link:<br />
+        <a href="${ctaUrl}" target="_blank" style="color:#6366f1;text-decoration:none;word-break:break-all;">${ctaUrl}</a>
+      </p>`
     : '';
 
   return `<!doctype html>
@@ -63,33 +74,45 @@ export function renderEmail({ contentHtml = '', ctaUrl = '', ctaLabel = 'Open Se
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="x-apple-disable-message-reformatting" />
 <meta name="color-scheme" content="light only" />
 </head>
-<body style="margin:0;padding:0;background-color:#f1f5f9;">
-  ${preheader ? `<div style="display:none;max-height:0;overflow:hidden;opacity:0;">${preheader}</div>` : ''}
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#f1f5f9;padding:28px 12px;">
+<body style="margin:0;padding:0;background-color:#eef2f7;-webkit-text-size-adjust:100%;">
+  ${preheader ? `<div style="display:none;max-height:0;overflow:hidden;mso-hide:all;opacity:0;">${preheader}</div>` : ''}
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#eef2f7;padding:32px 12px;">
     <tr>
       <td align="center">
         <table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="width:600px;max-width:100%;">
-          <!-- Header -->
+          <!-- Brand header -->
           <tr>
-            <td bgcolor="#4f46e5" style="background-image:linear-gradient(135deg,#4f46e5,#6366f1);border-radius:12px 12px 0 0;padding:22px 28px;">
-              <span style="font-family:'Segoe UI',Arial,sans-serif;font-size:22px;font-weight:700;letter-spacing:0.5px;color:#ffffff;">Seyal</span>
-              <span style="font-family:'Segoe UI',Arial,sans-serif;font-size:13px;color:#e0e7ff;margin-left:8px;">Task Tool</span>
+            <td style="padding:0 4px 16px;">
+              <span style="font-family:${EMAIL_FONT};font-size:22px;font-weight:800;letter-spacing:-0.2px;color:#4f46e5;">Seyal</span>
+              <span style="font-family:${EMAIL_FONT};font-size:13px;font-weight:500;color:#94a3b8;margin-left:8px;">Task Tool</span>
             </td>
           </tr>
-          <!-- Content card -->
+          <!-- Card -->
           <tr>
-            <td bgcolor="#ffffff" style="border-radius:0 0 12px 12px;padding:30px 28px;font-family:'Segoe UI',Arial,sans-serif;font-size:15px;line-height:1.6;color:#334155;">
-              ${contentHtml}
-              ${button}
+            <td bgcolor="#ffffff" style="border:1px solid #e5e9f0;border-radius:14px;overflow:hidden;">
+              <!-- accent bar -->
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+                <tr><td height="4" bgcolor="#4f46e5" style="height:4px;line-height:4px;font-size:0;background-image:linear-gradient(90deg,#4f46e5,#06b6d4);">&nbsp;</td></tr>
+              </table>
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+                <tr>
+                  <td style="padding:34px 36px;font-family:${EMAIL_FONT};font-size:15px;line-height:1.65;color:#334155;">
+                    ${headingHtml}
+                    ${contentHtml}
+                    ${button}
+                  </td>
+                </tr>
+              </table>
             </td>
           </tr>
           <!-- Footer -->
           <tr>
-            <td align="center" style="padding:18px 28px;font-family:'Segoe UI',Arial,sans-serif;font-size:12px;color:#94a3b8;">
-              You received this email because you are a member of the Seyal workspace.<br />
-              Seyal &middot; Task Tool
+            <td align="center" style="padding:22px 16px 4px;font-family:${EMAIL_FONT};font-size:12px;line-height:1.6;color:#94a3b8;">
+              You are receiving this email because you are a member of the Seyal workspace.<br />
+              <span style="color:#cbd5e1;">Seyal Task Tool &middot; Urbancode</span>
             </td>
           </tr>
         </table>

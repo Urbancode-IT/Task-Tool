@@ -115,6 +115,23 @@ const itUpdatesApi = {
       ...params,
     });
   },
+
+  // ── Member dashboard (worked hours, projects, leave) ──
+  getMemberDashboard: (userId, params = {}) => {
+    return apiClient.get(`${BASE_PATH}/members/${userId}/dashboard`, { params: { team: 'it', ...params } });
+  },
+
+  getLeaves: (params = {}) => {
+    return apiClient.get(`${BASE_PATH}/leaves`, { params });
+  },
+
+  setLeave: (data) => {
+    return apiClient.post(`${BASE_PATH}/leaves`, data);
+  },
+
+  clearLeave: (date, params = {}) => {
+    return apiClient.delete(`${BASE_PATH}/leaves/${date}`, { params });
+  },
 };
 
 export default itUpdatesApi;

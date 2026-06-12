@@ -494,6 +494,46 @@ export async function dbEnsureTables() {
       console.warn(`dbEnsureTables: ${tbl} timer columns (final pass):`, err.message);
     }
   }
+
+  // Member dashboard: per-session time logs (so worked time can be summed per day,
+  // across weeks/months) and self-service leave days.
+  try {
+    await p.query(`
+      CREATE TABLE IF NOT EXISTS requirement_time_logs (
+        id SERIAL PRIMARY KEY,
+        user_id INT,
+        requirement_id INT NOT NULL,
+        task_id INT,
+        team TEXT,
+        seconds INT NOT NULL DEFAULT 0,
+        work_date DATE NOT NULL,
+        started_at TIMESTAMPTZ,
+        ended_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+        created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+    await p.query('CREATE INDEX IF NOT EXISTS idx_rtl_user_date ON requirement_time_logs(user_id, work_date);');
+    await p.query('CREATE INDEX IF NOT EXISTS idx_rtl_req ON requirement_time_logs(requirement_id);');
+    console.log('DB: requirement_time_logs table ensured.');
+  } catch (err) {
+    console.warn('dbEnsureTables: requirement_time_logs:', err.message);
+  }
+
+  try {
+    await p.query(`
+      CREATE TABLE IF NOT EXISTS member_leaves (
+        id SERIAL PRIMARY KEY,
+        user_id INT NOT NULL,
+        leave_date DATE NOT NULL,
+        created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE (user_id, leave_date)
+      );
+    `);
+    await p.query('CREATE INDEX IF NOT EXISTS idx_member_leaves_user ON member_leaves(user_id, leave_date);');
+    console.log('DB: member_leaves table ensured.');
+  } catch (err) {
+    console.warn('dbEnsureTables: member_leaves:', err.message);
+  }
 }
 
 /** Ensure Legal & Finance department, permissions, role, and role_permissions exist (RBAC tables required). */
@@ -1960,6 +2000,7 @@ export async function dbRequirementTimer(reqId, action, taskId = null, teamInput
   try {
     const team = resolveTeamFromInput(teamInput || (taskId ? await detectTaskTeamById(taskId) : null));
     const reqTable = reqTableForTeam(team);
+    const taskTable = taskTableForTeam(team);
     if (action === 'start') {
       await p.query(
         `UPDATE ${reqTable}
@@ -1968,6 +2009,22 @@ export async function dbRequirementTimer(reqId, action, taskId = null, teamInput
         [reqId]
       );
     } else if (action === 'pause') {
+      // Record this work session (started -> now) attributed to the task's assignee,
+      // so the member dashboard can sum worked time per day. Then bank the seconds.
+      try {
+        await p.query(
+          `INSERT INTO requirement_time_logs (user_id, requirement_id, task_id, team, seconds, work_date, started_at, ended_at)
+           SELECT t.assigned_to, r.requirement_id, r.task_id, $2,
+                  GREATEST(0, FLOOR(EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - r.timer_started_at)))::int),
+                  CURRENT_DATE, r.timer_started_at, CURRENT_TIMESTAMP
+           FROM ${reqTable} r
+           LEFT JOIN ${taskTable} t ON t.task_id = r.task_id
+           WHERE r.requirement_id = $1 AND r.timer_started_at IS NOT NULL`,
+          [reqId, team]
+        );
+      } catch (logErr) {
+        console.warn('dbRequirementTimer: time-log insert skipped:', logErr.message);
+      }
       await p.query(
         `UPDATE ${reqTable}
          SET time_spent_seconds = COALESCE(time_spent_seconds, 0)
@@ -1983,6 +2040,143 @@ export async function dbRequirementTimer(reqId, action, taskId = null, teamInput
   } catch (err) {
     console.error('dbRequirementTimer:', err.message);
     return null;
+  }
+}
+
+const EMPTY_TASK_STATS = { total: 0, completed: 0, in_progress: 0, todo: 0, review: 0, overdue: 0 };
+const EMPTY_DASHBOARD = { daily: [], byProject: [], projects: [], leaves: [], totalSeconds: 0, taskStats: { ...EMPTY_TASK_STATS } };
+
+/**
+ * Member dashboard data: worked seconds per day, per-project breakdown, the projects
+ * the member is assigned to, and leave days — all within [from, to] (yyyy-mm-dd).
+ */
+export async function dbGetMemberDashboard(userId, from, to, team = 'it') {
+  const p = getPool();
+  if (!p) return EMPTY_DASHBOARD;
+  const uid = parseInt(String(userId), 10);
+  if (!Number.isFinite(uid)) return EMPTY_DASHBOARD;
+  const taskTable = taskTableForTeam(team);
+  const hasProjects = team === 'it'; // only it_tasks carries project_id + it_projects exists
+  const params = [uid, from || '0001-01-01', to || '9999-12-31'];
+  try {
+    const { rows: dailyRows } = await p.query(
+      `SELECT to_char(work_date, 'YYYY-MM-DD') AS date, SUM(seconds)::int AS seconds
+       FROM requirement_time_logs
+       WHERE user_id = $1 AND work_date BETWEEN $2 AND $3
+       GROUP BY work_date ORDER BY work_date`,
+      params
+    );
+    let byProject = [];
+    let projects = [];
+    if (hasProjects) {
+      const { rows: bp } = await p.query(
+        `SELECT COALESCE(pr.project_id::text, 'none') AS project_id,
+                COALESCE(pr.project_name, 'No project') AS project_name,
+                SUM(l.seconds)::int AS seconds
+         FROM requirement_time_logs l
+         LEFT JOIN ${taskTable} t ON t.task_id = l.task_id
+         LEFT JOIN it_projects pr ON pr.project_id = t.project_id
+         WHERE l.user_id = $1 AND l.work_date BETWEEN $2 AND $3
+         GROUP BY pr.project_id, pr.project_name
+         ORDER BY seconds DESC`,
+        params
+      );
+      byProject = bp.map((r) => ({
+        project_id: r.project_id,
+        project_name: r.project_name,
+        seconds: Number(r.seconds || 0),
+      }));
+      const { rows: pj } = await p.query(
+        `SELECT DISTINCT pr.project_id AS id, pr.project_name AS name, pr.status, pr.logo
+         FROM ${taskTable} t
+         JOIN it_projects pr ON pr.project_id = t.project_id
+         WHERE t.assigned_to = $1
+         ORDER BY pr.project_name`,
+        [uid]
+      );
+      projects = pj.map((r) => ({ id: String(r.id), name: r.name, status: r.status, logo: r.logo }));
+    }
+    const { rows: leaveRows } = await p.query(
+      `SELECT to_char(leave_date, 'YYYY-MM-DD') AS d FROM member_leaves
+       WHERE user_id = $1 AND leave_date BETWEEN $2 AND $3 ORDER BY leave_date`,
+      params
+    );
+    // Task insights for the member, scoped to the period by task date.
+    let taskStats = { ...EMPTY_TASK_STATS };
+    try {
+      const { rows: ts } = await p.query(
+        `SELECT
+           COUNT(*)::int AS total,
+           COUNT(*) FILTER (WHERE status = 'completed')::int AS completed,
+           COUNT(*) FILTER (WHERE status = 'in_progress')::int AS in_progress,
+           COUNT(*) FILTER (WHERE status = 'todo')::int AS todo,
+           COUNT(*) FILTER (WHERE status IN ('review', 'rework'))::int AS review,
+           COUNT(*) FILTER (WHERE due_date IS NOT NULL AND due_date < CURRENT_DATE AND status <> 'completed')::int AS overdue
+         FROM ${taskTable}
+         WHERE assigned_to = $1
+           AND COALESCE(task_date, created_at::date) BETWEEN $2 AND $3`,
+        params
+      );
+      if (ts[0]) {
+        taskStats = {
+          total: Number(ts[0].total || 0),
+          completed: Number(ts[0].completed || 0),
+          in_progress: Number(ts[0].in_progress || 0),
+          todo: Number(ts[0].todo || 0),
+          review: Number(ts[0].review || 0),
+          overdue: Number(ts[0].overdue || 0),
+        };
+      }
+    } catch (tsErr) {
+      console.warn('dbGetMemberDashboard taskStats:', tsErr.message);
+    }
+    const daily = dailyRows.map((r) => ({ date: r.date, seconds: Number(r.seconds || 0) }));
+    const totalSeconds = daily.reduce((s, d) => s + d.seconds, 0);
+    return { daily, byProject, projects, leaves: leaveRows.map((r) => r.d), totalSeconds, taskStats };
+  } catch (err) {
+    console.error('dbGetMemberDashboard:', err.message);
+    return EMPTY_DASHBOARD;
+  }
+}
+
+export async function dbGetLeaves(userId, from, to) {
+  const p = getPool();
+  if (!p) return [];
+  const uid = parseInt(String(userId), 10);
+  if (!Number.isFinite(uid)) return [];
+  try {
+    const { rows } = await p.query(
+      `SELECT to_char(leave_date, 'YYYY-MM-DD') AS d FROM member_leaves
+       WHERE user_id = $1 AND leave_date BETWEEN $2 AND $3 ORDER BY leave_date`,
+      [uid, from || '0001-01-01', to || '9999-12-31']
+    );
+    return rows.map((r) => r.d);
+  } catch (err) {
+    console.error('dbGetLeaves:', err.message);
+    return [];
+  }
+}
+
+/** Toggle a member's leave for a single day. `on=true` adds it, `on=false` removes it. */
+export async function dbSetLeave(userId, date, on) {
+  const p = getPool();
+  if (!p) return false;
+  const uid = parseInt(String(userId), 10);
+  if (!Number.isFinite(uid) || !date) return false;
+  try {
+    if (on) {
+      await p.query(
+        `INSERT INTO member_leaves (user_id, leave_date) VALUES ($1, $2)
+         ON CONFLICT (user_id, leave_date) DO NOTHING`,
+        [uid, date]
+      );
+    } else {
+      await p.query('DELETE FROM member_leaves WHERE user_id = $1 AND leave_date = $2', [uid, date]);
+    }
+    return true;
+  } catch (err) {
+    console.error('dbSetLeave:', err.message);
+    return false;
   }
 }
 
