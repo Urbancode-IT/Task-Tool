@@ -116,6 +116,11 @@ const itUpdatesApi = {
     });
   },
 
+  // Manually log a work session (From/To clock times) when the timer was not used.
+  requirementManualTime: (taskId, reqId, data) => {
+    return apiClient.post(`${BASE_PATH}/tasks/${taskId}/requirements/${reqId}/manual-time`, data);
+  },
+
   // ── Member dashboard (worked hours, projects, leave) ──
   getMemberDashboard: (userId, params = {}) => {
     return apiClient.get(`${BASE_PATH}/members/${userId}/dashboard`, { params: { team: 'it', ...params } });

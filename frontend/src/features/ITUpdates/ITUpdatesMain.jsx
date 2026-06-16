@@ -15,6 +15,7 @@ import {
   MdMenu,
   MdCalendarToday,
   MdEdit,
+  MdDelete,
   MdHome,
 } from 'react-icons/md';
 import itUpdatesApi from '../../api/itUpdatesApi';
@@ -29,6 +30,7 @@ import logoSrc from '../../assets/logo.png';
 import ProjectLogo from '../../components/ProjectLogo';
 import SidebarUser from '../../components/SidebarUser';
 import RequirementTimer from '../../components/RequirementTimer';
+import RequirementManualTime from '../../components/RequirementManualTime';
 import MemberDashboard from './MemberDashboard';
 import './ITUpdatesMain.css';
 
@@ -2128,11 +2130,18 @@ function TaskModal({ task, currentUser, projects, developers, managers, onClose,
                         disabled={String(req.id).startsWith('temp-')}
                         onUpdate={(u) => setRequirements((prev) => prev.map((r) => (r.id === req.id ? u : r)))}
                       />
-                      <button type="button" className="req-action-btn" onClick={() => startEditReq(req)} title="Edit">
-                        ✏️
+                      <RequirementManualTime
+                        req={req}
+                        taskId={task?.id}
+                        team={MODULE_TEAM}
+                        disabled={String(req.id).startsWith('temp-')}
+                        onUpdate={(u) => setRequirements((prev) => prev.map((r) => (r.id === req.id ? u : r)))}
+                      />
+                      <button type="button" className="req-action-btn" onClick={() => startEditReq(req)} title="Edit" aria-label="Edit">
+                        <MdEdit size={15} />
                       </button>
-                      <button type="button" className="req-action-btn req-action-btn-danger" onClick={() => handleDeleteRequirement(req.id)} title="Delete">
-                        🗑️
+                      <button type="button" className="req-action-btn req-action-btn-danger" onClick={() => handleDeleteRequirement(req.id)} title="Delete" aria-label="Delete">
+                        <MdDelete size={15} />
                       </button>
                     </div>
                   </div>

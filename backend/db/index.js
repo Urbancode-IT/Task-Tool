@@ -2043,6 +2043,57 @@ export async function dbRequirementTimer(reqId, action, taskId = null, teamInput
   }
 }
 
+/**
+ * Set a requirement's worked time from a manual From/To entry (when the timer was
+ * not used). fromTime/toTime are clock times ('HH:MM'); the work date is taken from
+ * the task's task_date. The entered interval is the single source of truth: it
+ * REPLACES the requirement's tracked time (it does not accumulate), and replaces
+ * that requirement's time logs so the member dashboard reflects exactly what was
+ * entered. Any running timer is stopped.
+ */
+export async function dbAddRequirementManualTime(reqId, { fromTime, toTime }, taskId = null, teamInput = null) {
+  const p = getPool();
+  if (!p) return null;
+  const team = resolveTeamFromInput(teamInput || (taskId ? await detectTaskTeamById(taskId) : null));
+  const reqTable = reqTableForTeam(team);
+  const taskTable = taskTableForTeam(team);
+  try {
+    // Clear prior logged time for this requirement so the entered interval is not
+    // added on top of earlier entries (no summing across edits).
+    await p.query('DELETE FROM requirement_time_logs WHERE requirement_id = $1', [reqId]);
+    // Record the entered session, deriving date + assignee from the requirement's task.
+    const { rows: ins } = await p.query(
+      `INSERT INTO requirement_time_logs
+         (user_id, requirement_id, task_id, team, seconds, work_date, started_at, ended_at)
+       SELECT t.assigned_to, r.requirement_id, r.task_id, $4,
+              GREATEST(0, EXTRACT(EPOCH FROM ($3::time - $2::time))::int),
+              COALESCE(t.task_date, CURRENT_DATE),
+              COALESCE(t.task_date, CURRENT_DATE) + $2::time,
+              COALESCE(t.task_date, CURRENT_DATE) + $3::time
+         FROM ${reqTable} r
+         JOIN ${taskTable} t ON t.task_id = r.task_id
+        WHERE r.requirement_id = $1
+       RETURNING seconds`,
+      [reqId, fromTime, toTime, team]
+    );
+    if (!ins[0]) return null; // requirement / task not found
+    const seconds = Number(ins[0].seconds || 0);
+    const { rows } = await p.query(
+      `UPDATE ${reqTable}
+          SET time_spent_seconds = $2,
+              timer_started_at = NULL,
+              updated_at = CURRENT_TIMESTAMP
+        WHERE requirement_id = $1
+        RETURNING *`,
+      [reqId, seconds]
+    );
+    return rows[0] ? mapRequirement(rows[0]) : null;
+  } catch (err) {
+    console.error('dbAddRequirementManualTime:', err.message);
+    return null;
+  }
+}
+
 const EMPTY_TASK_STATS = { total: 0, completed: 0, in_progress: 0, todo: 0, review: 0, overdue: 0 };
 const EMPTY_DASHBOARD = { daily: [], byProject: [], projects: [], leaves: [], totalSeconds: 0, taskStats: { ...EMPTY_TASK_STATS } };
 

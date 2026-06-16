@@ -14,6 +14,8 @@ import {
   MdRefresh,
   MdTableChart,
   MdViewKanban,
+  MdEdit,
+  MdDelete,
 } from 'react-icons/md';
 import itUpdatesApi from '../../api/itUpdatesApi';
 import { getDisplayRole } from '../../utils/displayRole';
@@ -26,6 +28,7 @@ import logoSrc from '../../assets/logo.png';
 import ProjectLogo from '../../components/ProjectLogo';
 import SidebarUser from '../../components/SidebarUser';
 import RequirementTimer from '../../components/RequirementTimer';
+import RequirementManualTime from '../../components/RequirementManualTime';
 import '../ITUpdates/ITUpdatesMain.css';
 
 const TABS = [
@@ -1609,8 +1612,15 @@ function TaskModal({ task, currentUser, onClose, onSave, onRefresh, teamMembers,
                         disabled={String(req.id).startsWith('temp-')}
                         onUpdate={(u) => setRequirements((prev) => prev.map((r) => (r.id === req.id ? u : r)))}
                       />
-                      <button type="button" className="req-action-btn" onClick={() => startEditReq(req)} title="Edit">✏️</button>
-                      <button type="button" className="req-action-btn req-action-btn-danger" onClick={() => handleDeleteRequirement(req.id)} title="Delete">🗑️</button>
+                      <RequirementManualTime
+                        req={req}
+                        taskId={task.id}
+                        team={MODULE_TEAM}
+                        disabled={String(req.id).startsWith('temp-')}
+                        onUpdate={(u) => setRequirements((prev) => prev.map((r) => (r.id === req.id ? u : r)))}
+                      />
+                      <button type="button" className="req-action-btn" onClick={() => startEditReq(req)} title="Edit" aria-label="Edit"><MdEdit size={15} /></button>
+                      <button type="button" className="req-action-btn req-action-btn-danger" onClick={() => handleDeleteRequirement(req.id)} title="Delete" aria-label="Delete"><MdDelete size={15} /></button>
                     </div>
                   </div>
                 ))}

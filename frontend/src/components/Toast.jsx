@@ -1,6 +1,13 @@
 import React, { useEffect, useState, useCallback } from 'react';
+import { MdCheckCircle, MdError, MdInfo, MdClose } from 'react-icons/md';
 import { TOAST_EVENT } from '../utils/toast';
 import './Toast.css';
+
+const TOAST_ICON = {
+  success: MdCheckCircle,
+  error: MdError,
+  info: MdInfo,
+};
 
 let nextId = 1;
 
@@ -32,22 +39,25 @@ export default function ToastContainer() {
 
   return (
     <div className="app-toast-container" role="status" aria-live="polite">
-      {toasts.map((t) => (
-        <div key={t.id} className={`app-toast app-toast-${t.type}`}>
-          <span className="app-toast-icon" aria-hidden="true">
-            {t.type === 'success' ? '✓' : t.type === 'error' ? '!' : 'i'}
-          </span>
-          <span className="app-toast-message">{t.message}</span>
-          <button
-            type="button"
-            className="app-toast-close"
-            onClick={() => dismiss(t.id)}
-            aria-label="Dismiss notification"
-          >
-            ×
-          </button>
-        </div>
-      ))}
+      {toasts.map((t) => {
+        const Icon = TOAST_ICON[t.type] || MdInfo;
+        return (
+          <div key={t.id} className={`app-toast app-toast-${t.type}`}>
+            <span className="app-toast-icon" aria-hidden="true">
+              <Icon size={18} />
+            </span>
+            <span className="app-toast-message">{t.message}</span>
+            <button
+              type="button"
+              className="app-toast-close"
+              onClick={() => dismiss(t.id)}
+              aria-label="Dismiss notification"
+            >
+              <MdClose size={16} />
+            </button>
+          </div>
+        );
+      })}
     </div>
   );
 }

@@ -2786,6 +2786,166 @@
   gap: 0.65rem;
 }
 
+/* Manual time entry — icon button + From/To popover, per requirement row. */
+.req-manual {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.req-manual-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: 1px solid var(--clr-slate-200);
+  border-radius: var(--radius-full);
+  background: var(--surface-card);
+  color: var(--clr-slate-500);
+  transition: color var(--transition-fast), border-color var(--transition-fast), background var(--transition-fast);
+}
+
+.req-manual-btn:hover:not(:disabled) {
+  color: var(--clr-primary-600);
+  border-color: var(--clr-primary-300);
+  background: var(--clr-primary-50);
+}
+
+.req-manual-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* Position (fixed top/left/width) is set inline by the component and portalled to
+   <body>, so it is never clipped by the modal scroll or the table's overflow. */
+.req-manual-pop {
+  z-index: 1000;
+  padding: 14px;
+  background: var(--surface-card);
+  border: 1px solid var(--clr-slate-200);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-xl);
+  animation: fadeIn var(--transition-base);
+}
+
+.req-manual-pop-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--clr-slate-800);
+  padding-bottom: 10px;
+  margin-bottom: 12px;
+  border-bottom: 1px solid var(--clr-slate-100);
+}
+
+.req-manual-pop-head svg {
+  color: var(--clr-primary-600);
+}
+
+.req-manual-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.req-manual-label {
+  width: 38px;
+  flex-shrink: 0;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--clr-slate-500);
+}
+
+.req-manual-time {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 1;
+}
+
+.req-manual-colon {
+  color: var(--clr-slate-400);
+  font-weight: 700;
+}
+
+.req-manual-select {
+  flex: 1;
+  min-width: 0;
+  padding: 7px 6px;
+  border: 1px solid var(--clr-slate-200);
+  border-radius: var(--radius-sm);
+  font-size: 0.82rem;
+  font-family: inherit;
+  color: var(--clr-slate-800);
+  background: var(--surface-card);
+  cursor: pointer;
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.req-manual-select.req-manual-ampm {
+  flex: 0 0 56px;
+  margin-left: 2px;
+}
+
+.req-manual-select:focus {
+  border-color: var(--clr-primary-400);
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.12);
+}
+
+.req-manual-error {
+  margin: 2px 0 8px;
+  font-size: 0.72rem;
+  color: var(--clr-danger);
+}
+
+.req-manual-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.req-manual-cancel,
+.req-manual-save {
+  padding: 7px 16px;
+  border-radius: var(--radius-md);
+  font-size: 0.78rem;
+  font-weight: 600;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: background var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.req-manual-cancel {
+  background: var(--clr-slate-100);
+  color: var(--clr-slate-600);
+  border-color: var(--clr-slate-200);
+}
+
+.req-manual-cancel:hover {
+  background: var(--clr-slate-200);
+}
+
+.req-manual-save {
+  background: var(--clr-primary-600);
+  color: #fff;
+}
+
+.req-manual-save:hover:not(:disabled) {
+  background: var(--clr-primary-700);
+  box-shadow: 0 4px 12px rgba(79, 70, 229, 0.3);
+}
+
+.req-manual-save:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
 @media (max-width: 560px) {
   .req-form-row {
     grid-template-columns: 1fr;

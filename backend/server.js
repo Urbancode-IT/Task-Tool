@@ -1073,6 +1073,36 @@ app.post(`${BASE_PATH}/tasks/:taskId/requirements/:reqId/timer`, async (req, res
   }
 });
 
+// Manually log a work session (From/To times) for a requirement when the timer
+// was not used. Date comes from the task's task_date; time-only inputs ('HH:MM').
+app.post(`${BASE_PATH}/tasks/:taskId/requirements/:reqId/manual-time`, async (req, res) => {
+  const { taskId, reqId } = req.params;
+  const from = String(req.body?.from || '').trim();
+  const to = String(req.body?.to || '').trim();
+  const timeRe = /^([01]\d|2[0-3]):[0-5]\d$/;
+  if (!timeRe.test(from) || !timeRe.test(to)) {
+    return res.status(400).json({ message: 'Provide valid From and To times (HH:MM).' });
+  }
+  if (to <= from) {
+    return res.status(400).json({ message: 'To time must be later than From time.' });
+  }
+  try {
+    if (!db.useDb()) return res.status(400).json({ message: 'Database connection required' });
+    let teamHint = req.body?.team || req.query?.team || null;
+    if (!teamHint) {
+      const t = await db.dbGetTaskById(taskId, null);
+      teamHint = t?.team || null;
+    }
+    if (isLegalFinanceTeamString(teamHint) && !requireLegalFinanceAccess(req, res)) return;
+    const updated = await db.dbAddRequirementManualTime(reqId, { fromTime: from, toTime: to }, taskId, teamHint);
+    if (!updated) return res.status(404).json({ message: 'Requirement not found' });
+    return res.json(updated);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Failed to log manual time' });
+  }
+});
+
 // ---- Member dashboard (worked hours vs 8h/day, projects, leave) ----
 // Returns the requester's identity + whether they are an admin. In demo mode
 // (no JWT secret) req.user is absent, so treat the session as admin.
