@@ -1869,6 +1869,14 @@ function TaskModal({ task, currentUser, projects, developers, managers, onClose,
 
   const handleToggleReqStatus = async (req) => {
     const newStatus = req.status === 'completed' ? 'pending' : 'completed';
+    // A requirement cannot be ticked complete without recorded work time.
+    if (newStatus === 'completed') {
+      const hasTime = Number(req.timeSpentSeconds || 0) > 0 || Boolean(req.timerRunning);
+      if (!hasTime) {
+        toastError('Please enter the time you worked on this requirement first.');
+        return;
+      }
+    }
     try {
       if (isExistingTask && !String(req.id).startsWith('temp-')) {
         const res = await itUpdatesApi.updateRequirement(task.id, req.id, { status: newStatus, team: MODULE_TEAM }, { team: MODULE_TEAM });
