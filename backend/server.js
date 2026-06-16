@@ -665,6 +665,18 @@ app.post(`${BASE_PATH}/tasks`, async (req, res) => {
       if (isLegalFinanceTeamString(teamForCreate) && !requireLegalFinanceAccess(req, res)) return;
       const task = await db.dbCreateTask({ ...req.body, team: teamForCreate });
       if (!task) return res.status(500).json({ message: 'Failed to create task' });
+      // Notify the assignee that a card was added to them (skip self-assignment).
+      const assignerId = req.user?.id != null ? parseInt(String(req.user.id), 10) : null;
+      if (task.assigned_to != null && task.assigned_to !== assignerId) {
+        const assignerName =
+          req.user?.name ||
+          req.user?.username ||
+          (assignerId != null ? (await db.dbGetUsersByIds([assignerId]))[0]?.username : null) ||
+          'Someone';
+        notifyAssignment({ task, assignerName }).catch((e) =>
+          console.error('notifyAssignment:', e.message)
+        );
+      }
       return res.status(201).json(task);
     }
     const task = {
@@ -1572,6 +1584,41 @@ async function notifyMentions({ taskId, team, mentionIds, commenterName, html })
     });
     console.log(`[mentions] email to user ${u.user_id}: ${ok ? 'sent' : 'FAILED'}`);
   }
+}
+
+/** Email the assignee when a card/task is created and assigned to them. Fire-and-forget. */
+async function notifyAssignment({ task, assignerName }) {
+  if (!isMailConfigured()) {
+    console.warn('[assignment] skipped: email not configured (GMAIL_* env missing).');
+    return;
+  }
+  const assigneeId = task?.assigned_to;
+  if (assigneeId == null) return; // unassigned card — nobody to notify
+  const [assignee] = await db.dbGetUsersByIds([assigneeId]);
+  if (!assignee?.email) {
+    console.log(`[assignment] task ${task?.id}: assignee ${assigneeId} has no email — skipping.`);
+    return;
+  }
+  const title = task?.title || `Task #${task?.id}`;
+  const link = appLink();
+  const who = assignerName || 'Someone';
+  const ok = await sendMail({
+    to: assignee.email,
+    subject: `${who} assigned you a task: "${title}"`,
+    html: renderEmail({
+      preheader: `${who} assigned you a task: "${title}"`,
+      heading: 'A task was assigned to you',
+      ctaUrl: link,
+      ctaLabel: 'Open task',
+      contentHtml:
+        `<p style="margin:0 0 16px;">Hi ${assignee.username || 'there'},</p>` +
+        `<p style="margin:0 0 16px;"><strong>${who}</strong> assigned you a new task: <strong>${title}</strong>.</p>` +
+        (task?.task_description
+          ? `<blockquote style="margin:0;border-left:3px solid #6366f1;background:#f8fafc;padding:14px 18px;border-radius:0 10px 10px 0;color:#475569;">${stripHtml(task.task_description)}</blockquote>`
+          : ''),
+    }),
+  });
+  console.log(`[assignment] email to user ${assignee.user_id}: ${ok ? 'sent' : 'FAILED'}`);
 }
 
 /** Check for tasks due soon / overdue and email assignee + assigner once per state. */
