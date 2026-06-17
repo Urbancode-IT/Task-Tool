@@ -1981,6 +1981,128 @@
   min-height: 60px;
 }
 
+/* EOD report rendered as a post (avatar + meta, actions, replies) */
+.it-updates-eod-card-header {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.it-updates-eod-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 0.05rem;
+  min-width: 0;
+}
+
+.it-updates-eod-meta .it-updates-eod-user {
+  font-weight: 700;
+  font-size: 0.9rem;
+  color: var(--clr-slate-800);
+}
+
+.it-updates-eod-card-date {
+  font-size: 0.74rem;
+  color: var(--clr-slate-400);
+}
+
+.it-updates-eod-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin-top: 0.6rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--clr-slate-100);
+}
+
+.it-updates-eod-replies {
+  margin-top: 0.5rem;
+}
+
+/* EOD report comments toggle */
+.it-updates-eod-comments {
+  margin-top: 0.75rem;
+  border-top: 1px solid var(--clr-slate-100);
+  padding-top: 0.5rem;
+}
+
+.it-updates-eod-comments-toggle {
+  border: 1px solid var(--clr-slate-200);
+  background: var(--clr-slate-50);
+  color: var(--clr-slate-600);
+  font-size: 0.78rem;
+  font-weight: 600;
+  padding: 0.35rem 0.8rem;
+  border-radius: var(--radius-full);
+  cursor: pointer;
+  transition: background var(--transition-fast), border-color var(--transition-fast);
+}
+
+.it-updates-eod-comments-toggle:hover {
+  background: var(--clr-slate-100);
+  border-color: var(--clr-slate-300);
+}
+
+/* EOD report — single column, full-width rich editor. */
+.it-updates-eod-form {
+  padding: 1.1rem 1.25rem 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.1rem;
+}
+
+.it-updates-eod-date {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  max-width: 240px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--clr-slate-500);
+}
+
+.it-updates-eod-date input {
+  padding: 0.6rem 0.8rem;
+  border: 1px solid var(--clr-slate-200);
+  border-radius: var(--radius-md);
+  font-size: 0.9rem;
+  font-family: inherit;
+  background: var(--surface-card);
+}
+
+.it-updates-eod-date input:focus {
+  border-color: var(--clr-primary-400);
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+}
+
+.it-updates-eod-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.it-updates-eod-field-label {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--clr-slate-500);
+}
+
+/* Make the embedded comment editor span the modal and feel roomy. */
+.it-updates-eod-form .tc-editor {
+  width: 100%;
+}
+
+.it-updates-eod-form .tc-input {
+  min-height: 220px;
+  max-height: 50vh;
+  overflow-y: auto;
+}
+
 .it-updates-multi-select {
   position: relative;
 }

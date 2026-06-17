@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import MainLayout from './components/MainLayout';
+import EodLockScreen from './components/EodLockScreen';
 import authApi from './api/authApi';
 import logoSrc from './assets/logo.png';
 import { MdVisibility, MdVisibilityOff } from 'react-icons/md';
@@ -158,7 +159,16 @@ function App() {
     return <LoginPage onLogin={handleLogin} />;
   }
 
-  return <MainLayout currentUser={user} onLogout={handleLogout} />;
+  const locked = Boolean(user.eod_locked);
+
+  return (
+    <>
+      <div className={locked ? 'app-locked-blur' : undefined} aria-hidden={locked || undefined}>
+        <MainLayout currentUser={user} onLogout={handleLogout} />
+      </div>
+      {locked && <EodLockScreen lockDate={user.eod_lock_date} onLogout={handleLogout} />}
+    </>
+  );
 }
 
 export default App;

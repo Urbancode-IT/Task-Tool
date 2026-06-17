@@ -31,6 +31,10 @@ import ProjectLogo from '../../components/ProjectLogo';
 import SidebarUser from '../../components/SidebarUser';
 import RequirementTimer from '../../components/RequirementTimer';
 import RequirementManualTime from '../../components/RequirementManualTime';
+import CommentEditor from '../../components/CommentEditor';
+import EodReportCard from '../../components/EodReportCard';
+import { sanitizeCommentHtml } from '../../utils/sanitizeHtml';
+import { BRANCHES } from '../Admin/AdminUserModals';
 import MemberDashboard from './MemberDashboard';
 import './ITUpdatesMain.css';
 
@@ -45,7 +49,7 @@ const TABS = [
 ];
 const MODULE_TEAM = 'it';
 
-const EMPTY_ALL_TASKS_FILTERS = { project_id: '', status: '', priority: '', assignee: '', period: EMPTY_PERIOD };
+const EMPTY_ALL_TASKS_FILTERS = { project_id: '', status: '', priority: '', assignee: '', branch: '', period: EMPTY_PERIOD };
 const EMPTY_OVERVIEW_FILTERS = { from_date: '', to_date: '', assigned_to: '', project_id: '' };
 
 const STATUS_LABELS = {
@@ -160,6 +164,18 @@ const ITUpdatesMain = ({ currentUser, onLogout }) => {
     () => teamOverview.filter((u) => Boolean(u.is_it_developer)),
     [teamOverview]
   );
+
+  // Adapter so the shared TaskComments thread posts to EOD-report comment endpoints.
+  const eodCommentApi = useMemo(
+    () => ({
+      getComments: (id) => itUpdatesApi.getEodReportComments(id),
+      addComment: (id, body) => itUpdatesApi.addEodReportComment(id, body),
+      updateComment: (id, commentId, body) => itUpdatesApi.updateEodReportComment(id, commentId, body),
+      deleteComment: (id, commentId, userId) => itUpdatesApi.deleteEodReportComment(id, commentId, userId),
+      likeComment: (id, commentId, userId) => itUpdatesApi.likeEodReportComment(id, commentId, userId),
+    }),
+    []
+  );
   const managers = useMemo(
     () => teamOverview.filter((u) => u.is_it_manager),
     [teamOverview]
@@ -233,6 +249,7 @@ const ITUpdatesMain = ({ currentUser, onLogout }) => {
     if (f.status) result = result.filter((t) => t.status === f.status);
     if (f.priority) result = result.filter((t) => t.priority === f.priority);
     if (f.assignee) result = result.filter((t) => String(t.assigned_to) === String(f.assignee));
+    if (f.branch) result = result.filter((t) => t.assignee_branch === f.branch);
     if (f.period) result = result.filter((t) => taskInPeriod(t, f.period));
     return result;
   }, [tasks, allTasksFiltersApplied]);
@@ -973,6 +990,17 @@ const ITUpdatesMain = ({ currentUser, onLogout }) => {
                     </option>
                   ))}
                 </select>
+                <select
+                  value={allTasksFiltersApplied.branch}
+                  onChange={(e) =>
+                    setAllTasksFiltersApplied((f) => ({ ...f, branch: e.target.value }))
+                  }
+                >
+                  <option value="">Branches</option>
+                  {BRANCHES.map((b) => (
+                    <option key={b} value={b}>{b}</option>
+                  ))}
+                </select>
                 <PeriodFilter
                   value={allTasksFiltersApplied.period}
                   onChange={(period) =>
@@ -1354,32 +1382,18 @@ const ITUpdatesMain = ({ currentUser, onLogout }) => {
                   <div className="it-updates-empty">No EOD reports yet. Click &quot;Submit EOD&quot; or the EOD button in the header to add one.</div>
                 ) : (
                   eodReports.map((report) => (
-                    <div key={report.report_id ?? report.id} className="it-updates-eod-card">
-                      <div className="it-updates-eod-card-header">
-                        <span className="it-updates-eod-date">
-                          {report.report_date ? new Date(report.report_date).toLocaleDateString(undefined, { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' }) : '—'}
-                        </span>
-                        <span className="it-updates-eod-user">{report.username || `User #${report.user_id}`}</span>
-                        {report.hours_worked != null && (
-                          <span className="it-updates-eod-hours">{report.hours_worked}h</span>
-                        )}
-                        {report.mood && (
-                          <span className="it-updates-eod-mood">{report.mood}</span>
-                        )}
-                      </div>
-                      {report.achievements && (
-                        <div className="it-updates-eod-block">
-                          <strong>Work Summary</strong>
-                          <p>{report.achievements}</p>
-                        </div>
-                      )}
-                      {report.blockers && (
-                        <div className="it-updates-eod-block">
-                          <strong>Additional Notes</strong>
-                          <p>{report.blockers}</p>
-                        </div>
-                      )}
-                    </div>
+                    <EodReportCard
+                      key={report.report_id ?? report.id}
+                      report={report}
+                      currentUser={user}
+                      isAdmin={(user?.permissions || []).includes('admin.access')}
+                      members={teamOverview.map((u) => ({ id: u.user_id, name: u.username, image: u.profile_image }))}
+                      commentApi={eodCommentApi}
+                      onUpdate={(updated) =>
+                        setEodReports((prev) => prev.map((r) => (r.report_id === updated.report_id ? updated : r)))
+                      }
+                      onDelete={(id) => setEodReports((prev) => prev.filter((r) => r.report_id !== id))}
+                    />
                   ))
                 )}
               </div>
@@ -1413,6 +1427,11 @@ const ITUpdatesMain = ({ currentUser, onLogout }) => {
         <EodModal
           onClose={() => setEodModal(false)}
           onSave={handleSaveEod}
+          members={teamOverview.map((u) => ({
+            id: u.user_id,
+            name: u.username ?? u.assignee,
+            image: u.profile_image,
+          }))}
         />
       )}
 
@@ -2242,12 +2261,12 @@ function TaskModal({ task, currentUser, projects, developers, managers, onClose,
             </select>
           </label>
           <label>
-            Due date (Optional)
-            <input type="date" value={form.due_date} onChange={(e) => setForm((f) => ({ ...f, due_date: e.target.value }))} />
-          </label>
-          <label>
             Task date
             <input type="date" value={form.task_date} onChange={(e) => setForm((f) => ({ ...f, task_date: e.target.value }))} />
+          </label>
+          <label>
+            Due date (Optional)
+            <input type="date" value={form.due_date} onChange={(e) => setForm((f) => ({ ...f, due_date: e.target.value }))} />
           </label>
 
           {isExistingTask && form.status === 'review' && (
@@ -2320,26 +2339,23 @@ function TaskModal({ task, currentUser, projects, developers, managers, onClose,
   );
 }
 
-function EodModal({ onClose, onSave }) {
-  const [form, setForm] = useState({
-    report_date: new Date().toISOString().slice(0, 10),
-    achievements: '',
-    status: 'on_track',
-  });
+function EodModal({ onClose, onSave, members = [] }) {
+  const [reportDate, setReportDate] = useState(new Date().toISOString().slice(0, 10));
 
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    if (!form.report_date) {
+  const handleEditorSubmit = (html) => {
+    if (!reportDate) {
       toastError('Report date is required.');
       return;
     }
-    if (!form.achievements.trim()) {
+    const plain = String(html || '').replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').trim();
+    if (!plain) {
       toastError('Please add a work summary before submitting.');
       return;
     }
     onSave({
-      ...form,
-      mood: form.status, // Map status to mood field in DB
+      report_date: reportDate,
+      achievements: html,
+      mood: null,
       hours_worked: null,
       blockers: null,
       tomorrow_plan: null,
@@ -2355,48 +2371,27 @@ function EodModal({ onClose, onSave }) {
             <MdClose size={22} />
           </button>
         </div>
-        <form onSubmit={handleSubmit} className="it-updates-modal-form">
-          <label>
+        <div className="it-updates-eod-form">
+          <label className="it-updates-eod-date">
             Report date
             <input
               type="date"
-              value={form.report_date}
-              onChange={(e) => setForm((f) => ({ ...f, report_date: e.target.value }))}
+              value={reportDate}
+              onChange={(e) => setReportDate(e.target.value)}
             />
           </label>
-          <label>
-            Work summary (How much completed?) *
-            <textarea
-              value={form.achievements}
-              onChange={(e) => setForm((f) => ({ ...f, achievements: e.target.value }))}
-              placeholder="e.g. Completed login form, started dashboard API..."
-              rows={4}
-              required
+          <div className="it-updates-eod-field">
+            <span className="it-updates-eod-field-label">Work summary (How much completed?) *</span>
+            <CommentEditor
+              members={members}
+              placeholder="Write your end-of-day summary. Type @ to mention someone."
+              submitLabel="Submit EOD"
+              onSubmit={handleEditorSubmit}
+              onCancel={onClose}
+              autoFocus
             />
-          </label>
-          <label>
-            Status
-            <select 
-              value={form.status} 
-              onChange={(e) => setForm((f) => ({ ...f, status: e.target.value }))}
-              className="it-updates-status-select"
-            >
-              <option value="on_track">🟢 On Track</option>
-              <option value="completed_for_day">✅ Completed for today</option>
-              <option value="delayed">🟡 Delayed</option>
-              <option value="blocked">🔴 Blocked</option>
-              <option value="stressed">😰 Stressed / Overloaded</option>
-            </select>
-          </label>
-          <div className="it-updates-modal-actions">
-            <button type="button" className="it-updates-btn it-updates-btn-secondary" onClick={onClose}>
-              Cancel
-            </button>
-            <button type="submit" className="it-updates-btn it-updates-btn-primary">
-              Submit
-            </button>
           </div>
-        </form>
+        </div>
       </div>
     </div>
   );

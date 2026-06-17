@@ -187,6 +187,7 @@ async function buildUserFromDbUser(dbUser) {
     profile_image: dbUser.profile_image ?? null,
     is_it_developer: Boolean(dbUser.is_it_developer),
     is_it_manager: Boolean(dbUser.is_it_manager),
+    branch: dbUser.branch ?? null,
   };
   try {
     const [perms, roleIds] = await Promise.all([
@@ -214,6 +215,17 @@ async function buildUserFromDbUser(dbUser) {
   else if (perms.includes('legal_finance.view') || perms.includes('legal_finance.manage'))
     user.role = 'Legal & Finance';
   else user.role = 'User';
+
+  // EOD lock: non-admins who missed the previous working day's EOD report are locked
+  // out (blurred app) until an admin approves. Evaluated on login and session restore.
+  try {
+    const lock = await db.dbGetUserEodLockState(dbUser.user_id, perms.includes('admin.access'));
+    user.eod_locked = Boolean(lock.locked);
+    user.eod_lock_date = lock.date || null;
+  } catch (_) {
+    user.eod_locked = false;
+    user.eod_lock_date = null;
+  }
   return user;
 }
 
@@ -495,6 +507,7 @@ app.get(`${BASE_PATH}/users`, requirePermission('admin.access'), async (req, res
           email: row.email,
           is_it_developer: row.is_it_developer,
           is_it_manager: row.is_it_manager,
+          branch: row.branch ?? null,
           created_at: row.created_at,
           role_names: row.role_names || [],
           role_codes: row.role_codes || [],
@@ -530,7 +543,7 @@ app.get(`${BASE_PATH}/users`, requirePermission('admin.access'), async (req, res
 
 app.post(`${BASE_PATH}/users`, requirePermission('admin.access'), async (req, res) => {
   try {
-    const { username, email, password, is_it_developer, is_it_manager } = req.body || {};
+    const { username, email, password, is_it_developer, is_it_manager, branch } = req.body || {};
     const name = (username || '').trim();
     if (!name) return res.status(400).json({ message: 'Username is required' });
     const pwd = (password || '').trim();
@@ -544,6 +557,7 @@ app.post(`${BASE_PATH}/users`, requirePermission('admin.access'), async (req, re
         password_hash,
         is_it_developer: Boolean(is_it_developer),
         is_it_manager: Boolean(is_it_manager),
+        branch: branch ?? null,
       });
       if (!created) return res.status(500).json({ message: 'Failed to create user (maybe username already exists)' });
       return res.status(201).json(created);
@@ -572,7 +586,7 @@ app.post(`${BASE_PATH}/users`, requirePermission('admin.access'), async (req, re
 app.put(`${BASE_PATH}/users/:userId`, requirePermission('admin.access'), async (req, res) => {
   try {
     const { userId } = req.params;
-    const { username, email, password, is_it_developer, is_it_manager } = req.body || {};
+    const { username, email, password, is_it_developer, is_it_manager, branch } = req.body || {};
 
     if (db.useDb()) {
       const payload = {};
@@ -580,6 +594,7 @@ app.put(`${BASE_PATH}/users/:userId`, requirePermission('admin.access'), async (
       if (email !== undefined) payload.email = email && String(email).trim() ? String(email).trim() : null;
       if (is_it_developer !== undefined) payload.is_it_developer = Boolean(is_it_developer);
       if (is_it_manager !== undefined) payload.is_it_manager = Boolean(is_it_manager);
+      if (branch !== undefined) payload.branch = branch && String(branch).trim() ? String(branch).trim() : null;
       if (password && String(password).trim()) {
         payload.password_hash = await bcrypt.hash(String(password).trim(), 10);
       }
@@ -641,6 +656,7 @@ app.get(`${BASE_PATH}/tasks`, async (req, res) => {
         from_date: req.query.from_date || null,
         to_date: req.query.to_date || null,
         team: req.query.team || null,
+        branch: req.query.branch || null,
       };
       if (isLegalFinanceTeamString(filters.team) && !requireLegalFinanceAccess(req, res)) return;
       const list = await db.dbGetTasksSimple(filters);
@@ -957,6 +973,145 @@ app.post(`${BASE_PATH}/eod-reports`, async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: 'Failed to create EOD report' });
+  }
+});
+
+// EOD report itself: like / edit / delete (acts like a post).
+app.post(`${BASE_PATH}/eod-reports/:reportId/like`, async (req, res) => {
+  const userId = req.body?.user_id;
+  if (!userId) return res.status(400).json({ message: 'user_id is required' });
+  try {
+    if (!db.useDb()) return res.status(400).json({ message: 'Database connection required' });
+    const result = await db.dbToggleEodReportLike(req.params.reportId, userId);
+    if (!result) return res.status(500).json({ message: 'Failed to like report' });
+    res.json(result);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Failed to like report' });
+  }
+});
+
+app.put(`${BASE_PATH}/eod-reports/:reportId`, async (req, res) => {
+  const userId = req.body?.user_id;
+  if (!userId) return res.status(400).json({ message: 'user_id is required' });
+  try {
+    if (!db.useDb()) return res.status(400).json({ message: 'Database connection required' });
+    const updated = await db.dbUpdateEodReport(req.params.reportId, userId, req.body);
+    if (!updated) return res.status(403).json({ message: 'You can only edit your own report.' });
+    res.json(updated);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Failed to update report' });
+  }
+});
+
+app.delete(`${BASE_PATH}/eod-reports/:reportId`, async (req, res) => {
+  const userId = req.query.user_id || req.body?.user_id;
+  if (!userId) return res.status(400).json({ message: 'user_id is required' });
+  try {
+    if (!db.useDb()) return res.status(400).json({ message: 'Database connection required' });
+    const isAdmin = (req.user?.permissions || []).includes('admin.access');
+    const ok = await db.dbDeleteEodReport(req.params.reportId, userId, isAdmin);
+    if (!ok) return res.status(403).json({ message: 'You can only delete your own report.' });
+    res.status(204).send();
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Failed to delete report' });
+  }
+});
+
+// ── EOD report comments (mention / comment / like / reply, like task comments) ──
+app.get(`${BASE_PATH}/eod-reports/:reportId/comments`, async (req, res) => {
+  try {
+    if (!db.useDb()) return res.json([]);
+    const list = await db.dbGetEodReportComments(req.params.reportId);
+    res.json(list);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Failed to fetch comments' });
+  }
+});
+
+app.post(`${BASE_PATH}/eod-reports/:reportId/comments`, async (req, res) => {
+  const { reportId } = req.params;
+  const { message, author } = req.body || {};
+  if (!message) return res.status(400).json({ message: 'Message is required' });
+  try {
+    if (!db.useDb()) return res.status(400).json({ message: 'Database connection required' });
+    const comment = await db.dbAddEodReportComment(reportId, { ...req.body, author });
+    if (!comment) return res.status(500).json({ message: 'Failed to add comment' });
+    const clientMentions = (Array.isArray(req.body.mentions) ? req.body.mentions : []).map(String);
+    const htmlMentions = extractMentionUidsFromHtml(comment.message);
+    const mentionIds = [...new Set([...clientMentions, ...htmlMentions])];
+    if (mentionIds.length) {
+      notifyMentions({
+        taskId: reportId,
+        mentionIds,
+        commenterName: comment.author,
+        html: comment.message,
+        titleOverride: 'an EOD report',
+      }).catch((e) => console.error('notifyMentions (eod):', e.message));
+    }
+    res.status(201).json(comment);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Failed to add comment' });
+  }
+});
+
+app.put(`${BASE_PATH}/eod-reports/:reportId/comments/:commentId`, async (req, res) => {
+  const { reportId, commentId } = req.params;
+  const userId = req.body?.user_id;
+  if (!userId) return res.status(400).json({ message: 'user_id is required' });
+  try {
+    if (!db.useDb()) return res.status(400).json({ message: 'Database connection required' });
+    const updated = await db.dbUpdateEodReportComment(commentId, userId, req.body);
+    if (!updated) return res.status(403).json({ message: 'You can only edit your own comment.' });
+    const newMentionIds = Array.isArray(updated.newlyMentioned) ? updated.newlyMentioned : [];
+    if (newMentionIds.length) {
+      notifyMentions({
+        taskId: reportId,
+        mentionIds: newMentionIds,
+        commenterName: updated.author,
+        html: updated.message,
+        titleOverride: 'an EOD report',
+      }).catch((e) => console.error('notifyMentions (eod):', e.message));
+    }
+    res.json(updated);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Failed to update comment' });
+  }
+});
+
+app.delete(`${BASE_PATH}/eod-reports/:reportId/comments/:commentId`, async (req, res) => {
+  const { commentId } = req.params;
+  const userId = req.query.user_id || req.body?.user_id;
+  if (!userId) return res.status(400).json({ message: 'user_id is required' });
+  try {
+    if (!db.useDb()) return res.status(400).json({ message: 'Database connection required' });
+    const isAdmin = (req.user?.permissions || []).includes('admin.access');
+    const ok = await db.dbDeleteEodReportComment(commentId, userId, isAdmin);
+    if (!ok) return res.status(403).json({ message: 'You can only delete your own comment.' });
+    res.status(204).send();
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Failed to delete comment' });
+  }
+});
+
+app.post(`${BASE_PATH}/eod-reports/:reportId/comments/:commentId/like`, async (req, res) => {
+  const { commentId } = req.params;
+  const userId = req.body?.user_id;
+  if (!userId) return res.status(400).json({ message: 'user_id is required' });
+  try {
+    if (!db.useDb()) return res.status(400).json({ message: 'Database connection required' });
+    const result = await db.dbToggleEodCommentLike(commentId, userId);
+    if (!result) return res.status(500).json({ message: 'Failed to like comment' });
+    res.json(result);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Failed to like comment' });
   }
 });
 
@@ -1354,7 +1509,7 @@ app.get(`${ADMIN_PATH}/users`, async (req, res) => {
 
 app.post(`${ADMIN_PATH}/users`, async (req, res) => {
   try {
-    const { username, email, password, is_it_developer, is_it_manager } = req.body || {};
+    const { username, email, password, is_it_developer, is_it_manager, branch } = req.body || {};
     const name = (username || '').trim();
     if (!name) return res.status(400).json({ message: 'Username is required' });
     const pwd = (password || '').trim();
@@ -1368,6 +1523,7 @@ app.post(`${ADMIN_PATH}/users`, async (req, res) => {
         password_hash,
         is_it_developer: Boolean(is_it_developer),
         is_it_manager: Boolean(is_it_manager),
+        branch: branch ?? null,
       });
       if (!created) return res.status(500).json({ message: 'Failed to create user (maybe username already exists)' });
       const list = await db.dbGetUsersWithRoles();
@@ -1400,7 +1556,7 @@ app.post(`${ADMIN_PATH}/users`, async (req, res) => {
 app.put(`${ADMIN_PATH}/users/:userId`, async (req, res) => {
   try {
     const { userId } = req.params;
-    const { username, email, password, is_it_developer, is_it_manager } = req.body || {};
+    const { username, email, password, is_it_developer, is_it_manager, branch } = req.body || {};
 
     if (db.useDb()) {
       const payload = {};
@@ -1408,6 +1564,7 @@ app.put(`${ADMIN_PATH}/users/:userId`, async (req, res) => {
       if (email !== undefined) payload.email = email && String(email).trim() ? String(email).trim() : null;
       if (is_it_developer !== undefined) payload.is_it_developer = Boolean(is_it_developer);
       if (is_it_manager !== undefined) payload.is_it_manager = Boolean(is_it_manager);
+      if (branch !== undefined) payload.branch = branch && String(branch).trim() ? String(branch).trim() : null;
       if (password && String(password).trim()) {
         payload.password_hash = await bcrypt.hash(String(password).trim(), 10);
       }
@@ -1540,6 +1697,42 @@ app.post(`${ADMIN_PATH}/audit-log`, async (req, res) => {
   }
 });
 
+// EOD lock — list users locked for a missing EOD report (admin only).
+app.get(`${ADMIN_PATH}/locked-users`, async (req, res) => {
+  try {
+    if (!db.useDb()) return res.json([]);
+    const list = await db.dbGetLockedEodUsers();
+    return res.json(list);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Failed to fetch locked users' });
+  }
+});
+
+// EOD lock — approve/unlock a user (admin only).
+app.post(`${ADMIN_PATH}/users/:userId/eod-unlock`, async (req, res) => {
+  try {
+    if (!db.useDb()) return res.status(400).json({ message: 'Database connection required' });
+    const ok = await db.dbUnlockUserEod(req.params.userId);
+    if (!ok) return res.status(404).json({ message: 'User not found or not locked' });
+    try {
+      const ip = req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.socket?.remoteAddress;
+      await db.dbCreateAuditLog({
+        userId: req.user?.id,
+        action: 'eod_unlocked',
+        resource: 'user',
+        resourceId: req.params.userId,
+        details: null,
+        ipAddress: ip,
+      });
+    } catch (_) {}
+    return res.json({ success: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Failed to unlock user' });
+  }
+});
+
 app.get('/', (req, res) => {
   res.send('IT Updates backend is running');
 });
@@ -1576,7 +1769,7 @@ function extractMentionUidsFromHtml(html) {
 }
 
 /** Email each mentioned user that they were tagged in a comment. Fire-and-forget. */
-async function notifyMentions({ taskId, team, mentionIds, commenterName, html }) {
+async function notifyMentions({ taskId, team, mentionIds, commenterName, html, titleOverride }) {
   if (!isMailConfigured()) {
     console.warn('[mentions] skipped: email not configured (GMAIL_* env missing).');
     return;
@@ -1587,12 +1780,14 @@ async function notifyMentions({ taskId, team, mentionIds, commenterName, html })
     `[mentions] task ${taskId}: ids=[${mentionIds.join(',')}] resolved=${users.length} withEmail=${withEmail}`
   );
   if (!users.length) return;
-  let title = `Task #${taskId}`;
-  try {
-    const t = await db.dbGetTaskById(taskId, team);
-    if (t?.title) title = t.title;
-  } catch {
-    /* ignore */
+  let title = titleOverride || `Task #${taskId}`;
+  if (!titleOverride) {
+    try {
+      const t = await db.dbGetTaskById(taskId, team);
+      if (t?.title) title = t.title;
+    } catch {
+      /* ignore */
+    }
   }
   const link = appLink();
   const who = commenterName || 'Someone';

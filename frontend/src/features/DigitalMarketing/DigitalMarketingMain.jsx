@@ -29,6 +29,7 @@ import ProjectLogo from '../../components/ProjectLogo';
 import SidebarUser from '../../components/SidebarUser';
 import RequirementTimer from '../../components/RequirementTimer';
 import RequirementManualTime from '../../components/RequirementManualTime';
+import { BRANCHES } from '../Admin/AdminUserModals';
 import '../ITUpdates/ITUpdatesMain.css';
 
 const TABS = [
@@ -42,7 +43,7 @@ const TABS = [
 ];
 const MODULE_TEAM = 'digital_marketing';
 
-const EMPTY_ALL_TASKS_FILTERS = { status: '', priority: '', assignee: '', period: EMPTY_PERIOD };
+const EMPTY_ALL_TASKS_FILTERS = { status: '', priority: '', assignee: '', branch: '', period: EMPTY_PERIOD };
 const EMPTY_OVERVIEW_FILTERS = { from_date: '', to_date: '', assigned_to: '' };
 
 const STATUS_LABELS = {
@@ -223,6 +224,8 @@ export default function DigitalMarketingMain({ currentUser, onLogout }) {
     if (allTasksFiltersApplied.priority) result = result.filter((t) => t.priority === allTasksFiltersApplied.priority);
     if (allTasksFiltersApplied.assignee)
       result = result.filter((t) => String(t.assigned_to) === String(allTasksFiltersApplied.assignee));
+    if (allTasksFiltersApplied.branch)
+      result = result.filter((t) => t.assignee_branch === allTasksFiltersApplied.branch);
     if (allTasksFiltersApplied.period)
       result = result.filter((t) => taskInPeriod(t, allTasksFiltersApplied.period));
     return result;
@@ -754,6 +757,17 @@ export default function DigitalMarketingMain({ currentUser, onLogout }) {
                     <option key={u.user_id ?? u.assignee} value={u.user_id ?? u.assignee ?? ''}>
                       {u.username ?? u.assignee}
                     </option>
+                  ))}
+                </select>
+                <select
+                  value={allTasksFiltersApplied.branch}
+                  onChange={(e) =>
+                    setAllTasksFiltersApplied((f) => ({ ...f, branch: e.target.value }))
+                  }
+                >
+                  <option value="">Branches</option>
+                  {BRANCHES.map((b) => (
+                    <option key={b} value={b}>{b}</option>
                   ))}
                 </select>
                 <PeriodFilter

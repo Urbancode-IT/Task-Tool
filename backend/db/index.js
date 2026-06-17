@@ -91,7 +91,7 @@ export async function dbGetUserById(userId) {
   if (!Number.isFinite(id)) return null;
   try {
     const { rows } = await p.query(
-      'SELECT user_id, username, email, profile_image, is_it_developer, is_it_manager FROM users WHERE user_id = $1',
+      'SELECT user_id, username, email, profile_image, is_it_developer, is_it_manager, branch FROM users WHERE user_id = $1',
       [id]
     );
     const row = rows[0];
@@ -140,21 +140,23 @@ export async function dbGetUsers() {
 }
 
 /** Create a user. Returns created row (without password_hash) or null. */
-export async function dbCreateUser({ username, email, password_hash, is_it_developer, is_it_manager }) {
+export async function dbCreateUser({ username, email, password_hash, is_it_developer, is_it_manager, branch }) {
   const p = getPool();
   if (!p) return null;
   const emailVal = email && String(email).trim() ? String(email).trim() : null;
+  const branchVal = branch && String(branch).trim() ? String(branch).trim() : null;
   try {
     const { rows } = await p.query(
-      `INSERT INTO users (username, email, password_hash, is_it_developer, is_it_manager)
-       VALUES ($1, $2, $3, $4, $5)
-       RETURNING user_id, username, email, is_it_developer, is_it_manager, created_at`,
+      `INSERT INTO users (username, email, password_hash, is_it_developer, is_it_manager, branch)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       RETURNING user_id, username, email, is_it_developer, is_it_manager, branch, created_at`,
       [
         String(username || '').trim(),
         emailVal,
         password_hash,
         Boolean(is_it_developer),
         Boolean(is_it_manager),
+        branchVal,
       ]
     );
     return rows[0] || null;
@@ -165,7 +167,7 @@ export async function dbCreateUser({ username, email, password_hash, is_it_devel
 }
 
 /** Update a user. password_hash optional. Returns updated row or null. */
-export async function dbUpdateUser(userId, { username, email, password_hash, is_it_developer, is_it_manager }) {
+export async function dbUpdateUser(userId, { username, email, password_hash, is_it_developer, is_it_manager, branch }) {
   const p = getPool();
   if (!p) return null;
   const id = parseInt(userId, 10);
@@ -194,16 +196,20 @@ export async function dbUpdateUser(userId, { username, email, password_hash, is_
       updates.push(`is_it_manager = $${i++}`);
       values.push(Boolean(is_it_manager));
     }
+    if (branch !== undefined) {
+      updates.push(`branch = $${i++}`);
+      values.push(branch && String(branch).trim() ? String(branch).trim() : null);
+    }
     if (updates.length === 0) {
       const { rows } = await p.query(
-        `SELECT user_id, username, email, is_it_developer, is_it_manager, created_at FROM users WHERE user_id = $1`,
+        `SELECT user_id, username, email, is_it_developer, is_it_manager, branch, created_at FROM users WHERE user_id = $1`,
         [id]
       );
       return rows[0] || null;
     }
     values.push(id);
     const { rows } = await p.query(
-      `UPDATE users SET ${updates.join(', ')} WHERE user_id = $${i} RETURNING user_id, username, email, is_it_developer, is_it_manager, created_at`,
+      `UPDATE users SET ${updates.join(', ')} WHERE user_id = $${i} RETURNING user_id, username, email, is_it_developer, is_it_manager, branch, created_at`,
       values
     );
     return rows[0] || null;
@@ -271,6 +277,13 @@ export async function dbEnsureTables() {
   try {
     await p.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS profile_image TEXT;`);
     await p.query(`ALTER TABLE users ALTER COLUMN profile_image TYPE TEXT;`);
+    // EOD lock: users who miss an EOD report get locked out until an admin approves.
+    await p.query(`ALTER TABLE users
+      ADD COLUMN IF NOT EXISTS eod_locked BOOLEAN DEFAULT false,
+      ADD COLUMN IF NOT EXISTS eod_lock_date DATE,
+      ADD COLUMN IF NOT EXISTS eod_excused_through DATE;`);
+    // Branch the user belongs to (Tirunelveli / Velachery / Pallikaranai).
+    await p.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS branch TEXT;`);
   } catch (err) {
     console.warn('dbEnsureTables: users.profile_image check failed:', err.message);
   }
@@ -293,6 +306,43 @@ export async function dbEnsureTables() {
     `);
   } catch (err) {
     console.warn('dbEnsureTables: task_comments enrichments failed:', err.message);
+  }
+
+  // EOD report comments — same model as task comments (replies, mentions, likes).
+  try {
+    await p.query(`
+      CREATE TABLE IF NOT EXISTS eod_report_comments (
+        comment_id SERIAL PRIMARY KEY,
+        report_id INT NOT NULL,
+        user_id INT,
+        comment_text TEXT,
+        parent_id INT,
+        mentions TEXT,
+        edited_at TIMESTAMPTZ,
+        created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+    await p.query('CREATE INDEX IF NOT EXISTS idx_eod_comments_report ON eod_report_comments(report_id);');
+    await p.query(`
+      CREATE TABLE IF NOT EXISTS eod_comment_likes (
+        comment_id INT NOT NULL REFERENCES eod_report_comments(comment_id) ON DELETE CASCADE,
+        user_id INT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+        created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (comment_id, user_id)
+      );
+    `);
+    // The EOD report itself can be liked and edited (acts like a post).
+    await p.query('ALTER TABLE eod_reports ADD COLUMN IF NOT EXISTS edited_at TIMESTAMPTZ;');
+    await p.query(`
+      CREATE TABLE IF NOT EXISTS eod_report_likes (
+        report_id INT NOT NULL,
+        user_id INT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+        created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (report_id, user_id)
+      );
+    `);
+  } catch (err) {
+    console.warn('dbEnsureTables: eod_report_comments failed:', err.message);
   }
 
   // Dedupe table so each deadline alert (per task/team/kind) is emailed only once.
@@ -915,6 +965,7 @@ export async function dbGetTasksSimple(filters = {}) {
       SELECT t.*,
              u_assigned.username AS assignee_username,
              u_assigned.profile_image AS assignee_profile_image,
+             u_assigned.branch AS assignee_branch,
              u_by.username AS assigned_by_username,
              u_by.profile_image AS assigned_by_profile_image,
              u_review.username AS reviewer_username${hasProject ? ',\n             pr.project_name AS project_name,\n             pr.logo AS project_logo' : ''}
@@ -955,6 +1006,11 @@ export async function dbGetTasksSimple(filters = {}) {
     if (filters.to_date) {
       whereParts.push(`t.task_date <= $${i++}`);
       params.push(filters.to_date);
+    }
+    // Branch filter: by the assignee's branch.
+    if (filters.branch) {
+      whereParts.push(`u_assigned.branch = $${i++}`);
+      params.push(filters.branch);
     }
 
     // Overdue filter: due_date in past and not completed
@@ -1032,6 +1088,7 @@ export async function dbGetTasksSimple(filters = {}) {
       priority: r.priority,
       assignee: r.assignee_username || (r.assigned_to ? String(r.assigned_to) : 'Unassigned'),
       assigned_to: r.assigned_to,
+      assignee_branch: r.assignee_branch ?? null,
       assigned_by: r.assigned_by,
       assigned_by_name: r.assigned_by_username,
       assignee_profile_image: r.assignee_profile_image,
@@ -1694,6 +1751,140 @@ export async function dbToggleCommentLike(commentId, userId) {
   return { liked, likeCount: Number(rows[0]?.n || 0) };
 }
 
+// ── EOD report comments (same shape as task comments; report_id aliased to task_id
+//    so the shared mapCommentRow / frontend component work unchanged) ──
+export async function dbGetEodReportComments(reportId) {
+  const p = getPool();
+  if (!p) return [];
+  const { rows } = await p.query(
+    `SELECT c.*, c.report_id AS task_id,
+            u.username AS author_username,
+            u.profile_image AS author_profile_image,
+            (SELECT COUNT(*) FROM eod_comment_likes l WHERE l.comment_id = c.comment_id) AS like_count,
+            (SELECT COALESCE(ARRAY_AGG(l.user_id), '{}') FROM eod_comment_likes l WHERE l.comment_id = c.comment_id) AS liked_user_ids
+     FROM eod_report_comments c
+     LEFT JOIN users u ON c.user_id = u.user_id
+     WHERE c.report_id = $1
+     ORDER BY c.created_at`,
+    [reportId]
+  );
+  return rows.map(mapCommentRow);
+}
+
+export async function dbAddEodReportComment(reportId, data) {
+  const p = getPool();
+  if (!p) return null;
+  const parentId =
+    data.parent_id != null && String(data.parent_id).trim() !== ''
+      ? parseInt(String(data.parent_id), 10)
+      : null;
+  const { rows: [row] } = await p.query(
+    `INSERT INTO eod_report_comments (report_id, user_id, comment_text, parent_id, mentions)
+     VALUES ($1, $2, $3, $4, $5)
+     RETURNING *`,
+    [
+      reportId,
+      data.user_id || null,
+      data.message ?? data.comment_text ?? '',
+      Number.isFinite(parentId) ? parentId : null,
+      normalizeMentions(data.mentions),
+    ]
+  );
+  if (!row) return null;
+  let authorName = data.author || null;
+  let authorImage = null;
+  if (row.user_id != null) {
+    try {
+      const { rows: [u] } = await p.query(
+        'SELECT username, profile_image FROM users WHERE user_id = $1',
+        [row.user_id]
+      );
+      authorName = authorName || u?.username || null;
+      authorImage = u?.profile_image ?? null;
+    } catch { /* ignore */ }
+  }
+  return mapCommentRow({
+    ...row,
+    task_id: row.report_id,
+    author_username: authorName,
+    author_profile_image: authorImage,
+    like_count: 0,
+    liked_user_ids: [],
+  });
+}
+
+export async function dbUpdateEodReportComment(commentId, userId, data) {
+  const p = getPool();
+  if (!p) return null;
+  const { rows: priorRows } = await p.query(
+    'SELECT mentions FROM eod_report_comments WHERE comment_id = $1 AND user_id = $2',
+    [commentId, userId]
+  );
+  const priorMentions = priorRows[0]?.mentions
+    ? String(priorRows[0].mentions).split(',').map((s) => s.trim()).filter(Boolean)
+    : [];
+  const { rows } = await p.query(
+    `UPDATE eod_report_comments
+     SET comment_text = $1, mentions = $2, edited_at = CURRENT_TIMESTAMP
+     WHERE comment_id = $3 AND user_id = $4
+     RETURNING *`,
+    [data.message ?? data.comment_text ?? '', normalizeMentions(data.mentions), commentId, userId]
+  );
+  const row = rows[0];
+  if (!row) return null;
+  const { rows: [enriched] } = await p.query(
+    `SELECT c.*, c.report_id AS task_id,
+            u.username AS author_username,
+            u.profile_image AS author_profile_image,
+            (SELECT COUNT(*) FROM eod_comment_likes l WHERE l.comment_id = c.comment_id) AS like_count,
+            (SELECT COALESCE(ARRAY_AGG(l.user_id), '{}') FROM eod_comment_likes l WHERE l.comment_id = c.comment_id) AS liked_user_ids
+     FROM eod_report_comments c LEFT JOIN users u ON c.user_id = u.user_id
+     WHERE c.comment_id = $1`,
+    [row.comment_id]
+  );
+  const mapped = mapCommentRow(enriched);
+  const priorSet = new Set(priorMentions);
+  mapped.newlyMentioned = mapped.mentions.filter((id) => !priorSet.has(id));
+  return mapped;
+}
+
+export async function dbDeleteEodReportComment(commentId, userId, isAdmin = false) {
+  const p = getPool();
+  if (!p) return false;
+  const id = parseInt(String(commentId), 10);
+  if (!Number.isFinite(id)) return false;
+  await p.query('DELETE FROM eod_report_comments WHERE parent_id = $1', [id]);
+  const { rowCount } = isAdmin
+    ? await p.query('DELETE FROM eod_report_comments WHERE comment_id = $1', [id])
+    : await p.query('DELETE FROM eod_report_comments WHERE comment_id = $1 AND user_id = $2', [id, userId]);
+  return rowCount > 0;
+}
+
+export async function dbToggleEodCommentLike(commentId, userId) {
+  const p = getPool();
+  if (!p) return null;
+  const cId = parseInt(String(commentId), 10);
+  const uId = parseInt(String(userId), 10);
+  if (!Number.isFinite(cId) || !Number.isFinite(uId)) return null;
+  const { rowCount } = await p.query(
+    'DELETE FROM eod_comment_likes WHERE comment_id = $1 AND user_id = $2',
+    [cId, uId]
+  );
+  let liked = false;
+  if (rowCount === 0) {
+    await p.query(
+      'INSERT INTO eod_comment_likes (comment_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
+      [cId, uId]
+    );
+    liked = true;
+  }
+  const { rows } = await p.query(
+    'SELECT COUNT(*)::int AS n FROM eod_comment_likes WHERE comment_id = $1',
+    [cId]
+  );
+  return { liked, likeCount: Number(rows[0]?.n || 0) };
+}
+
 export async function dbGetDashboardStats() {
   const p = getPool();
   if (!p)
@@ -1938,7 +2129,10 @@ export async function dbGetEodReports(filters = {}) {
   if (!p) return [];
   try {
     let query = `
-      SELECT e.*, u.username
+      SELECT e.*, u.username, u.profile_image AS author_profile_image,
+             (SELECT COUNT(*) FROM eod_report_likes l WHERE l.report_id = e.report_id) AS like_count,
+             (SELECT COALESCE(ARRAY_AGG(l.user_id), '{}') FROM eod_report_likes l WHERE l.report_id = e.report_id) AS liked_user_ids,
+             (SELECT COUNT(*) FROM eod_report_comments c WHERE c.report_id = e.report_id) AS comment_count
       FROM eod_reports e
       LEFT JOIN users u ON e.user_id = u.user_id
       WHERE 1=1
@@ -1953,13 +2147,18 @@ export async function dbGetEodReports(filters = {}) {
       report_id: r.report_id,
       user_id: r.user_id,
       username: r.username,
+      author_profile_image: r.author_profile_image ?? null,
       report_date: r.report_date,
       achievements: r.achievements,
       blockers: r.blockers,
       tomorrow_plan: r.tomorrow_plan,
       hours_worked: r.hours_worked,
       mood: r.mood,
+      edited_at: r.edited_at ?? null,
       created_at: r.created_at,
+      like_count: Number(r.like_count || 0),
+      liked_user_ids: Array.isArray(r.liked_user_ids) ? r.liked_user_ids.filter((v) => v != null).map(String) : [],
+      comment_count: Number(r.comment_count || 0),
     }));
   } catch {
     try {
@@ -1970,6 +2169,184 @@ export async function dbGetEodReports(filters = {}) {
     } catch {
       return [];
     }
+  }
+}
+
+/** Toggle a like on the EOD report itself. Returns { liked, likeCount }. */
+export async function dbToggleEodReportLike(reportId, userId) {
+  const p = getPool();
+  if (!p) return null;
+  const rId = parseInt(String(reportId), 10);
+  const uId = parseInt(String(userId), 10);
+  if (!Number.isFinite(rId) || !Number.isFinite(uId)) return null;
+  const { rowCount } = await p.query(
+    'DELETE FROM eod_report_likes WHERE report_id = $1 AND user_id = $2',
+    [rId, uId]
+  );
+  let liked = false;
+  if (rowCount === 0) {
+    await p.query(
+      'INSERT INTO eod_report_likes (report_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
+      [rId, uId]
+    );
+    liked = true;
+  }
+  const { rows } = await p.query(
+    'SELECT COUNT(*)::int AS n FROM eod_report_likes WHERE report_id = $1',
+    [rId]
+  );
+  return { liked, likeCount: Number(rows[0]?.n || 0) };
+}
+
+/** Edit an EOD report's work summary. Author only. Returns updated row or null. */
+export async function dbUpdateEodReport(reportId, userId, data) {
+  const p = getPool();
+  if (!p) return null;
+  try {
+    const { rows } = await p.query(
+      `UPDATE eod_reports
+          SET achievements = $1, edited_at = CURRENT_TIMESTAMP
+        WHERE report_id = $2 AND user_id = $3
+        RETURNING report_id`,
+      [data.achievements ?? data.message ?? '', reportId, userId]
+    );
+    if (!rows[0]) return null;
+    const list = await dbGetEodReports({});
+    return list.find((r) => String(r.report_id) === String(reportId)) || null;
+  } catch (err) {
+    console.error('dbUpdateEodReport:', err.message);
+    return null;
+  }
+}
+
+/** Delete an EOD report (and its comments/likes). Author only, unless isAdmin. */
+export async function dbDeleteEodReport(reportId, userId, isAdmin = false) {
+  const p = getPool();
+  if (!p) return false;
+  const id = parseInt(String(reportId), 10);
+  if (!Number.isFinite(id)) return false;
+  try {
+    await p.query('DELETE FROM eod_report_comments WHERE report_id = $1', [id]);
+    await p.query('DELETE FROM eod_report_likes WHERE report_id = $1', [id]);
+    const { rowCount } = isAdmin
+      ? await p.query('DELETE FROM eod_reports WHERE report_id = $1', [id])
+      : await p.query('DELETE FROM eod_reports WHERE report_id = $1 AND user_id = $2', [id, userId]);
+    return rowCount > 0;
+  } catch (err) {
+    console.error('dbDeleteEodReport:', err.message);
+    return false;
+  }
+}
+
+// ── EOD lock: enforce daily EOD reports ───────────────────
+// The most recent working day before `todayStr`, skipping weekends and the user's
+// leave days. Returns 'YYYY-MM-DD' or null.
+function prevWorkingDay(todayStr, leaveSet) {
+  const d = new Date(`${todayStr}T00:00:00Z`);
+  for (let i = 0; i < 21; i++) {
+    d.setUTCDate(d.getUTCDate() - 1);
+    const dow = d.getUTCDay(); // 0 Sun … 6 Sat
+    if (dow === 0 || dow === 6) continue;
+    const s = d.toISOString().slice(0, 10);
+    if (leaveSet.has(s)) continue;
+    return s;
+  }
+  return null;
+}
+
+/**
+ * Resolve a user's EOD lock state. Admins are never locked. If the user is already
+ * locked, stays locked (only an admin unlock clears it). Otherwise, if the previous
+ * working day's EOD report is missing (and not excused / before the account existed),
+ * the user is locked now. Returns { locked, date }.
+ */
+export async function dbGetUserEodLockState(userId, isAdmin) {
+  const p = getPool();
+  if (!p || isAdmin) return { locked: false };
+  try {
+    const { rows: urows } = await p.query(
+      `SELECT eod_locked,
+              eod_lock_date::text AS eod_lock_date,
+              eod_excused_through::text AS eod_excused_through,
+              created_at::date::text AS created_date
+         FROM users WHERE user_id = $1`,
+      [userId]
+    );
+    const u = urows[0];
+    if (!u) return { locked: false };
+    if (u.eod_locked) return { locked: true, date: u.eod_lock_date };
+
+    const { rows: tr } = await p.query('SELECT CURRENT_DATE::text AS today');
+    const today = tr[0].today;
+
+    let leaveSet = new Set();
+    try {
+      const { rows: lrows } = await p.query(
+        `SELECT leave_date::text AS d FROM member_leaves
+          WHERE user_id = $1 AND leave_date >= (CURRENT_DATE - INTERVAL '21 days')`,
+        [userId]
+      );
+      leaveSet = new Set(lrows.map((r) => r.d));
+    } catch { /* member_leaves may not exist yet */ }
+
+    const lastDay = prevWorkingDay(today, leaveSet);
+    if (!lastDay) return { locked: false };
+    if (u.created_date && lastDay < u.created_date) return { locked: false };
+    if (u.eod_excused_through && lastDay <= u.eod_excused_through) return { locked: false };
+
+    const { rows: er } = await p.query(
+      'SELECT 1 FROM eod_reports WHERE user_id = $1 AND report_date = $2 LIMIT 1',
+      [userId, lastDay]
+    );
+    if (er.length) return { locked: false };
+
+    await p.query(
+      'UPDATE users SET eod_locked = true, eod_lock_date = $2 WHERE user_id = $1',
+      [userId, lastDay]
+    );
+    return { locked: true, date: lastDay };
+  } catch (err) {
+    console.error('dbGetUserEodLockState:', err.message);
+    return { locked: false };
+  }
+}
+
+/** Users currently locked for a missing EOD report. */
+export async function dbGetLockedEodUsers() {
+  const p = getPool();
+  if (!p) return [];
+  try {
+    const { rows } = await p.query(
+      `SELECT user_id, username, email, eod_lock_date::text AS eod_lock_date
+         FROM users WHERE eod_locked = true ORDER BY username`
+    );
+    return rows;
+  } catch (err) {
+    console.error('dbGetLockedEodUsers:', err.message);
+    return [];
+  }
+}
+
+/** Admin approval: clear a user's EOD lock and excuse the missed day so it does not re-lock. */
+export async function dbUnlockUserEod(userId) {
+  const p = getPool();
+  if (!p) return false;
+  try {
+    const { rowCount } = await p.query(
+      `UPDATE users
+          SET eod_excused_through = GREATEST(
+                COALESCE(eod_excused_through, DATE '1970-01-01'),
+                COALESCE(eod_lock_date, CURRENT_DATE)
+              ),
+              eod_locked = false,
+              eod_lock_date = NULL
+        WHERE user_id = $1`,
+      [userId]
+    );
+    return rowCount > 0;
+  } catch (err) {
+    console.error('dbUnlockUserEod:', err.message);
+    return false;
   }
 }
 
@@ -2627,7 +3004,7 @@ export async function dbGetUsersWithRoles() {
   if (!p) return [];
   try {
     const { rows } = await p.query(
-      `SELECT u.user_id, u.username, u.email, u.is_it_developer, u.is_it_manager, u.created_at,
+      `SELECT u.user_id, u.username, u.email, u.is_it_developer, u.is_it_manager, u.branch, u.created_at,
               COALESCE(array_agg(r.name) FILTER (WHERE r.role_id IS NOT NULL), '{}') AS role_names,
               COALESCE(array_agg(r.code) FILTER (WHERE r.role_id IS NOT NULL), '{}') AS role_codes
        FROM users u

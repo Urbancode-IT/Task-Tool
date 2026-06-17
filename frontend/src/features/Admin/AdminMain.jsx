@@ -12,6 +12,8 @@ import {
   MdAdd,
   MdDelete,
   MdVisibility,
+  MdLock,
+  MdLockOpen,
 } from 'react-icons/md';
 import adminApi from '../../api/adminApi';
 import itUpdatesApi from '../../api/itUpdatesApi';
@@ -31,6 +33,7 @@ const ADMIN_TABS = [
   { key: 'overdue_tasks', label: 'Overdue Tasks', icon: MdDashboard },
   { key: 'overview', label: 'Overview', icon: MdTableChart },
   { key: 'users', label: 'Users', icon: MdPeople },
+  { key: 'locked_users', label: 'Locked Users', icon: MdLock },
   { key: 'departments', label: 'Departments', icon: MdBusiness },
 ];
 
@@ -91,6 +94,7 @@ const TAB_SUBTITLES = {
   dashboard: 'Overview of users and teams.',
   overview: 'All tasks overview with filters across teams.',
   users: 'Manage accounts, roles, and teams. Only admins can access this page.',
+  locked_users: 'Users locked out for a missing EOD report. Approve to restore their access.',
   departments: 'Teams in the organisation. Users are assigned roles linked to these departments.',
 };
 
@@ -109,6 +113,8 @@ export default function AdminMain({ currentUser, onLogout }) {
   });
   const [reviewTasks, setReviewTasks] = useState([]);
   const [overdueTasks, setOverdueTasks] = useState([]);
+  const [lockedUsers, setLockedUsers] = useState([]);
+  const [lockedLoading, setLockedLoading] = useState(false);
   const [loading, setLoading] = useState(false);
   const [reviewLoading, setReviewLoading] = useState(false);
   const [overdueLoading, setOverdueLoading] = useState(false);
@@ -169,6 +175,25 @@ export default function AdminMain({ currentUser, onLogout }) {
       .getRoles()
       .then((res) => setRoles(Array.isArray(res.data) ? res.data : []))
       .catch(() => setRoles([]));
+  };
+
+  const loadLockedUsers = () => {
+    setLockedLoading(true);
+    adminApi
+      .getLockedUsers()
+      .then((res) => setLockedUsers(Array.isArray(res.data) ? res.data : []))
+      .catch(() => setLockedUsers([]))
+      .finally(() => setLockedLoading(false));
+  };
+
+  const handleUnlockUser = async (u) => {
+    try {
+      await adminApi.unlockUserEod(u.user_id);
+      toastSuccess(`${u.username || 'User'} unlocked.`);
+      loadLockedUsers();
+    } catch (e) {
+      toastError(e?.response?.data?.message || 'Failed to unlock user');
+    }
   };
 
   const loadDepartments = () => {
@@ -253,6 +278,7 @@ export default function AdminMain({ currentUser, onLogout }) {
   useEffect(() => {
     if (activeTab === 'review_tasks') loadReviewTasks();
     if (activeTab === 'overdue_tasks') loadOverdueTasks();
+    if (activeTab === 'locked_users') loadLockedUsers();
   }, [activeTab]);
 
   useEffect(() => {
@@ -847,6 +873,7 @@ export default function AdminMain({ currentUser, onLogout }) {
                         <tr>
                           <th>Username</th>
                           <th>Email</th>
+                          <th>Branch</th>
                           <th>Roles</th>
                           <th className="admin-th-actions">Actions</th>
                         </tr>
@@ -866,6 +893,7 @@ export default function AdminMain({ currentUser, onLogout }) {
                               </button>
                             </td>
                             <td>{u.email || '—'}</td>
+                            <td>{u.branch || '—'}</td>
                             <td>{formatUserRowRole(u)}</td>
                             <td className="admin-td-actions">
                               <button
@@ -1073,6 +1101,56 @@ export default function AdminMain({ currentUser, onLogout }) {
             </section>
           )}
 
+          {activeTab === 'locked_users' && (
+            <section className="admin-panel admin-panel-inline">
+              <div className="admin-panel-header">
+                <h2 className="admin-panel-title">Locked Users</h2>
+                <button type="button" className="it-updates-btn it-updates-btn-secondary" onClick={loadLockedUsers}>
+                  <MdRefresh size={16} /> Refresh
+                </button>
+              </div>
+              <p className="admin-panel-subtitle">
+                These users missed an EOD report and are locked out. Approving restores their access.
+              </p>
+              {lockedLoading ? (
+                <div className="admin-loading">Loading…</div>
+              ) : lockedUsers.length === 0 ? (
+                <div className="it-updates-empty">No locked users. Everyone is up to date.</div>
+              ) : (
+                <div className="admin-table-wrap">
+                  <table className="admin-table">
+                    <thead>
+                      <tr>
+                        <th>Username</th>
+                        <th>Email</th>
+                        <th>Missed date</th>
+                        <th className="admin-th-actions">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {lockedUsers.map((u) => (
+                        <tr key={u.user_id}>
+                          <td>{u.username}</td>
+                          <td>{u.email || '—'}</td>
+                          <td>{u.eod_lock_date || '—'}</td>
+                          <td className="admin-td-actions">
+                            <button
+                              type="button"
+                              className="it-updates-btn it-updates-btn-primary"
+                              onClick={() => handleUnlockUser(u)}
+                            >
+                              <MdLockOpen size={16} /> Approve &amp; unlock
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </section>
+          )}
+
           {activeTab === 'departments' && (
             <section className="admin-panel admin-panel-inline">
               <div className="admin-table-wrap">
@@ -1121,6 +1199,7 @@ export default function AdminMain({ currentUser, onLogout }) {
                 password: form.password,
                 is_it_developer: isDev,
                 is_it_manager: isMgr,
+                branch: form.branch || null,
               });
               const uid = data.user_id;
               const r = roles.find((x) => x.code === form.roleCode);
@@ -1155,6 +1234,7 @@ export default function AdminMain({ currentUser, onLogout }) {
                 email: payload.email || undefined,
                 is_it_developer: payload.is_it_developer ?? false,
                 is_it_manager: payload.is_it_manager ?? false,
+                branch: payload.branch || null,
               };
               if (payload.password?.trim()) body.password = payload.password.trim();
               await adminApi.updateUser(userDetailModal.user.user_id, body);

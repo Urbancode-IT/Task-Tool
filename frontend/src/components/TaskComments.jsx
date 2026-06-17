@@ -138,12 +138,22 @@ function CommentItem({
   );
 }
 
+// Default adapter: task comments. Pass a different `api` to reuse this thread for
+// another entity (e.g. EOD reports). All five methods take the entity id first.
+const TASK_COMMENT_API = {
+  getComments: (id) => itUpdatesApi.getTaskComments(id),
+  addComment: (id, body) => itUpdatesApi.addTaskComment(id, body),
+  updateComment: (id, commentId, body) => itUpdatesApi.updateTaskComment(id, commentId, body),
+  deleteComment: (id, commentId, userId) => itUpdatesApi.deleteTaskComment(id, commentId, userId),
+  likeComment: (id, commentId, userId) => itUpdatesApi.likeTaskComment(id, commentId, userId),
+};
+
 /**
- * Comment thread for a task. Rich editor with mentions/emoji/formatting,
- * threaded replies, likes, edit and delete.
- * Props: taskId, team, currentUser, canComment (bool)
+ * Comment thread for a task (or any entity via the `api` adapter). Rich editor with
+ * mentions/emoji/formatting, threaded replies, likes, edit and delete.
+ * Props: taskId (entity id), team, currentUser, canComment (bool), api (optional adapter)
  */
-export default function TaskComments({ taskId, team, currentUser, canComment }) {
+export default function TaskComments({ taskId, team, currentUser, canComment, api = TASK_COMMENT_API }) {
   const [comments, setComments] = useState([]);
   const [members, setMembers] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -154,14 +164,14 @@ export default function TaskComments({ taskId, team, currentUser, canComment }) 
     if (!taskId) return;
     setLoading(true);
     try {
-      const res = await itUpdatesApi.getTaskComments(taskId);
+      const res = await api.getComments(taskId);
       setComments(Array.isArray(res.data) ? res.data : []);
     } catch {
       setComments([]);
     } finally {
       setLoading(false);
     }
-  }, [taskId]);
+  }, [taskId, api]);
 
   useEffect(() => {
     load();
@@ -208,7 +218,7 @@ export default function TaskComments({ taskId, team, currentUser, canComment }) 
 
   const handlePost = async (html, mentionIds, parentId = null) => {
     try {
-      const res = await itUpdatesApi.addTaskComment(taskId, {
+      const res = await api.addComment(taskId, {
         ...basePayload(),
         message: html,
         mentions: mentionIds,
@@ -224,7 +234,7 @@ export default function TaskComments({ taskId, team, currentUser, canComment }) 
 
   const handleEdit = async (comment, html, mentionIds) => {
     try {
-      const res = await itUpdatesApi.updateTaskComment(taskId, comment.id, {
+      const res = await api.updateComment(taskId, comment.id, {
         ...basePayload(),
         message: html,
         mentions: mentionIds,
@@ -238,7 +248,7 @@ export default function TaskComments({ taskId, team, currentUser, canComment }) 
   const handleDelete = async (comment) => {
     if (!window.confirm('Delete this comment?')) return;
     try {
-      await itUpdatesApi.deleteTaskComment(taskId, comment.id, currentUserId);
+      await api.deleteComment(taskId, comment.id, currentUserId);
       setComments((prev) => prev.filter((c) => c.id !== comment.id && c.parentId !== comment.id));
     } catch {
       toastError('Failed to delete comment');
@@ -248,7 +258,7 @@ export default function TaskComments({ taskId, team, currentUser, canComment }) 
   const handleToggleLike = async (comment) => {
     if (currentUserId == null) return;
     try {
-      const res = await itUpdatesApi.likeTaskComment(taskId, comment.id, currentUserId);
+      const res = await api.likeComment(taskId, comment.id, currentUserId);
       const { liked, likeCount } = res.data || {};
       setComments((prev) =>
         prev.map((c) => {

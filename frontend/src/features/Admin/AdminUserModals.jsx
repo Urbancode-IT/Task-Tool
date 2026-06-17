@@ -2,6 +2,8 @@ import React, { useState } from 'react';
 import { MdClose, MdDelete, MdEdit } from 'react-icons/md';
 import { formatUserRowRole } from '../../utils/displayRole';
 
+export const BRANCHES = ['Tirunelveli', 'Velachery', 'Pallikaranai'];
+
 export function AdminUserDetailModal({ user, mode, onClose, onEdit, onSave, onDelete }) {
   const [form, setForm] = useState({
     username: user?.username ?? '',
@@ -9,6 +11,7 @@ export function AdminUserDetailModal({ user, mode, onClose, onEdit, onSave, onDe
     password: '',
     is_it_developer: user?.is_it_developer ?? false,
     is_it_manager: user?.is_it_manager ?? false,
+    branch: user?.branch ?? '',
   });
 
   const handleSubmit = (e) => {
@@ -34,6 +37,10 @@ export function AdminUserDetailModal({ user, mode, onClose, onEdit, onSave, onDe
             <div className="admin-user-detail-row">
               <span className="admin-user-detail-label">Email</span>
               <span>{user?.email ?? '—'}</span>
+            </div>
+            <div className="admin-user-detail-row">
+              <span className="admin-user-detail-label">Branch</span>
+              <span>{user?.branch ?? '—'}</span>
             </div>
             <div className="admin-user-detail-row">
               <span className="admin-user-detail-label">Roles</span>
@@ -83,6 +90,19 @@ export function AdminUserDetailModal({ user, mode, onClose, onEdit, onSave, onDe
               value={form.email}
               onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
             />
+          </label>
+          <label>
+            Branch *
+            <select
+              value={form.branch}
+              onChange={(e) => setForm((f) => ({ ...f, branch: e.target.value }))}
+              required
+            >
+              <option value="" disabled>Select branch</option>
+              {BRANCHES.map((b) => (
+                <option key={b} value={b}>{b}</option>
+              ))}
+            </select>
           </label>
           <label>
             New password (leave blank to keep)
@@ -142,6 +162,7 @@ export function AdminAddUserModal({ onClose, onSave }) {
     email: '',
     password: '',
     roleCode: 'it_developer',
+    branch: '',
   });
 
   const handleSubmit = (e) => {
@@ -192,6 +213,15 @@ export function AdminAddUserModal({ onClose, onSave }) {
                 <option key={o.value} value={o.value}>
                   {o.label}
                 </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Branch *
+            <select value={form.branch} onChange={(e) => setForm((f) => ({ ...f, branch: e.target.value }))} required>
+              <option value="" disabled>Select branch</option>
+              {BRANCHES.map((b) => (
+                <option key={b} value={b}>{b}</option>
               ))}
             </select>
           </label>
