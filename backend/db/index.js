@@ -26,6 +26,13 @@ const teammatesFromText = (val) => normalizeTeammatesInput(val);
 
 const { Pool } = pg;
 
+// Return DATE columns (OID 1082) as raw 'YYYY-MM-DD' strings rather than JS Date
+// objects. The default parser builds a Date at the server's LOCAL midnight; when the
+// API serializes it to JSON (toISOString → UTC) in a timezone ahead of UTC (e.g. IST),
+// the calendar day shifts back by one, so a task dated "today" renders under "yesterday".
+// TIMESTAMP / TIMESTAMPTZ columns use different OIDs and keep their default parsers.
+pg.types.setTypeParser(1082, (val) => val);
+
 let pool = null;
 // Tracks whether Postgres is actually reachable (set by testConnection on startup).
 // This avoids "env is set but DB is unreachable" causing hard 401 login failures.
@@ -1347,6 +1354,7 @@ export async function dbUpdateTask(taskId, data) {
     'priority',
     'status',
     'due_date',
+    'task_date',
     'assigned_to',
     'assigned_by',
     'project_id',
@@ -2264,47 +2272,16 @@ export async function dbGetUserEodLockState(userId, isAdmin) {
   const p = getPool();
   if (!p || isAdmin) return { locked: false };
   try {
-    const { rows: urows } = await p.query(
-      `SELECT eod_locked,
-              eod_lock_date::text AS eod_lock_date,
-              eod_excused_through::text AS eod_excused_through,
-              created_at::date::text AS created_date
-         FROM users WHERE user_id = $1`,
+    const { rows } = await p.query(
+      'SELECT eod_locked, eod_lock_date::text AS eod_lock_date FROM users WHERE user_id = $1',
       [userId]
     );
-    const u = urows[0];
-    if (!u) return { locked: false };
-    if (u.eod_locked) return { locked: true, date: u.eod_lock_date };
-
-    const { rows: tr } = await p.query('SELECT CURRENT_DATE::text AS today');
-    const today = tr[0].today;
-
-    let leaveSet = new Set();
-    try {
-      const { rows: lrows } = await p.query(
-        `SELECT leave_date::text AS d FROM member_leaves
-          WHERE user_id = $1 AND leave_date >= (CURRENT_DATE - INTERVAL '21 days')`,
-        [userId]
-      );
-      leaveSet = new Set(lrows.map((r) => r.d));
-    } catch { /* member_leaves may not exist yet */ }
-
-    const lastDay = prevWorkingDay(today, leaveSet);
-    if (!lastDay) return { locked: false };
-    if (u.created_date && lastDay < u.created_date) return { locked: false };
-    if (u.eod_excused_through && lastDay <= u.eod_excused_through) return { locked: false };
-
-    const { rows: er } = await p.query(
-      'SELECT 1 FROM eod_reports WHERE user_id = $1 AND report_date = $2 LIMIT 1',
-      [userId, lastDay]
-    );
-    if (er.length) return { locked: false };
-
-    await p.query(
-      'UPDATE users SET eod_locked = true, eod_lock_date = $2 WHERE user_id = $1',
-      [userId, lastDay]
-    );
-    return { locked: true, date: lastDay };
+    const u = rows[0];
+    // Auto-locking for a missed previous-day report is DISABLED — users are not
+    // locked for yesterday's missing EOD. Only an already-set lock is honoured
+    // (kept so the admin unlock flow still works); nothing auto-locks here.
+    if (u?.eod_locked) return { locked: true, date: u.eod_lock_date };
+    return { locked: false };
   } catch (err) {
     console.error('dbGetUserEodLockState:', err.message);
     return { locked: false };
