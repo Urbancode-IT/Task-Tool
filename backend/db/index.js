@@ -2118,7 +2118,9 @@ export async function dbCreateEodReport(data) {
        RETURNING *`,
       [
         data.user_id ?? null,
-        data.report_date ?? new Date().toISOString().slice(0, 10),
+        // Default to the local (IST) calendar day so a report counts for the same day
+        // the EOD lock enforces. See todayInEodTz / dbGetUserEodLockState.
+        data.report_date ?? todayInEodTz(),
         data.achievements ?? null,
         data.blockers ?? null,
         data.tomorrow_plan ?? null,
@@ -2262,26 +2264,73 @@ function prevWorkingDay(todayStr, leaveSet) {
   return null;
 }
 
+// The EOD day boundary ("12:00 at night") is local, not UTC. Default is IST (+05:30);
+// override with EOD_TZ_OFFSET_MINUTES if the team is elsewhere. Returns the current
+// wall-clock date in that timezone as 'YYYY-MM-DD', independent of the server's TZ.
+const EOD_TZ_OFFSET_MIN = Number(process.env.EOD_TZ_OFFSET_MINUTES ?? 330);
+function todayInEodTz() {
+  const shifted = new Date(Date.now() + EOD_TZ_OFFSET_MIN * 60_000);
+  return shifted.toISOString().slice(0, 10);
+}
+
 /**
- * Resolve a user's EOD lock state. Admins are never locked. If the user is already
- * locked, stays locked (only an admin unlock clears it). Otherwise, if the previous
- * working day's EOD report is missing (and not excused / before the account existed),
- * the user is locked now. Returns { locked, date }.
+ * Resolve a user's EOD lock state. Admins are never locked.
+ *
+ * A user has until local midnight (see todayInEodTz) to file each day's EOD report.
+ * The current day is therefore never a lock reason. Once a day has fully passed, if its
+ * report is missing the user is locked and the lock is persisted (so the admin "locked
+ * users" list and unlock flow work). An existing lock stays until an admin unlock clears
+ * it. Days that are weekends, on the user's leave list, before the account existed, or
+ * already excused by a prior admin unlock are never locked. Returns { locked, date }.
  */
 export async function dbGetUserEodLockState(userId, isAdmin) {
   const p = getPool();
   if (!p || isAdmin) return { locked: false };
   try {
     const { rows } = await p.query(
-      'SELECT eod_locked, eod_lock_date::text AS eod_lock_date FROM users WHERE user_id = $1',
+      `SELECT eod_locked,
+              eod_lock_date::text       AS eod_lock_date,
+              eod_excused_through::text AS eod_excused_through,
+              created_at::date::text    AS created_date
+         FROM users WHERE user_id = $1`,
       [userId]
     );
     const u = rows[0];
-    // Auto-locking for a missed previous-day report is DISABLED — users are not
-    // locked for yesterday's missing EOD. Only an already-set lock is honoured
-    // (kept so the admin unlock flow still works); nothing auto-locks here.
-    if (u?.eod_locked) return { locked: true, date: u.eod_lock_date };
-    return { locked: false };
+    if (!u) return { locked: false };
+
+    // Already locked → stays locked until an admin unlock clears it.
+    if (u.eod_locked) return { locked: true, date: u.eod_lock_date };
+
+    // The day to enforce is the most recent completed working day before today; today
+    // itself is still open until local midnight, so it is never enforced here.
+    const { rows: leaveRows } = await p.query(
+      'SELECT leave_date::text AS d FROM member_leaves WHERE user_id = $1',
+      [userId]
+    );
+    const leaveSet = new Set(leaveRows.map((r) => r.d));
+    const dueDay = prevWorkingDay(todayInEodTz(), leaveSet);
+    if (!dueDay) return { locked: false };
+
+    // Never lock for days before the account existed.
+    if (u.created_date && dueDay < u.created_date) return { locked: false };
+
+    // Never re-lock a date an admin already excused (this is what stops a revoked user
+    // from being locked again for the same date).
+    if (u.eod_excused_through && dueDay <= u.eod_excused_through) return { locked: false };
+
+    // Locked only when no report exists for that working day.
+    const { rowCount } = await p.query(
+      'SELECT 1 FROM eod_reports WHERE user_id = $1 AND report_date = $2 LIMIT 1',
+      [userId, dueDay]
+    );
+    if (rowCount > 0) return { locked: false };
+
+    // Persist the lock so it survives and shows in the admin locked-users list.
+    await p.query(
+      'UPDATE users SET eod_locked = true, eod_lock_date = $2 WHERE user_id = $1',
+      [userId, dueDay]
+    );
+    return { locked: true, date: dueDay };
   } catch (err) {
     console.error('dbGetUserEodLockState:', err.message);
     return { locked: false };
