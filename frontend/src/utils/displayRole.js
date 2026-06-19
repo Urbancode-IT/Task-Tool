@@ -10,8 +10,10 @@ export function getDisplayRole(user) {
   if (user.is_it_developer) return 'IT Developer';
   if (p.includes('it_updates.manage') && p.includes('it_updates.view')) return 'IT Developer';
   if (p.includes('consultants.view') || p.includes('consultants.manage')) return 'Consultant';
-  if (p.includes('digital_marketing.view') || p.includes('digital_marketing.manage'))
-    return 'Digital Marketing';
+  if (p.includes('creative_team.view') || p.includes('creative_team.manage'))
+    return 'Creative Team';
+  if (p.includes('social_media.view') || p.includes('social_media.manage'))
+    return 'Social Media';
   if (p.includes('legal_finance.view') || p.includes('legal_finance.manage')) return 'Legal & Finance';
   return user.role && user.role !== 'User' ? user.role : 'User';
 }

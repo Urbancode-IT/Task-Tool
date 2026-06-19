@@ -210,8 +210,10 @@ async function buildUserFromDbUser(dbUser) {
   else if (user.is_it_developer || (perms.includes('it_updates.manage') && perms.includes('it_updates.view')))
     user.role = 'IT Developer';
   else if (perms.includes('consultants.view') || perms.includes('consultants.manage')) user.role = 'Consultant';
-  else if (perms.includes('digital_marketing.view') || perms.includes('digital_marketing.manage'))
-    user.role = 'Digital Marketing';
+  else if (perms.includes('creative_team.view') || perms.includes('creative_team.manage'))
+    user.role = 'Creative Team';
+  else if (perms.includes('social_media.view') || perms.includes('social_media.manage'))
+    user.role = 'Social Media';
   else if (perms.includes('legal_finance.view') || perms.includes('legal_finance.manage'))
     user.role = 'Legal & Finance';
   else user.role = 'User';
@@ -530,9 +532,11 @@ app.get(`${BASE_PATH}/users`, requirePermission('admin.access'), async (req, res
               ? ['it_developer']
               : u.role === 'Consultant'
                 ? ['consultant']
-                : u.role === 'Digital Marketing'
-                  ? ['digital_marketing']
-                  : [],
+                : u.role === 'Creative Team'
+                  ? ['creative_team']
+                  : u.role === 'Social Media'
+                    ? ['social_media']
+                    : [],
     }));
     res.json(safe);
   } catch (err) {
@@ -1484,7 +1488,8 @@ app.get(`${ADMIN_PATH}/departments`, async (req, res) => {
     res.json([
       { name: 'IT Team', code: 'it' },
       { name: 'Consultants Team', code: 'consultants' },
-      { name: 'Digital Marketing Team', code: 'digital_marketing' },
+      { name: 'Creative Team', code: 'creative_team' },
+      { name: 'Social Media', code: 'social_media' },
       { name: 'Legal & Finance', code: 'legal_finance' },
     ]);
   } catch (err) {

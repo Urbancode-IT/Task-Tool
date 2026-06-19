@@ -265,6 +265,34 @@ export async function dbEnsureTables() {
   const p = getPool();
   if (!p) return;
 
+  // ── Rename: "Digital Marketing" → "Creative Team" ──────────────────────────
+  // Physically rename the team's tables and migrate the team string stored in
+  // log/notification rows. Idempotent: only renames when the old table exists and
+  // the new one does not, so it runs at most once per database.
+  const renamePairs = [
+    ['digital_marketing_tasks', 'creative_team_tasks'],
+    ['digital_marketing_task_requirements', 'creative_team_task_requirements'],
+  ];
+  for (const [oldName, newName] of renamePairs) {
+    try {
+      const { rows } = await p.query(
+        `SELECT to_regclass('public.${oldName}') AS old_t, to_regclass('public.${newName}') AS new_t`
+      );
+      if (rows?.[0]?.old_t && !rows?.[0]?.new_t) {
+        await p.query(`ALTER TABLE ${oldName} RENAME TO ${newName}`);
+        console.log(`DB: renamed ${oldName} → ${newName}.`);
+      }
+    } catch (err) {
+      console.warn(`dbEnsureTables: rename ${oldName}:`, err.message);
+    }
+  }
+  try {
+    await p.query("UPDATE requirement_time_logs SET team = 'creative_team' WHERE team = 'digital_marketing'");
+    await p.query("UPDATE task_deadline_notifications SET team = 'creative_team' WHERE team = 'digital_marketing'");
+  } catch (err) {
+    console.warn('dbEnsureTables: migrate team strings:', err.message);
+  }
+
   // Keep project fields in sync for ownership + teammates.
   try {
     await p.query(`
@@ -371,7 +399,8 @@ export async function dbEnsureTables() {
   for (const tbl of [
     'it_task_requirements',
     'consultant_task_requirements',
-    'digital_marketing_task_requirements',
+    'creative_team_task_requirements',
+    'social_media_task_requirements',
     'legal_finance_task_requirements',
   ]) {
     try {
@@ -393,7 +422,8 @@ export async function dbEnsureTables() {
   const taskTablesForReview = [
     'it_tasks',
     'consultant_tasks',
-    'digital_marketing_tasks',
+    'creative_team_tasks',
+    'social_media_tasks',
     'legal_finance_tasks',
   ];
   for (const tbl of taskTablesForReview) {
@@ -414,13 +444,16 @@ export async function dbEnsureTables() {
     }
   }
 
-  try {
-    const { rows } = await p.query(
-      "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'digital_marketing_tasks') AS ex"
-    );
-    if (rows?.[0]?.ex) {
+  // Campaign/content columns apply to both the Creative Team and Social Media tables.
+  for (const tbl of ['creative_team_tasks', 'social_media_tasks']) {
+    try {
+      const { rows } = await p.query(
+        "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_schema = 'public' AND table_name = $1) AS ex",
+        [tbl]
+      );
+      if (!rows?.[0]?.ex) continue;
       await p.query(`
-        ALTER TABLE digital_marketing_tasks
+        ALTER TABLE ${tbl}
         ADD COLUMN IF NOT EXISTS campaign_name VARCHAR(255),
         ADD COLUMN IF NOT EXISTS content_type VARCHAR(100),
         ADD COLUMN IF NOT EXISTS channel VARCHAR(100),
@@ -430,9 +463,9 @@ export async function dbEnsureTables() {
         ADD COLUMN IF NOT EXISTS target_date DATE,
         ADD COLUMN IF NOT EXISTS publish_date DATE;
       `);
+    } catch (err) {
+      console.warn(`dbEnsureTables: ${tbl} campaign columns:`, err.message);
     }
-  } catch (err) {
-    console.warn('dbEnsureTables: digital_marketing_tasks campaign columns:', err.message);
   }
 
   // If base tables aren't present yet (e.g. `it_tasks`), creating a FK table will fail.
@@ -525,6 +558,66 @@ export async function dbEnsureTables() {
     console.warn('dbEnsureTables: legal_finance_task_requirements:', err.message);
   }
 
+  // Social Media — a full clone of the Creative Team task model (incl. campaign/content
+  // fields). Created here like legal_finance since it is a brand-new team.
+  try {
+    await p.query(`
+      CREATE TABLE IF NOT EXISTS social_media_tasks (
+        task_id SERIAL PRIMARY KEY,
+        project_id INT REFERENCES it_projects(project_id) ON DELETE SET NULL,
+        assigned_to INT REFERENCES users(user_id) ON DELETE SET NULL,
+        assigned_by INT REFERENCES users(user_id) ON DELETE SET NULL,
+        created_by INT REFERENCES users(user_id) ON DELETE SET NULL,
+        task_title VARCHAR(500) NOT NULL DEFAULT 'New Task',
+        task_description TEXT,
+        priority VARCHAR(20) DEFAULT 'medium',
+        status VARCHAR(20) DEFAULT 'in_progress',
+        task_date DATE,
+        due_date DATE,
+        created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+        completed_at TIMESTAMPTZ,
+        reviewed_by INT REFERENCES users(user_id) ON DELETE SET NULL,
+        review_comment TEXT,
+        reviewed_at TIMESTAMPTZ,
+        campaign_name VARCHAR(255),
+        content_type VARCHAR(100),
+        channel VARCHAR(100),
+        design_link TEXT,
+        content_doc_link TEXT,
+        publish_link TEXT,
+        target_date DATE,
+        publish_date DATE
+      );
+      CREATE INDEX IF NOT EXISTS idx_social_media_tasks_assigned ON social_media_tasks(assigned_to);
+      CREATE INDEX IF NOT EXISTS idx_social_media_tasks_status ON social_media_tasks(status);
+    `);
+    console.log('DB: social_media_tasks table ensured.');
+  } catch (err) {
+    console.warn('dbEnsureTables: social_media_tasks:', err.message);
+  }
+
+  try {
+    await p.query(`
+      CREATE TABLE IF NOT EXISTS social_media_task_requirements (
+        requirement_id SERIAL PRIMARY KEY,
+        task_id INT NOT NULL REFERENCES social_media_tasks(task_id) ON DELETE CASCADE,
+        title VARCHAR(500) NOT NULL,
+        description TEXT,
+        status VARCHAR(20) DEFAULT 'pending',
+        priority VARCHAR(20) DEFAULT 'medium',
+        due_date DATE,
+        sort_order INT DEFAULT 0,
+        created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE INDEX IF NOT EXISTS idx_sm_task_requirements_task_id ON social_media_task_requirements(task_id);
+    `);
+    console.log('DB: social_media_task_requirements table ensured.');
+  } catch (err) {
+    console.warn('dbEnsureTables: social_media_task_requirements:', err.message);
+  }
+
   // Per-requirement timer columns — FINAL pass. The earlier ADD COLUMN block runs
   // before the requirement tables are created (it_task_requirements /
   // legal_finance_task_requirements are CREATEd above), so on a fresh database those
@@ -533,7 +626,8 @@ export async function dbEnsureTables() {
   for (const tbl of [
     'it_task_requirements',
     'consultant_task_requirements',
-    'digital_marketing_task_requirements',
+    'creative_team_task_requirements',
+    'social_media_task_requirements',
     'legal_finance_task_requirements',
   ]) {
     try {
@@ -643,6 +737,86 @@ export async function dbEnsureLegalFinanceRbac() {
   }
 }
 
+/**
+ * Rename the "Digital Marketing" RBAC rows to "Creative Team" (idempotent), and ensure
+ * the Creative Team + Social Media departments/permissions/roles exist. UPDATEs preserve
+ * role_permissions and user_roles links because those reference rows by id, not code.
+ */
+export async function dbEnsureCreativeAndSocialRbac() {
+  const p = getPool();
+  if (!p) return;
+  try {
+    await p.query('SELECT 1 FROM departments LIMIT 1');
+  } catch {
+    return;
+  }
+
+  // Run each statement independently so one failure never blocks the rest — in
+  // particular, a hiccup while renaming Digital Marketing must not prevent the
+  // Social Media role from being created.
+  const run = async (label, sql, params = []) => {
+    try {
+      await p.query(sql, params);
+    } catch (err) {
+      console.warn(`dbEnsureCreativeAndSocialRbac [${label}]:`, err.message);
+    }
+  };
+
+  // 1) Rename Digital Marketing → Creative Team in place (no-op once renamed).
+  await run('rename dept', "UPDATE departments SET name = 'Creative Team', code = 'creative_team' WHERE code = 'digital_marketing'");
+  await run('rename role', "UPDATE roles SET name = 'Creative Team', code = 'creative_team' WHERE code = 'digital_marketing'");
+  await run('rename perm view', "UPDATE permissions SET code = 'creative_team.view', name = 'View Creative Team', module = 'creative_team' WHERE code = 'digital_marketing.view'");
+  await run('rename perm manage', "UPDATE permissions SET code = 'creative_team.manage', name = 'Manage Creative Team', module = 'creative_team' WHERE code = 'digital_marketing.manage'");
+
+  // 2) Ensure each team's department / permissions / role / links exist.
+  const teams = [
+    { code: 'creative_team', label: 'Creative Team' },
+    { code: 'social_media', label: 'Social Media' },
+  ];
+  for (const t of teams) {
+    await run(`${t.code} dept`,
+      `INSERT INTO departments (name, code, description)
+       SELECT $1::text, $2::text, $3::text
+       WHERE NOT EXISTS (SELECT 1 FROM departments WHERE code = $2::text)`,
+      [t.label, t.code, `${t.label} workspace`]
+    );
+    await run(`${t.code} perm view`,
+      `INSERT INTO permissions (code, name, module, description)
+       SELECT $1::text, $2::text, $3::text, $4::text
+       WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = $1::text)`,
+      [`${t.code}.view`, `View ${t.label}`, t.code, `Access ${t.label} module`]
+    );
+    await run(`${t.code} perm manage`,
+      `INSERT INTO permissions (code, name, module, description)
+       SELECT $1::text, $2::text, $3::text, $4::text
+       WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = $1::text)`,
+      [`${t.code}.manage`, `Manage ${t.label}`, t.code, `Create and edit ${t.label} tasks`]
+    );
+    await run(`${t.code} role`,
+      `INSERT INTO roles (name, code, department_id, description)
+       SELECT $1::text, $2::text, d.department_id, $3::text
+       FROM departments d
+       WHERE d.code = $2::text
+         AND NOT EXISTS (SELECT 1 FROM roles WHERE code = $2::text)`,
+      [t.label, t.code, `${t.label} team member`]
+    );
+    await run(`${t.code} role_permissions`,
+      `INSERT INTO role_permissions (role_id, permission_id)
+       SELECT r.role_id, pm.permission_id
+       FROM roles r
+       CROSS JOIN permissions pm
+       WHERE r.code = $1::text
+         AND pm.code IN ($2::text, $3::text)
+         AND NOT EXISTS (
+           SELECT 1 FROM role_permissions rp
+           WHERE rp.role_id = r.role_id AND rp.permission_id = pm.permission_id
+         )`,
+      [t.code, `${t.code}.view`, `${t.code}.manage`]
+    );
+  }
+  console.log('DB: Creative Team + Social Media RBAC ensured.');
+}
+
 /** Test DB connection on startup. Returns { ok: true } or { ok: false, error: string }. */
 export async function testConnection() {
   const p = getPool();
@@ -663,6 +837,7 @@ export async function testConnection() {
     // Also ensure requirements table + Legal & Finance RBAC role for admin Assign roles UI
     await dbEnsureTables();
     await dbEnsureLegalFinanceRbac();
+    await dbEnsureCreativeAndSocialRbac();
     dbAvailability = true;
     return { ok: true };
   } catch (err) {
@@ -937,23 +1112,9 @@ export async function dbGetTasksSimple(filters = {}) {
   if (!p) return [];
 
   try {
-    const normalizedTeam = String(filters.team || '').trim();
-    const taskTable =
-      normalizedTeam === 'consultant'
-        ? 'consultant_tasks'
-        : normalizedTeam === 'digital_marketing'
-          ? 'digital_marketing_tasks'
-          : normalizedTeam === 'legal_finance'
-            ? 'legal_finance_tasks'
-            : 'it_tasks';
-    const reqTable =
-      normalizedTeam === 'consultant'
-        ? 'consultant_task_requirements'
-        : normalizedTeam === 'digital_marketing'
-          ? 'digital_marketing_task_requirements'
-          : normalizedTeam === 'legal_finance'
-            ? 'legal_finance_task_requirements'
-            : 'it_task_requirements';
+    const normalizedTeam = resolveTeamFromInput(filters.team);
+    const taskTable = taskTableForTeam(normalizedTeam);
+    const reqTable = reqTableForTeam(normalizedTeam);
 
     const { rows: tableCheck } = await p.query(
       "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_schema = 'public' AND table_name = $1)",
@@ -1122,14 +1283,7 @@ export async function dbGetTasksSimple(filters = {}) {
       publish_link: r.publish_link ?? null,
       target_date: r.target_date ?? null,
       publish_date: r.publish_date ?? null,
-      team:
-        taskTable === 'consultant_tasks'
-          ? 'consultant'
-          : taskTable === 'digital_marketing_tasks'
-            ? 'digital_marketing'
-            : taskTable === 'legal_finance_tasks'
-              ? 'legal_finance'
-              : 'it',
+      team: normalizedTeam,
     }));
   } catch (err) {
     console.error('dbGetTasksSimple Critical Error:', err.message);
@@ -1218,21 +1372,25 @@ export async function dbGetAdminPendingSummary() {
 function resolveTeamFromInput(team) {
   const t = String(team || '').trim().toLowerCase();
   if (t === 'consultant') return 'consultant';
-  if (t === 'digital_marketing' || t === 'digital') return 'digital_marketing';
+  // 'digital_marketing'/'digital' are legacy aliases for the renamed Creative Team.
+  if (t === 'creative_team' || t === 'creative' || t === 'digital_marketing' || t === 'digital') return 'creative_team';
+  if (t === 'social_media' || t === 'social') return 'social_media';
   if (t === 'legal_finance' || t === 'legal-finance' || t === 'legalfinance') return 'legal_finance';
   return 'it';
 }
 
 function taskTableForTeam(team) {
   if (team === 'consultant') return 'consultant_tasks';
-  if (team === 'digital_marketing') return 'digital_marketing_tasks';
+  if (team === 'creative_team') return 'creative_team_tasks';
+  if (team === 'social_media') return 'social_media_tasks';
   if (team === 'legal_finance') return 'legal_finance_tasks';
   return 'it_tasks';
 }
 
 function reqTableForTeam(team) {
   if (team === 'consultant') return 'consultant_task_requirements';
-  if (team === 'digital_marketing') return 'digital_marketing_task_requirements';
+  if (team === 'creative_team') return 'creative_team_task_requirements';
+  if (team === 'social_media') return 'social_media_task_requirements';
   if (team === 'legal_finance') return 'legal_finance_task_requirements';
   return 'it_task_requirements';
 }
@@ -1244,7 +1402,8 @@ async function detectTaskTeamById(taskId) {
   if (!Number.isFinite(id)) return 'it';
   const checks = [
     { team: 'consultant', table: 'consultant_tasks' },
-    { team: 'digital_marketing', table: 'digital_marketing_tasks' },
+    { team: 'creative_team', table: 'creative_team_tasks' },
+    { team: 'social_media', table: 'social_media_tasks' },
     { team: 'legal_finance', table: 'legal_finance_tasks' },
     { team: 'it', table: 'it_tasks' },
   ];
@@ -1295,7 +1454,7 @@ export async function dbCreateTask(data) {
     toNullableDate(data.task_date ?? data.taskDate) ?? new Date().toISOString().slice(0, 10),
     toNullableDate(data.dueDate ?? data.due_date),
   ];
-  if (team === 'digital_marketing') {
+  if (team === 'creative_team' || team === 'social_media') {
     insertColumns.push(
       'campaign_name',
       'content_type',
@@ -1362,7 +1521,7 @@ export async function dbUpdateTask(taskId, data) {
     'review_comment',
     'reviewed_at',
   ];
-  if (team === 'digital_marketing') {
+  if (team === 'creative_team' || team === 'social_media') {
     allowed.push(
       'campaign_name',
       'content_type',
@@ -1647,7 +1806,8 @@ export async function dbGetUsersByIds(ids) {
 const DEADLINE_TEAMS = [
   { team: 'it', table: 'it_tasks' },
   { team: 'consultant', table: 'consultant_tasks' },
-  { team: 'digital_marketing', table: 'digital_marketing_tasks' },
+  { team: 'creative_team', table: 'creative_team_tasks' },
+  { team: 'social_media', table: 'social_media_tasks' },
   { team: 'legal_finance', table: 'legal_finance_tasks' },
 ];
 

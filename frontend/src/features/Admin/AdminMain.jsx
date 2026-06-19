@@ -49,7 +49,8 @@ function userMatchesTeamFilter(u, filter) {
     codes.some((c) => IT_TEAM_ROLE_CODES.has(c));
   if (filter === 'it') return inItTeam;
   if (filter === 'consultant') return codes.includes('consultant');
-  if (filter === 'digital') return codes.includes('digital_marketing');
+  if (filter === 'creative') return codes.includes('creative_team');
+  if (filter === 'social') return codes.includes('social_media');
   if (filter === 'legal_finance') return codes.includes('legal_finance') || codes.includes('admin');
   return true;
 }
@@ -58,7 +59,8 @@ const USERS_TEAM_FILTERS = [
   { key: 'all', label: 'All users' },
   { key: 'it', label: 'IT team' },
   { key: 'consultant', label: 'Consultants' },
-  { key: 'digital', label: 'Digital team' },
+  { key: 'creative', label: 'Creative Team' },
+  { key: 'social', label: 'Social Media' },
   { key: 'legal_finance', label: 'Legal & Finance' },
 ];
 
@@ -219,9 +221,11 @@ export default function AdminMain({ currentUser, onLogout }) {
         team:
           tasksTeamFilter === 'consultant'
             ? 'consultant'
-            : tasksTeamFilter === 'digital'
-              ? 'digital_marketing'
-              : tasksTeamFilter === 'it'
+            : tasksTeamFilter === 'creative'
+              ? 'creative_team'
+              : tasksTeamFilter === 'social'
+                ? 'social_media'
+                : tasksTeamFilter === 'it'
                 ? 'it'
                 : tasksTeamFilter === 'legal_finance'
                   ? 'legal_finance'
@@ -240,9 +244,11 @@ export default function AdminMain({ currentUser, onLogout }) {
         team:
           tasksTeamFilter === 'consultant'
             ? 'consultant'
-            : tasksTeamFilter === 'digital'
-              ? 'digital_marketing'
-              : tasksTeamFilter === 'it'
+            : tasksTeamFilter === 'creative'
+              ? 'creative_team'
+              : tasksTeamFilter === 'social'
+                ? 'social_media'
+                : tasksTeamFilter === 'it'
                 ? 'it'
                 : tasksTeamFilter === 'legal_finance'
                   ? 'legal_finance'
@@ -289,7 +295,8 @@ export default function AdminMain({ currentUser, onLogout }) {
 
   const mapTeamFilter = (key) => {
     if (key === 'consultant') return 'consultant';
-    if (key === 'digital') return 'digital_marketing';
+    if (key === 'creative') return 'creative_team';
+    if (key === 'social') return 'social_media';
     if (key === 'it') return 'it';
     if (key === 'legal_finance') return 'legal_finance';
     return undefined;
@@ -391,16 +398,7 @@ export default function AdminMain({ currentUser, onLogout }) {
     const { task, nextStatus } = reviewDecisionModal;
     if (!task || !nextStatus) return;
     const id = task.id || task.task_id;
-    const teamParam =
-      task.team === 'consultant'
-        ? 'consultant'
-        : task.team === 'digital_marketing'
-          ? 'digital_marketing'
-          : task.team === 'it'
-            ? 'it'
-            : task.team === 'legal_finance'
-              ? 'legal_finance'
-              : undefined;
+    const teamParam = task.team || undefined;
     const body = {
       status: nextStatus,
       review_comment: reviewCommentDraft.trim() || undefined,
@@ -847,7 +845,7 @@ export default function AdminMain({ currentUser, onLogout }) {
                 </button>
               </div>
               <p className="admin-users-filter-hint">
-                Filter by team. Assign Consultant, Digital Marketing, or Legal &amp; Finance via{' '}
+                Filter by team. Assign Consultant, Creative Team, Social Media, or Legal &amp; Finance via{' '}
                 <strong>Assign roles</strong>.
               </p>
               <div className="admin-users-team-filter" role="tablist" aria-label="Filter by team">

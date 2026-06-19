@@ -45,7 +45,8 @@ export async function attachUserPermissions(req, res, next) {
     req.user.permissions = [
       'it_updates.view', 'it_updates.manage', 'it_updates.users',
       'consultants.view', 'consultants.manage',
-      'digital_marketing.view', 'digital_marketing.manage',
+      'creative_team.view', 'creative_team.manage',
+      'social_media.view', 'social_media.manage',
       'admin.access', 'admin.users', 'admin.roles', 'admin.audit',
     ];
     return next();

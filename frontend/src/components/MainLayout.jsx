@@ -1,8 +1,9 @@
 import React, { useState, useMemo } from 'react';
-import { MdComputer, MdPeople, MdCampaign, MdAdminPanelSettings, MdGavel } from 'react-icons/md';
+import { MdComputer, MdPeople, MdCampaign, MdShare, MdAdminPanelSettings, MdGavel } from 'react-icons/md';
 import ITUpdatesMain from '../features/ITUpdates/ITUpdatesMain';
 import ConsultantsMain from '../features/Consultants/ConsultantsMain';
-import DigitalMarketingMain from '../features/DigitalMarketing/DigitalMarketingMain';
+import CreativeTeamMain from '../features/CreativeTeam/CreativeTeamMain';
+import SocialMediaMain from '../features/SocialMedia/SocialMediaMain';
 import LegalFinanceMain from '../features/LegalFinance/LegalFinanceMain';
 import AdminMain from '../features/Admin/AdminMain';
 import ToastContainer from './Toast';
@@ -11,7 +12,8 @@ import './MainLayout.css';
 const MODULES = [
   { key: 'it_updates', label: 'IT Updates', icon: MdComputer, permission: 'it_updates.view' },
   { key: 'consultants', label: 'Consultants', icon: MdPeople, permission: 'consultants.view' },
-  { key: 'digital_marketing', label: 'Digital Marketing', icon: MdCampaign, permission: 'digital_marketing.view' },
+  { key: 'creative_team', label: 'Creative Team', icon: MdCampaign, permission: 'creative_team.view' },
+  { key: 'social_media', label: 'Social Media', icon: MdShare, permission: 'social_media.view' },
   {
     key: 'legal_finance',
     label: 'Legal & Finance',
@@ -49,8 +51,10 @@ export default function MainLayout({ currentUser, onLogout }) {
         return <ITUpdatesMain currentUser={user} onLogout={onLogout} />;
       case 'consultants':
         return <ConsultantsMain currentUser={user} onLogout={onLogout} />;
-      case 'digital_marketing':
-        return <DigitalMarketingMain currentUser={user} onLogout={onLogout} />;
+      case 'creative_team':
+        return <CreativeTeamMain currentUser={user} onLogout={onLogout} />;
+      case 'social_media':
+        return <SocialMediaMain currentUser={user} onLogout={onLogout} />;
       case 'legal_finance':
         return <LegalFinanceMain currentUser={user} onLogout={onLogout} />;
       case 'admin':
@@ -65,7 +69,8 @@ export default function MainLayout({ currentUser, onLogout }) {
   const hasSidebar = [
     'it_updates',
     'consultants',
-    'digital_marketing',
+    'creative_team',
+    'social_media',
     'legal_finance',
     'admin',
   ].includes(safeActiveModule);

@@ -5,8 +5,10 @@
 The application supports multiple teams and an Admin role:
 
 - **IT Team** — IT Updates module (tasks, projects, EOD)
-- **Consultants Team** — Consultants module (placeholder for now)
-- **Digital Marketing Team** — Digital Marketing module (placeholder for now)
+- **Consultants Team** — Consultants module
+- **Creative Team** — Creative Team module (formerly Digital Marketing)
+- **Social Media** — Social Media module
+- **Legal & Finance** — Legal & Finance module
 - **Admin** — User management, role/permission configuration, audit log
 
 ## Database setup
@@ -32,7 +34,9 @@ The application supports multiple teams and an Admin role:
 - `it_updates.manage` — Create/edit tasks, projects, EOD
 - `it_updates.users` — Manage users in IT context
 - `consultants.view` / `consultants.manage` — Consultants module
-- `digital_marketing.view` / `digital_marketing.manage` — Digital Marketing module
+- `creative_team.view` / `creative_team.manage` — Creative Team module (formerly Digital Marketing)
+- `social_media.view` / `social_media.manage` — Social Media module
+- `legal_finance.view` / `legal_finance.manage` — Legal & Finance module
 - `admin.access` — Access admin panel
 - `admin.users` / `admin.roles` / `admin.audit` — Admin sub-capabilities
 

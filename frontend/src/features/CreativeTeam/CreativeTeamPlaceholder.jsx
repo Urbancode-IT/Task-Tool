@@ -3,9 +3,9 @@ import { MdCampaign, MdAdd, MdCalendarToday, MdEdit, MdDelete } from 'react-icon
 import { textareaSubmit } from '../../utils/formKeys';
 import './Placeholder.css';
 
-const STORAGE_KEY = 'digital_marketing_daily_activities';
+const STORAGE_KEY = 'creative_team_daily_activities';
 
-export default function DigitalMarketingPlaceholder({ currentUser }) {
+export default function CreativeTeamPlaceholder({ currentUser }) {
   const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [activity, setActivity] = useState('');
   const [channel, setChannel] = useState('');
@@ -89,7 +89,7 @@ export default function DigitalMarketingPlaceholder({ currentUser }) {
           <div className="placeholder-card-title-row">
             <MdCampaign size={40} className="placeholder-icon" />
             <div>
-              <h1 className="placeholder-title">Digital Marketing Dashboard</h1>
+              <h1 className="placeholder-title">Creative Team Dashboard</h1>
               <p className="placeholder-desc">
                 Track daily digital marketing activities like campaigns, posts, and optimisations.
               </p>

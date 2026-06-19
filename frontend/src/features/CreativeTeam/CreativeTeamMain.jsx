@@ -45,7 +45,7 @@ const TABS = [
   { key: 'Link Hub', label: 'Link Hub', icon: MdLink },
   { key: 'EOD Updates', label: 'EOD Updates', icon: MdOutlineAssignment },
 ];
-const MODULE_TEAM = 'digital_marketing';
+const MODULE_TEAM = 'creative_team';
 
 const EMPTY_ALL_TASKS_FILTERS = { status: '', priority: '', assignee: '', branch: '', period: EMPTY_PERIOD };
 const EMPTY_OVERVIEW_FILTERS = { from_date: '', to_date: '', assigned_to: '' };
@@ -122,7 +122,7 @@ function Avatar({ user }) {
   );
 }
 
-export default function DigitalMarketingMain({ currentUser, onLogout }) {
+export default function CreativeTeamMain({ currentUser, onLogout }) {
   const [activeTab, setActiveTab] = useState('Dashboard');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -184,8 +184,8 @@ export default function DigitalMarketingMain({ currentUser, onLogout }) {
     setError('');
     try {
       const [tasksRes, teamRes, adminRes] = await Promise.all([
-        itUpdatesApi.getTasks({ team: 'digital_marketing' }),
-        itUpdatesApi.getTeamOverview({ team: 'digital_marketing' }).catch(() => ({ data: [] })),
+        itUpdatesApi.getTasks({ team: MODULE_TEAM }),
+        itUpdatesApi.getTeamOverview({ team: MODULE_TEAM }).catch(() => ({ data: [] })),
         itUpdatesApi.getTeamOverview({ team: 'it' }).catch(() => ({ data: [] })),
       ]);
       setTasks(Array.isArray(tasksRes.data) ? tasksRes.data : []);
@@ -194,7 +194,7 @@ export default function DigitalMarketingMain({ currentUser, onLogout }) {
       setAdminUsers(itTeam.filter((u) => u?.is_it_manager));
     } catch (err) {
       setError(
-        err?.response?.data?.message || 'Failed to load digital marketing tasks.'
+        err?.response?.data?.message || 'Failed to load creative team tasks.'
       );
     } finally {
       setLoading(false);
@@ -587,7 +587,7 @@ export default function DigitalMarketingMain({ currentUser, onLogout }) {
           <img src={logoSrc} alt="Seyal" className="it-updates-sidebar-logo" />
           <div className="it-updates-sidebar-brand-text">
             <span className="it-updates-sidebar-title">Seyal</span>
-            <span className="it-updates-sidebar-subtitle">Digital Marketing Team</span>
+            <span className="it-updates-sidebar-subtitle">Creative Team</span>
           </div>
         </div>
         <nav className="it-updates-sidebar-nav">
