@@ -587,7 +587,7 @@ export default function SocialMediaMain({ currentUser, onLogout }) {
           <img src={logoSrc} alt="Seyal" className="it-updates-sidebar-logo" />
           <div className="it-updates-sidebar-brand-text">
             <span className="it-updates-sidebar-title">Seyal</span>
-            <span className="it-updates-sidebar-subtitle">Social Media</span>
+            <span className="it-updates-sidebar-subtitle">Social Media Management</span>
           </div>
         </div>
         <nav className="it-updates-sidebar-nav">

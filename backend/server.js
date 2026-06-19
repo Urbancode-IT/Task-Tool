@@ -213,7 +213,7 @@ async function buildUserFromDbUser(dbUser) {
   else if (perms.includes('creative_team.view') || perms.includes('creative_team.manage'))
     user.role = 'Creative Team';
   else if (perms.includes('social_media.view') || perms.includes('social_media.manage'))
-    user.role = 'Social Media';
+    user.role = 'Social Media Management';
   else if (perms.includes('legal_finance.view') || perms.includes('legal_finance.manage'))
     user.role = 'Legal & Finance';
   else user.role = 'User';
@@ -534,7 +534,7 @@ app.get(`${BASE_PATH}/users`, requirePermission('admin.access'), async (req, res
                 ? ['consultant']
                 : u.role === 'Creative Team'
                   ? ['creative_team']
-                  : u.role === 'Social Media'
+                  : u.role === 'Social Media Management'
                     ? ['social_media']
                     : [],
     }));

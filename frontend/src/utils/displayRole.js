@@ -13,7 +13,7 @@ export function getDisplayRole(user) {
   if (p.includes('creative_team.view') || p.includes('creative_team.manage'))
     return 'Creative Team';
   if (p.includes('social_media.view') || p.includes('social_media.manage'))
-    return 'Social Media';
+    return 'Social Media Management';
   if (p.includes('legal_finance.view') || p.includes('legal_finance.manage')) return 'Legal & Finance';
   return user.role && user.role !== 'User' ? user.role : 'User';
 }

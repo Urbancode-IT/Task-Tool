@@ -13,7 +13,7 @@ const MODULES = [
   { key: 'it_updates', label: 'IT Updates', icon: MdComputer, permission: 'it_updates.view' },
   { key: 'consultants', label: 'Consultants', icon: MdPeople, permission: 'consultants.view' },
   { key: 'creative_team', label: 'Creative Team', icon: MdCampaign, permission: 'creative_team.view' },
-  { key: 'social_media', label: 'Social Media', icon: MdShare, permission: 'social_media.view' },
+  { key: 'social_media', label: 'Social Media Management', icon: MdShare, permission: 'social_media.view' },
   {
     key: 'legal_finance',
     label: 'Legal & Finance',

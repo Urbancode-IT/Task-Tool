@@ -89,7 +89,7 @@ export default function SocialMediaPlaceholder({ currentUser }) {
           <div className="placeholder-card-title-row">
             <MdCampaign size={40} className="placeholder-icon" />
             <div>
-              <h1 className="placeholder-title">Social Media Dashboard</h1>
+              <h1 className="placeholder-title">Social Media Management Dashboard</h1>
               <p className="placeholder-desc">
                 Track daily digital marketing activities like campaigns, posts, and optimisations.
               </p>

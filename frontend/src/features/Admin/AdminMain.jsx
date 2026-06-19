@@ -60,7 +60,7 @@ const USERS_TEAM_FILTERS = [
   { key: 'it', label: 'IT team' },
   { key: 'consultant', label: 'Consultants' },
   { key: 'creative', label: 'Creative Team' },
-  { key: 'social', label: 'Social Media' },
+  { key: 'social', label: 'Social Media Management' },
   { key: 'legal_finance', label: 'Legal & Finance' },
 ];
 
@@ -845,7 +845,7 @@ export default function AdminMain({ currentUser, onLogout }) {
                 </button>
               </div>
               <p className="admin-users-filter-hint">
-                Filter by team. Assign Consultant, Creative Team, Social Media, or Legal &amp; Finance via{' '}
+                Filter by team. Assign Consultant, Creative Team, Social Media Management, or Legal &amp; Finance via{' '}
                 <strong>Assign roles</strong>.
               </p>
               <div className="admin-users-team-filter" role="tablist" aria-label="Filter by team">

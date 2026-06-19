@@ -768,10 +768,16 @@ export async function dbEnsureCreativeAndSocialRbac() {
   await run('rename perm view', "UPDATE permissions SET code = 'creative_team.view', name = 'View Creative Team', module = 'creative_team' WHERE code = 'digital_marketing.view'");
   await run('rename perm manage', "UPDATE permissions SET code = 'creative_team.manage', name = 'Manage Creative Team', module = 'creative_team' WHERE code = 'digital_marketing.manage'");
 
+  // Display-name update: "Social Media" → "Social Media Management" (code unchanged).
+  await run('social dept name', "UPDATE departments SET name = 'Social Media Management' WHERE code = 'social_media'");
+  await run('social role name', "UPDATE roles SET name = 'Social Media Management' WHERE code = 'social_media'");
+  await run('social perm view name', "UPDATE permissions SET name = 'View Social Media Management' WHERE code = 'social_media.view'");
+  await run('social perm manage name', "UPDATE permissions SET name = 'Manage Social Media Management' WHERE code = 'social_media.manage'");
+
   // 2) Ensure each team's department / permissions / role / links exist.
   const teams = [
     { code: 'creative_team', label: 'Creative Team' },
-    { code: 'social_media', label: 'Social Media' },
+    { code: 'social_media', label: 'Social Media Management' },
   ];
   for (const t of teams) {
     await run(`${t.code} dept`,
