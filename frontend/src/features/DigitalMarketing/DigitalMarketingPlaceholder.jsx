@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { MdCampaign, MdAdd, MdCalendarToday, MdEdit, MdDelete } from 'react-icons/md';
+import { textareaSubmit } from '../../utils/formKeys';
 import './Placeholder.css';
 
 const STORAGE_KEY = 'digital_marketing_daily_activities';
@@ -138,6 +139,7 @@ export default function DigitalMarketingPlaceholder({ currentUser }) {
             <textarea
               value={activity}
               onChange={(e) => setActivity(e.target.value)}
+              onKeyDown={textareaSubmit}
               placeholder="Describe what you worked on today (campaigns launched, posts scheduled, optimisation, etc.)"
               rows={3}
               required

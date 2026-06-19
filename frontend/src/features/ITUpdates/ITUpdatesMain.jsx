@@ -23,6 +23,7 @@ import { getDisplayRole } from '../../utils/displayRole';
 import { isTaskOverdue } from '../../utils/taskDue';
 import { toastSuccess, toastError } from '../../utils/toast';
 import { taskInPeriod, EMPTY_PERIOD } from '../../utils/taskPeriod';
+import { controlKeys, textareaSubmit, escapeCloses } from '../../utils/formKeys';
 import ProjectSearchSelect from '../../components/ProjectSearchSelect';
 import PeriodFilter from '../../components/PeriodFilter';
 import TaskComments from '../../components/TaskComments';
@@ -471,6 +472,28 @@ const ITUpdatesMain = ({ currentUser, onLogout }) => {
   const openTaskModal = (task = null) => setTaskModal({ open: true, task });
   const closeProjectModal = () => setProjectModal({ open: false, project: null });
   const closeTaskModal = () => setTaskModal({ open: false, task: null });
+
+  // Delete is available to admins and the task's creator/assigner.
+  const myId = user?.id ?? user?.user_id ?? null;
+  const canDeleteTask = (task) =>
+    isAdmin ||
+    (myId != null &&
+      (String(task?.assigned_by) === String(myId) || String(task?.created_by) === String(myId)));
+
+  const handleDeleteTask = async (task) => {
+    if (!task) return false;
+    const label = task.title || task.task_title || 'this task';
+    if (!window.confirm(`Delete "${label}"? This also removes its requirements and cannot be undone.`)) return false;
+    try {
+      await itUpdatesApi.deleteTask(task.id, { team: MODULE_TEAM });
+      setTasks((prev) => prev.filter((t) => String(t.id) !== String(task.id)));
+      toastSuccess('Task deleted');
+      return true;
+    } catch {
+      toastError('Failed to delete task');
+      return false;
+    }
+  };
 
   const handleSaveProject = async (payload) => {
     try {
@@ -1421,6 +1444,10 @@ const ITUpdatesMain = ({ currentUser, onLogout }) => {
           onSave={handleSaveTask}
           onRefresh={loadAllData}
           onError={(msg) => setError(msg)}
+          canDelete={canDeleteTask(taskModal.task)}
+          onDelete={async () => {
+            if (await handleDeleteTask(taskModal.task)) closeTaskModal();
+          }}
         />
       )}
       {eodModal && (
@@ -1527,7 +1554,7 @@ function ProjectModal({ project, teammatesOptions, onClose, onSave }) {
             <MdClose size={22} />
           </button>
         </div>
-        <form onSubmit={handleSubmit} className="it-updates-modal-form">
+        <form onSubmit={handleSubmit} onKeyDown={escapeCloses(onClose)} className="it-updates-modal-form">
           <label>
             Project name *
             <input
@@ -1576,6 +1603,7 @@ function ProjectModal({ project, teammatesOptions, onClose, onSave }) {
             <textarea
               value={form.description}
               onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
+              onKeyDown={textareaSubmit}
               rows={3}
             />
           </label>
@@ -1747,7 +1775,7 @@ function ProjectModal({ project, teammatesOptions, onClose, onSave }) {
   );
 }
 
-function TaskModal({ task, currentUser, projects, developers, managers, onClose, onSave, onRefresh, onError }) {
+function TaskModal({ task, currentUser, projects, developers, managers, onClose, onSave, onRefresh, onError, canDelete = false, onDelete }) {
   const [reqExpanded, setReqExpanded] = useState(false);
   const [form, setForm] = useState({
     task_title: task?.title ?? '',
@@ -2031,7 +2059,7 @@ function TaskModal({ task, currentUser, projects, developers, managers, onClose,
             <MdClose size={22} />
           </button>
         </div>
-        <form onSubmit={handleSubmit} className="it-updates-modal-form">
+        <form onSubmit={handleSubmit} onKeyDown={escapeCloses(onClose)} className="it-updates-modal-form">
           <label>
             Task title *
             <input
@@ -2191,7 +2219,15 @@ function TaskModal({ task, currentUser, projects, developers, managers, onClose,
                   <input
                     value={reqForm.title}
                     onChange={(e) => setReqForm((f) => ({ ...f, title: e.target.value }))}
+                    onKeyDown={controlKeys({
+                      onEnter: () => {
+                        if (!reqForm.title.trim()) return;
+                        (editingReqId ? handleUpdateRequirement : handleAddRequirement)();
+                      },
+                      onEscape: () => { resetReqForm(); setShowAddReq(false); },
+                    })}
                     placeholder="Enter subtask requirement..."
+                    autoFocus
                   />
                 </label>
                 <div className="req-form-actions">
@@ -2281,6 +2317,7 @@ function TaskModal({ task, currentUser, projects, developers, managers, onClose,
                   rows={2}
                   value={reviewNote}
                   onChange={(e) => setReviewNote(e.target.value)}
+                  onKeyDown={textareaSubmit}
                   placeholder="e.g. Approved as-is / Please update section 2…"
                 />
               </label>
@@ -2314,6 +2351,16 @@ function TaskModal({ task, currentUser, projects, developers, managers, onClose,
           )}
 
           <div className="it-updates-modal-actions">
+            {isExistingTask && canDelete && onDelete && (
+              <button
+                type="button"
+                className="it-updates-btn it-updates-btn-secondary"
+                onClick={onDelete}
+                style={{ marginRight: 'auto', border: '1px solid #ef4444', color: '#ef4444' }}
+              >
+                <MdDelete size={16} /> Delete
+              </button>
+            )}
             <button type="button" className="it-updates-btn it-updates-btn-secondary" onClick={onClose}>
               Cancel
             </button>
@@ -2364,7 +2411,7 @@ function EodModal({ onClose, onSave, members = [] }) {
 
   return (
     <div className="it-updates-modal-backdrop">
-      <div className="it-updates-modal" onClick={(e) => e.stopPropagation()}>
+      <div className="it-updates-modal" onClick={(e) => e.stopPropagation()} onKeyDown={escapeCloses(onClose)}>
         <div className="it-updates-modal-header">
           <h2>EOD Report</h2>
           <button type="button" className="it-updates-modal-close" onClick={onClose}>

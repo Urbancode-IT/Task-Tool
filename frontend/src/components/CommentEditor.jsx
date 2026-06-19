@@ -266,6 +266,21 @@ export default function CommentEditor({
   };
 
   const handleKeyDown = (e) => {
+    // Enter submits (Shift+Enter inserts a newline); Escape cancels. Skip while the
+    // @mention menu is open (Enter/Escape belong to it) or during IME composition.
+    if (!e.isComposing && !mention.open) {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        submit();
+        return;
+      }
+      if (e.key === 'Escape' && onCancel) {
+        e.preventDefault();
+        e.stopPropagation();
+        onCancel();
+        return;
+      }
+    }
     const ctrl = e.ctrlKey || e.metaKey;
     if (!ctrl) return;
     const k = e.key.toLowerCase();

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { MdClose, MdDelete, MdEdit } from 'react-icons/md';
 import { formatUserRowRole } from '../../utils/displayRole';
+import { escapeCloses } from '../../utils/formKeys';
 
 export const BRANCHES = ['Tirunelveli', 'Velachery', 'Pallikaranai'];
 
@@ -74,7 +75,7 @@ export function AdminUserDetailModal({ user, mode, onClose, onEdit, onSave, onDe
             <MdClose size={22} />
           </button>
         </div>
-        <form onSubmit={handleSubmit} className="admin-user-form">
+        <form onSubmit={handleSubmit} className="admin-user-form" onKeyDown={escapeCloses(onClose)}>
           <label>
             Username *
             <input
@@ -179,7 +180,7 @@ export function AdminAddUserModal({ onClose, onSave }) {
             <MdClose size={22} />
           </button>
         </div>
-        <form onSubmit={handleSubmit} className="admin-user-form">
+        <form onSubmit={handleSubmit} className="admin-user-form" onKeyDown={escapeCloses(onClose)}>
           <label>
             Username *
             <input

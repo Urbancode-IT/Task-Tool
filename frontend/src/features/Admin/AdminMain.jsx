@@ -24,6 +24,7 @@ import logoSrc from '../../assets/logo.png';
 import SidebarUser from '../../components/SidebarUser';
 import { AdminAddUserModal, AdminUserDetailModal } from './AdminUserModals';
 import { formatUserRowRole } from '../../utils/displayRole';
+import { escapeCloses } from '../../utils/formKeys';
 import '../ITUpdates/ITUpdatesMain.css';
 import './AdminMain.css';
 
@@ -1267,6 +1268,7 @@ export default function AdminMain({ currentUser, onLogout }) {
           <div
             className="admin-modal admin-review-decision-modal"
             onClick={(e) => e.stopPropagation()}
+            onKeyDown={escapeCloses(closeReviewDecision)}
             role="dialog"
             aria-labelledby="admin-review-decision-title"
           >

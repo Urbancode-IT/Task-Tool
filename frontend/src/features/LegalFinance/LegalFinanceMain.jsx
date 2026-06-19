@@ -13,12 +13,14 @@ import {
   MdViewKanban,
   MdEdit,
   MdDelete,
+  MdHome,
 } from 'react-icons/md';
 import itUpdatesApi from '../../api/itUpdatesApi';
 import { getDisplayRole } from '../../utils/displayRole';
 import { isTaskOverdue } from '../../utils/taskDue';
 import { toastSuccess, toastError } from '../../utils/toast';
 import { taskInPeriod, EMPTY_PERIOD } from '../../utils/taskPeriod';
+import { controlKeys, textareaSubmit, escapeCloses } from '../../utils/formKeys';
 import PeriodFilter from '../../components/PeriodFilter';
 import TaskComments from '../../components/TaskComments';
 import logoSrc from '../../assets/logo.png';
@@ -27,10 +29,12 @@ import SidebarUser from '../../components/SidebarUser';
 import RequirementTimer from '../../components/RequirementTimer';
 import RequirementManualTime from '../../components/RequirementManualTime';
 import { BRANCHES } from '../Admin/AdminUserModals';
+import MemberDashboard from '../ITUpdates/MemberDashboard';
 import '../ITUpdates/ITUpdatesMain.css';
 
 const TABS = [
-  { key: 'Dashboard', label: 'Dashboard', icon: MdDashboard },
+  { key: 'Dashboard', label: 'Home', icon: MdHome },
+  { key: 'My Dashboard', label: 'Dashboard', icon: MdDashboard },
   { key: 'My Tasks', label: 'My Tasks', icon: MdChecklist },
   { key: 'All Tasks', label: 'All Tasks', icon: MdViewKanban },
   { key: 'Overview', label: 'Overview', icon: MdTableChart },
@@ -123,6 +127,32 @@ export default function LegalFinanceMain({ currentUser, onLogout }) {
     })();
 
   const userId = user?.id ?? user?.user_id ?? null;
+
+  const isAdmin = useMemo(
+    () => Array.isArray(user?.permissions) && user.permissions.includes('admin.access'),
+    [user]
+  );
+
+  // Delete is available to admins and the task's creator/assigner.
+  const canDeleteTask = (task) =>
+    isAdmin ||
+    (userId != null &&
+      (String(task?.assigned_by) === String(userId) || String(task?.created_by) === String(userId)));
+
+  const handleDeleteTask = async (task) => {
+    if (!task) return false;
+    const label = task.title || task.task_title || 'this task';
+    if (!window.confirm(`Delete "${label}"? This also removes its requirements and cannot be undone.`)) return false;
+    try {
+      await itUpdatesApi.deleteTask(task.id, { team: MODULE_TEAM });
+      setTasks((prev) => prev.filter((t) => String(t.id) !== String(task.id)));
+      toastSuccess('Task deleted');
+      return true;
+    } catch {
+      toastError('Failed to delete task');
+      return false;
+    }
+  };
 
   const loadMyTasks = useCallback(async () => {
     if (!userId) return;
@@ -524,6 +554,7 @@ export default function LegalFinanceMain({ currentUser, onLogout }) {
               </h1>
               <p className="it-updates-topbar-subtitle">
                 {activeTab === 'Dashboard' && 'Overview of your tasks and progress'}
+                {activeTab === 'My Dashboard' && (isAdmin ? "Members' working hours, projects and leave" : 'Your working hours, projects and leave')}
                 {activeTab === 'My Tasks' && 'Tasks assigned to you'}
                 {activeTab === 'All Tasks' && 'All tasks in kanban view'}
                 {activeTab === 'Overview' && 'Detailed task overview and filters'}
@@ -569,6 +600,10 @@ export default function LegalFinanceMain({ currentUser, onLogout }) {
         )}
 
         <main className="it-updates-main">
+          {activeTab === 'My Dashboard' && (
+            <MemberDashboard currentUser={user} members={teamOverview} isAdmin={isAdmin} team={MODULE_TEAM} />
+          )}
+
           {/* ─── Dashboard ─── */}
           {activeTab === 'Dashboard' && (
             <>
@@ -874,6 +909,10 @@ export default function LegalFinanceMain({ currentUser, onLogout }) {
           onRefresh={loadMyTasks}
           teamMembers={teamOverview}
           assignedByOptions={teamOverview}
+          canDelete={canDeleteTask(taskModal.task)}
+          onDelete={async () => {
+            if (await handleDeleteTask(taskModal.task)) closeTaskModal();
+          }}
         />
       )}
       {eodModal && (
@@ -889,7 +928,7 @@ export default function LegalFinanceMain({ currentUser, onLogout }) {
 /* ─────────────────────────────────────────────
    Task Modal
 ───────────────────────────────────────────── */
-function TaskModal({ task, currentUser, onClose, onSave, onRefresh, teamMembers, assignedByOptions }) {
+function TaskModal({ task, currentUser, onClose, onSave, onRefresh, teamMembers, assignedByOptions, canDelete = false, onDelete }) {
   const [reqExpanded, setReqExpanded] = useState(false);
   const [form, setForm] = useState({
     task_title: task?.title ?? '',
@@ -1177,7 +1216,7 @@ function TaskModal({ task, currentUser, onClose, onSave, onRefresh, teamMembers,
             <MdClose size={22} />
           </button>
         </div>
-        <form onSubmit={handleSubmit} className="it-updates-modal-form">
+        <form onSubmit={handleSubmit} onKeyDown={escapeCloses(onClose)} className="it-updates-modal-form">
           <label>
             Task title *
             <input
@@ -1191,6 +1230,7 @@ function TaskModal({ task, currentUser, onClose, onSave, onRefresh, teamMembers,
             <textarea
               value={form.task_description}
               onChange={(e) => setForm((f) => ({ ...f, task_description: e.target.value }))}
+              onKeyDown={textareaSubmit}
               rows={2}
             />
           </label>
@@ -1316,7 +1356,15 @@ function TaskModal({ task, currentUser, onClose, onSave, onRefresh, teamMembers,
                   <input
                     value={reqForm.title}
                     onChange={(e) => setReqForm((f) => ({ ...f, title: e.target.value }))}
+                    onKeyDown={controlKeys({
+                      onEnter: () => {
+                        if (!reqForm.title.trim()) return;
+                        (editingReqId ? handleUpdateRequirement : handleAddRequirement)();
+                      },
+                      onEscape: () => { resetReqForm(); setShowAddReq(false); },
+                    })}
                     placeholder="Enter subtask requirement..."
+                    autoFocus
                   />
                 </label>
                 <div className="req-form-actions">
@@ -1391,6 +1439,7 @@ function TaskModal({ task, currentUser, onClose, onSave, onRefresh, teamMembers,
                   rows={2}
                   value={reviewNote}
                   onChange={(e) => setReviewNote(e.target.value)}
+                  onKeyDown={textareaSubmit}
                   placeholder="e.g. Approved as-is / Please update section 2…"
                 />
               </label>
@@ -1424,6 +1473,16 @@ function TaskModal({ task, currentUser, onClose, onSave, onRefresh, teamMembers,
           )}
 
           <div className="it-updates-modal-actions">
+            {isExistingTask && canDelete && onDelete && (
+              <button
+                type="button"
+                className="it-updates-btn it-updates-btn-secondary"
+                onClick={onDelete}
+                style={{ marginRight: 'auto', border: '1px solid #ef4444', color: '#ef4444' }}
+              >
+                <MdDelete size={16} /> Delete
+              </button>
+            )}
             <button type="button" className="it-updates-btn it-updates-btn-secondary" onClick={onClose}>
               Cancel
             </button>
@@ -1487,7 +1546,7 @@ function EodModal({ onClose, onSave }) {
             <MdClose size={22} />
           </button>
         </div>
-        <form onSubmit={handleSubmit} className="it-updates-modal-form">
+        <form onSubmit={handleSubmit} onKeyDown={escapeCloses(onClose)} className="it-updates-modal-form">
           <label>
             Report date
             <input
@@ -1501,6 +1560,7 @@ function EodModal({ onClose, onSave }) {
             <textarea
               value={form.achievements}
               onChange={(e) => setForm((f) => ({ ...f, achievements: e.target.value }))}
+              onKeyDown={textareaSubmit}
               placeholder="e.g. Completed client follow-up, reviewed proposals..."
               rows={4}
               required
