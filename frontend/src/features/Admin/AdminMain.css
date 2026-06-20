@@ -398,6 +398,14 @@
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
+  /* Scroll still works; scrollbar hidden. */
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.admin-user-form::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
 }
 
 .admin-user-form > .admin-modal-actions {
@@ -567,6 +575,14 @@
   flex: 1 1 auto;
   min-height: 0;
   max-height: none;
+  /* Scroll still works; scrollbar hidden. */
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.admin-modal-body::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
 }
 
 .admin-check-label {

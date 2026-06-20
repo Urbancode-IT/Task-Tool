@@ -1856,10 +1856,25 @@
   width: 100%;
   max-height: 90vh;
   overflow-y: auto;
+  /* Scroll still works; the scrollbar is hidden across all form modals. */
+  scrollbar-width: none;
+  -ms-overflow-style: none;
   box-shadow: 0 25px 50px rgba(0, 0, 0, 0.2), var(--shadow-glow);
   animation: modalSlideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1);
   border: 1px solid var(--clr-slate-100);
   position: relative;
+}
+
+/* Hide scrollbars for the form modal and any scrollable area inside it (scroll still works). */
+.it-updates-modal::-webkit-scrollbar,
+.it-updates-modal *::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
+}
+.it-updates-modal * {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
 }
 
 @keyframes modalSlideUp {
