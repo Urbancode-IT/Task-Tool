@@ -51,20 +51,59 @@ const EMPTY_ALL_TASKS_FILTERS = { status: '', priority: '', assignee: '', branch
 const EMPTY_OVERVIEW_FILTERS = { from_date: '', to_date: '', assigned_to: '' };
 
 const STATUS_LABELS = {
-  todo: 'Idea',
-  in_progress: 'Drafting',
-  review: 'Design Review',
-  rework: 'Rework',
-  completed: 'Published',
+  requirement: 'Requirement',
+  idea: 'Idea',
+  instagram: 'Instagram',
+  meta_ads: 'Meta Ads',
+  linkedin: 'Linkedin',
+  youtube: 'Youtube',
+  google_ads: 'Google Ads',
+  gmb: 'GMB',
+  completed: 'Completed',
+  todo: 'Requirement',
+  in_progress: 'Idea',
+  review: 'Instagram',
+  rework: 'Meta Ads',
 };
 
 const STATUS_COLORS = {
+  requirement: '#94a3b8',
+  idea: '#6366f1',
+  instagram: '#e11d48',
+  meta_ads: '#2563eb',
+  linkedin: '#0284c7',
+  youtube: '#dc2626',
+  google_ads: '#f59e0b',
+  gmb: '#0f766e',
+  completed: '#10b981',
   todo: '#94a3b8',
   in_progress: '#6366f1',
-  review: '#8b5cf6',
-  rework: '#f97316',
-  completed: '#10b981',
+  review: '#e11d48',
+  rework: '#2563eb',
 };
+
+const STATUS_ORDER = [
+  'requirement',
+  'idea',
+  'instagram',
+  'meta_ads',
+  'linkedin',
+  'youtube',
+  'google_ads',
+  'gmb',
+  'completed',
+];
+
+const LEGACY_STATUS_ALIASES = {
+  todo: 'requirement',
+  in_progress: 'idea',
+  review: 'instagram',
+  rework: 'meta_ads',
+};
+
+const normalizeStatusKey = (status) => LEGACY_STATUS_ALIASES[status] || status || 'requirement';
+const getStatusLabel = (status) => STATUS_LABELS[normalizeStatusKey(status)] || status;
+const getStatusColor = (status) => STATUS_COLORS[normalizeStatusKey(status)] || '#374151';
 
 const PRIORITY_COLORS = {
   low: '#10b981',
@@ -93,12 +132,12 @@ const CHANNEL_COLORS = {
 const groupTasksByStatus = (tasks) =>
   tasks.reduce(
     (acc, task) => {
-      const key = task.status || 'in_progress';
+      const key = normalizeStatusKey(task.status);
       if (!acc[key]) acc[key] = [];
       acc[key].push(task);
       return acc;
     },
-    { todo: [], in_progress: [], review: [], rework: [], completed: [] }
+    STATUS_ORDER.reduce((acc, status) => ({ ...acc, [status]: [] }), {})
   );
 
 function Avatar({ user }) {
@@ -328,7 +367,7 @@ export default function SocialMediaMain({ currentUser, onLogout }) {
       );
       try {
         await itUpdatesApi.updateTask(taskId, { status: newStatus, team: MODULE_TEAM });
-        toastSuccess(`Task moved to ${STATUS_LABELS[newStatus] || newStatus}`);
+        toastSuccess(`Task moved to ${getStatusLabel(newStatus)}`);
       } catch {
         setTasks((prev) =>
           prev.map((t) =>
@@ -700,9 +739,13 @@ export default function SocialMediaMain({ currentUser, onLogout }) {
                   <div className="it-updates-stat-value">{completedToday}</div>
                 </div>
                 <div className="it-updates-stat-card">
-                  <div className="it-updates-stat-label">In Review</div>
+                  <div className="it-updates-stat-label">Channel Tasks</div>
                   <div className="it-updates-stat-value">
-                    {myTasks.filter((t) => t.status === 'review').length}
+                    {myTasks.filter((t) =>
+                      ['instagram', 'meta_ads', 'linkedin', 'youtube', 'google_ads', 'gmb'].includes(
+                        normalizeStatusKey(t.status)
+                      )
+                    ).length}
                   </div>
                 </div>
                 <div className="it-updates-stat-card">
@@ -722,7 +765,7 @@ export default function SocialMediaMain({ currentUser, onLogout }) {
                   <DragDropContext onDragEnd={handleDragEnd}>
                     <div className="it-updates-kanban-wrap">
                       <section className="it-updates-columns">
-                        {['todo', 'in_progress', 'review', 'rework', 'completed'].map((statusKey) =>
+                        {STATUS_ORDER.map((statusKey) =>
                           renderKanbanColumn(
                             statusKey,
                             myTaskGroups[statusKey] || []
@@ -742,7 +785,7 @@ export default function SocialMediaMain({ currentUser, onLogout }) {
               <DragDropContext onDragEnd={handleDragEnd}>
                 <div className="it-updates-kanban-wrap">
                   <section className="it-updates-columns">
-                    {['todo', 'in_progress', 'review', 'rework', 'completed'].map((statusKey) =>
+                    {STATUS_ORDER.map((statusKey) =>
                       renderKanbanColumn(statusKey, myTaskGroups[statusKey] || [])
                     )}
                   </section>
@@ -762,11 +805,9 @@ export default function SocialMediaMain({ currentUser, onLogout }) {
                   }
                 >
                   <option value="">Statuses</option>
-                  <option value="todo">Idea</option>
-                  <option value="in_progress">Drafting</option>
-                  <option value="review">Design Review</option>
-                  <option value="rework">Rework</option>
-                  <option value="completed">Published</option>
+                  {STATUS_ORDER.map((status) => (
+                    <option key={status} value={status}>{STATUS_LABELS[status]}</option>
+                  ))}
                 </select>
                 <select
                   value={allTasksFiltersApplied.priority}
@@ -814,7 +855,7 @@ export default function SocialMediaMain({ currentUser, onLogout }) {
               <DragDropContext onDragEnd={handleDragEnd}>
                 <div className="it-updates-kanban-wrap">
                   <section className="it-updates-columns">
-                    {['todo', 'in_progress', 'review', 'rework', 'completed'].map((statusKey) =>
+                    {STATUS_ORDER.map((statusKey) =>
                       renderKanbanColumn(
                         statusKey,
                         groupTasksByStatus(filteredTasks)[statusKey] || []
@@ -897,13 +938,11 @@ export default function SocialMediaMain({ currentUser, onLogout }) {
                           <span
                             className="it-updates-status-badge"
                             style={{
-                              backgroundColor: STATUS_COLORS[task.status]
-                                ? `${STATUS_COLORS[task.status]}18`
-                                : undefined,
-                              color: STATUS_COLORS[task.status] || '#374151',
+                              backgroundColor: `${getStatusColor(task.status)}18`,
+                              color: getStatusColor(task.status),
                             }}
                           >
-                            {STATUS_LABELS[task.status] ?? task.status}
+                            {getStatusLabel(task.status)}
                           </span>
                         </td>
                         <td>{(task.priority || 'medium').toUpperCase()}</td>
@@ -974,13 +1013,11 @@ export default function SocialMediaMain({ currentUser, onLogout }) {
                           <span
                             className="it-updates-status-badge"
                             style={{
-                              backgroundColor: STATUS_COLORS[task.status]
-                                ? `${STATUS_COLORS[task.status]}18`
-                                : undefined,
-                              color: STATUS_COLORS[task.status] || '#374151',
+                              backgroundColor: `${getStatusColor(task.status)}18`,
+                              color: getStatusColor(task.status),
                             }}
                           >
-                            {STATUS_LABELS[task.status] ?? task.status}
+                            {getStatusLabel(task.status)}
                           </span>
                         </td>
                       </tr>
@@ -1200,7 +1237,7 @@ function TaskModal({ task, currentUser, onClose, onSave, onRefresh, teamMembers,
     publish_date: task?.publish_date ? String(task.publish_date).slice(0, 10) : '',
     assigned_to: task?.assigned_to ?? '',
     assigned_by: task?.assigned_by ?? '',
-    status: task?.id != null ? (task?.status ?? 'in_progress') : 'todo',
+    status: task?.id != null ? normalizeStatusKey(task?.status) : 'requirement',
     priority: task?.priority ?? 'medium',
     task_date: task?.task_date ? String(task.task_date).slice(0, 10) : new Date().toISOString().slice(0, 10),
     due_date: task?.dueDate ? String(task.dueDate).slice(0, 10) : '',
@@ -1252,10 +1289,10 @@ function TaskModal({ task, currentUser, onClose, onSave, onRefresh, teamMembers,
     const hasPending = updatedReqs.some((r) => r.status !== 'completed');
 
     let newStatus = null;
-    if (allDone && form.status === 'in_progress') {
-      newStatus = 'review';
-    } else if (hasPending && (form.status === 'rework' || form.status === 'completed')) {
-      newStatus = 'in_progress';
+    if (allDone && form.status === 'requirement') {
+      newStatus = 'idea';
+    } else if (hasPending && form.status === 'completed') {
+      newStatus = 'requirement';
     }
 
     if (newStatus) {
@@ -1581,7 +1618,7 @@ function TaskModal({ task, currentUser, onClose, onSave, onRefresh, teamMembers,
           </label>
 
           {isExistingTask &&
-            (task?.status === 'completed' || task?.status === 'rework') &&
+            task?.status === 'completed' &&
             (task?.review_comment || task?.reviewed_by_username || task?.reviewed_at) && (
               <div className="it-updates-review-meta">
                 <div className="it-updates-review-meta-title">Last review</div>
@@ -1725,11 +1762,9 @@ function TaskModal({ task, currentUser, onClose, onSave, onRefresh, teamMembers,
           <label>
             Status
             <select value={form.status} onChange={(e) => setForm((f) => ({ ...f, status: e.target.value }))}>
-              <option value="todo">Idea</option>
-              <option value="in_progress">Drafting</option>
-              <option value="review">Design Review</option>
-              <option value="rework">Rework</option>
-              <option value="completed">Published</option>
+              {STATUS_ORDER.map((status) => (
+                <option key={status} value={status}>{STATUS_LABELS[status]}</option>
+              ))}
             </select>
           </label>
           <label>

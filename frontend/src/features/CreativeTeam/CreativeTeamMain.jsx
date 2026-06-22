@@ -51,11 +51,11 @@ const EMPTY_ALL_TASKS_FILTERS = { status: '', priority: '', assignee: '', branch
 const EMPTY_OVERVIEW_FILTERS = { from_date: '', to_date: '', assigned_to: '' };
 
 const STATUS_LABELS = {
-  todo: 'Idea',
-  in_progress: 'Drafting',
-  review: 'Design Review',
+  todo: 'Requirement',
+  in_progress: 'Content',
+  review: 'Design',
   rework: 'Rework',
-  completed: 'Published',
+  completed: 'Completed',
 };
 
 const STATUS_COLORS = {
@@ -762,11 +762,11 @@ export default function CreativeTeamMain({ currentUser, onLogout }) {
                   }
                 >
                   <option value="">Statuses</option>
-                  <option value="todo">Idea</option>
-                  <option value="in_progress">Drafting</option>
-                  <option value="review">Design Review</option>
+                  <option value="todo">Requirement</option>
+                  <option value="in_progress">Content</option>
+                  <option value="review">Design</option>
                   <option value="rework">Rework</option>
-                  <option value="completed">Published</option>
+                  <option value="completed">Completed</option>
                 </select>
                 <select
                   value={allTasksFiltersApplied.priority}
@@ -1725,11 +1725,11 @@ function TaskModal({ task, currentUser, onClose, onSave, onRefresh, teamMembers,
           <label>
             Status
             <select value={form.status} onChange={(e) => setForm((f) => ({ ...f, status: e.target.value }))}>
-              <option value="todo">Idea</option>
-              <option value="in_progress">Drafting</option>
-              <option value="review">Design Review</option>
+              <option value="todo">Requirement</option>
+              <option value="in_progress">Content</option>
+              <option value="review">Design</option>
               <option value="rework">Rework</option>
-              <option value="completed">Published</option>
+              <option value="completed">Completed</option>
             </select>
           </label>
           <label>
