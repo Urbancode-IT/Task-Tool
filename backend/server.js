@@ -767,7 +767,7 @@ app.delete(`${BASE_PATH}/tasks/:taskId`, async (req, res) => {
 app.get(`${BASE_PATH}/tasks/:taskId/comments`, async (req, res) => {
   try {
     if (db.useDb()) {
-      const list = await db.dbGetTaskComments(req.params.taskId);
+      const list = await db.dbGetTaskComments(req.params.taskId, req.query.team || null);
       return res.json(list);
     }
     const comments = commentsByTaskId[req.params.taskId] ?? [];

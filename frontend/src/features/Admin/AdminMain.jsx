@@ -447,7 +447,7 @@ export default function AdminMain({ currentUser, onLogout }) {
       requirementsLoading: true,
     });
     const team = task?.team;
-    const reqParams = team ? { params: { team } } : {};
+    const reqParams = team ? { team } : {};
     itUpdatesApi
       .getRequirements(taskId, reqParams)
       .then((res) => {

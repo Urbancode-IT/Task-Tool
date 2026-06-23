@@ -329,8 +329,10 @@ export async function dbEnsureTables() {
       ALTER TABLE task_comments
       ADD COLUMN IF NOT EXISTS parent_id INT,
       ADD COLUMN IF NOT EXISTS edited_at TIMESTAMPTZ,
-      ADD COLUMN IF NOT EXISTS mentions TEXT;
+      ADD COLUMN IF NOT EXISTS mentions TEXT,
+      ADD COLUMN IF NOT EXISTS team VARCHAR(40) DEFAULT 'it';
     `);
+    await p.query("UPDATE task_comments SET team = 'it' WHERE team IS NULL OR team = '';");
     await p.query(`
       CREATE TABLE IF NOT EXISTS comment_likes (
         comment_id INT NOT NULL REFERENCES task_comments(comment_id) ON DELETE CASCADE,
@@ -1200,36 +1202,6 @@ export async function dbGetTasksSimple(filters = {}) {
       whereParts.push(`t.status <> 'completed'`);
     }
 
-    // Optional team filter based on assignee's RBAC role code (legacy support).
-    // For consultant/digital/legal_finance tables we don't need this role filter.
-    if (filters.team && taskTable === 'it_tasks') {
-      if (String(filters.team) === 'it') {
-        whereParts.push(
-          `(COALESCE(u_assigned.is_it_developer, false) = true
-            OR COALESCE(u_assigned.is_it_manager, false) = true
-            OR EXISTS (
-              SELECT 1
-              FROM user_roles ur
-              JOIN roles r ON r.role_id = ur.role_id
-              WHERE ur.user_id = t.assigned_to
-                AND r.code = ANY($${i++})
-            ))`
-        );
-        params.push(['it_developer', 'it_manager', 'admin']);
-      } else {
-        whereParts.push(
-          `EXISTS (
-            SELECT 1
-            FROM user_roles ur
-            JOIN roles r ON r.role_id = ur.role_id
-            WHERE ur.user_id = t.assigned_to
-              AND r.code = $${i++}
-          )`
-        );
-        params.push(filters.team);
-      }
-    }
-
     if (whereParts.length > 0) query += ` WHERE ${whereParts.join(' AND ')}`;
     query += ' ORDER BY t.task_id';
 
@@ -1665,9 +1637,10 @@ function mapCommentRow(r) {
   };
 }
 
-export async function dbGetTaskComments(taskId) {
+export async function dbGetTaskComments(taskId, teamInput = null) {
   const p = getPool();
   if (!p) return [];
+  const team = resolveTeamFromInput(teamInput);
   const { rows } = await p.query(
     `SELECT c.*,
             u.username AS author_username,
@@ -1676,9 +1649,9 @@ export async function dbGetTaskComments(taskId) {
             (SELECT COALESCE(ARRAY_AGG(l.user_id), '{}') FROM comment_likes l WHERE l.comment_id = c.comment_id) AS liked_user_ids
      FROM task_comments c
      LEFT JOIN users u ON c.user_id = u.user_id
-     WHERE c.task_id = $1
+     WHERE c.task_id = $1 AND COALESCE(c.team, 'it') = $2
      ORDER BY c.created_at`,
-    [taskId]
+    [taskId, team]
   );
   return rows.map(mapCommentRow);
 }
@@ -1694,6 +1667,7 @@ function normalizeMentions(mentions) {
 export async function dbAddTaskComment(taskId, data) {
   const p = getPool();
   if (!p) return null;
+  const team = resolveTeamFromInput(data?.team);
   const parentId =
     data.parent_id != null && String(data.parent_id).trim() !== ''
       ? parseInt(String(data.parent_id), 10)
@@ -1701,8 +1675,8 @@ export async function dbAddTaskComment(taskId, data) {
   const {
     rows: [row],
   } = await p.query(
-    `INSERT INTO task_comments (task_id, user_id, comment_text, parent_id, mentions)
-     VALUES ($1, $2, $3, $4, $5)
+    `INSERT INTO task_comments (task_id, user_id, comment_text, parent_id, mentions, team)
+     VALUES ($1, $2, $3, $4, $5, $6)
      RETURNING *`,
     [
       taskId,
@@ -1710,6 +1684,7 @@ export async function dbAddTaskComment(taskId, data) {
       data.message ?? data.comment_text ?? '',
       Number.isFinite(parentId) ? parentId : null,
       normalizeMentions(data.mentions),
+      team,
     ]
   );
   if (!row) return null;
@@ -2174,7 +2149,8 @@ export async function dbGetTeamOverview(team = null) {
   const p = getPool();
   if (!p) return [];
   try {
-    const taskJoinTable = team === 'legal_finance' ? 'legal_finance_tasks' : 'it_tasks';
+    const normalizedTeam = resolveTeamFromInput(team);
+    const taskJoinTable = taskTableForTeam(normalizedTeam);
 
     let teamWhereClause = '';
     const params = [];

@@ -141,7 +141,7 @@ function CommentItem({
 // Default adapter: task comments. Pass a different `api` to reuse this thread for
 // another entity (e.g. EOD reports). All five methods take the entity id first.
 const TASK_COMMENT_API = {
-  getComments: (id) => itUpdatesApi.getTaskComments(id),
+  getComments: (id, params) => itUpdatesApi.getTaskComments(id, params),
   addComment: (id, body) => itUpdatesApi.addTaskComment(id, body),
   updateComment: (id, commentId, body) => itUpdatesApi.updateTaskComment(id, commentId, body),
   deleteComment: (id, commentId, userId) => itUpdatesApi.deleteTaskComment(id, commentId, userId),
@@ -164,14 +164,14 @@ export default function TaskComments({ taskId, team, currentUser, canComment, ap
     if (!taskId) return;
     setLoading(true);
     try {
-      const res = await api.getComments(taskId);
+      const res = await api.getComments(taskId, team ? { team } : {});
       setComments(Array.isArray(res.data) ? res.data : []);
     } catch {
       setComments([]);
     } finally {
       setLoading(false);
     }
-  }, [taskId, api]);
+  }, [taskId, team, api]);
 
   useEffect(() => {
     load();

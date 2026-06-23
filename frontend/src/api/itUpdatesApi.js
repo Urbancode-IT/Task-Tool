@@ -2,6 +2,11 @@ import apiClient from './client';
 
 const BASE_PATH = '/api/it-updates';
 
+const withTeamParam = (data = {}, params = {}) => {
+  const team = params?.team ?? data?.team;
+  return team ? { ...params, team } : params;
+};
+
 const itUpdatesApi = {
   getProjects: (status) => {
     const params = status ? { status } : {};
@@ -29,15 +34,17 @@ const itUpdatesApi = {
   },
 
   updateTask: (taskId, taskData, params = {}) => {
-    return apiClient.put(`${BASE_PATH}/tasks/${taskId}`, taskData, { params });
+    return apiClient.put(`${BASE_PATH}/tasks/${taskId}`, taskData, {
+      params: withTeamParam(taskData, params),
+    });
   },
 
   deleteTask: (taskId, params = {}) => {
     return apiClient.delete(`${BASE_PATH}/tasks/${taskId}`, { params });
   },
 
-  getTaskComments: (taskId) => {
-    return apiClient.get(`${BASE_PATH}/tasks/${taskId}/comments`);
+  getTaskComments: (taskId, params = {}) => {
+    return apiClient.get(`${BASE_PATH}/tasks/${taskId}/comments`, { params });
   },
 
   addTaskComment: (taskId, commentData) => {
