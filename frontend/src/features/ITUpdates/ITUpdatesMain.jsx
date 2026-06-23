@@ -381,11 +381,15 @@ const ITUpdatesMain = ({ currentUser, onLogout }) => {
 
   useEffect(() => {
     if (activeTab === 'EOD Updates') {
-      itUpdatesApi.getEodReports()
+      const params = {};
+      if (currentUser?.branch) {
+        params.branch = currentUser.branch;
+      }
+      itUpdatesApi.getEodReports(params)
         .then((res) => setEodReports(Array.isArray(res.data) ? res.data : []))
         .catch(() => setEodReports([]));
     }
-  }, [activeTab]);
+  }, [activeTab, currentUser?.branch]);
 
   const stats = useMemo(() => {
     const d = dashboardData;

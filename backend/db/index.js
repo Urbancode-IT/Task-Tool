@@ -2281,7 +2281,7 @@ export async function dbGetEodReports(filters = {}) {
   if (!p) return [];
   try {
     let query = `
-      SELECT e.*, u.username, u.profile_image AS author_profile_image,
+      SELECT e.*, u.username, u.profile_image AS author_profile_image, u.branch,
              (SELECT COUNT(*) FROM eod_report_likes l WHERE l.report_id = e.report_id) AS like_count,
              (SELECT COALESCE(ARRAY_AGG(l.user_id), '{}') FROM eod_report_likes l WHERE l.report_id = e.report_id) AS liked_user_ids,
              (SELECT COUNT(*) FROM eod_report_comments c WHERE c.report_id = e.report_id) AS comment_count
@@ -2293,6 +2293,7 @@ export async function dbGetEodReports(filters = {}) {
     let i = 1;
     if (filters.user_id != null) { query += ` AND e.user_id = $${i}`; params.push(filters.user_id); i++; }
     if (filters.report_date) { query += ` AND e.report_date = $${i}`; params.push(filters.report_date); i++; }
+    if (filters.branch) { query += ` AND u.branch = $${i}`; params.push(filters.branch); i++; }
     query += ' ORDER BY e.report_date DESC, e.report_id DESC';
     const { rows } = await p.query(query, params);
     return rows.map((r) => ({
@@ -2300,6 +2301,7 @@ export async function dbGetEodReports(filters = {}) {
       user_id: r.user_id,
       username: r.username,
       author_profile_image: r.author_profile_image ?? null,
+      branch: r.branch ?? null,
       report_date: r.report_date,
       achievements: r.achievements,
       blockers: r.blockers,

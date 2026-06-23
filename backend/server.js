@@ -956,7 +956,7 @@ app.get(`${BASE_PATH}/team-overview`, async (req, res) => {
 app.get(`${BASE_PATH}/eod-reports`, async (req, res) => {
   try {
     if (db.useDb()) {
-      const list = await db.dbGetEodReports({ user_id: req.query.user_id, report_date: req.query.report_date });
+      const list = await db.dbGetEodReports({ user_id: req.query.user_id, report_date: req.query.report_date, branch: req.query.branch });
       return res.json(list);
     }
     res.json([]);
