@@ -541,6 +541,37 @@ const ITUpdatesMain = ({ currentUser, onLogout }) => {
     }
   };
 
+  // Project delete: available to admins and the project owner.
+  const canDeleteProject = (project) =>
+    isAdmin || (myId != null && String(project?.owner_user_id) === String(myId));
+
+  const handleDeleteProject = async (project) => {
+    if (!project?.id) return false;
+    const label = project.name || project.project_name || 'this project';
+    if (
+      !window.confirm(
+        `Delete "${label}"? Tasks linked to it will be unlinked. This cannot be undone.`
+      )
+    )
+      return false;
+    try {
+      await itUpdatesApi.deleteProject(project.id);
+      const [statsRes, projRes] = await Promise.all([
+        itUpdatesApi.getDashboardStats(),
+        itUpdatesApi.getProjects(),
+      ]);
+      setDashboardData(statsRes?.data ?? null);
+      setProjects(Array.isArray(projRes?.data) ? projRes.data.filter(Boolean) : []);
+      toastSuccess('Project deleted');
+      return true;
+    } catch (e) {
+      const msg = e?.response?.data?.message || 'Failed to delete project';
+      setError(msg);
+      toastError(msg);
+      return false;
+    }
+  };
+
   const handleSaveTask = async (payload) => {
     try {
       const body = {
@@ -1435,6 +1466,10 @@ const ITUpdatesMain = ({ currentUser, onLogout }) => {
           teammatesOptions={developers}
           onClose={closeProjectModal}
           onSave={handleSaveProject}
+          canDelete={Boolean(projectModal.project?.id) && canDeleteProject(projectModal.project)}
+          onDelete={async () => {
+            if (await handleDeleteProject(projectModal.project)) closeProjectModal();
+          }}
         />
       )}
       {taskModal.open && (
@@ -1471,7 +1506,7 @@ const ITUpdatesMain = ({ currentUser, onLogout }) => {
   );
 };
 
-function ProjectModal({ project, teammatesOptions, onClose, onSave }) {
+function ProjectModal({ project, teammatesOptions, onClose, onSave, canDelete = false, onDelete }) {
   const initialTeammates = Array.isArray(project?.teammates)
     ? project.teammates
     : typeof project?.teammates_text === 'string'
@@ -1754,6 +1789,16 @@ function ProjectModal({ project, teammatesOptions, onClose, onSave }) {
             />
           </label>
           <div className="it-updates-modal-actions">
+            {project && canDelete && onDelete && (
+              <button
+                type="button"
+                className="it-updates-btn it-updates-btn-secondary"
+                onClick={onDelete}
+                style={{ marginRight: 'auto', border: '1px solid #ef4444', color: '#ef4444' }}
+              >
+                <MdDelete size={16} /> Delete
+              </button>
+            )}
             <button type="button" className="it-updates-btn it-updates-btn-secondary" onClick={onClose}>
               Cancel
             </button>
@@ -1779,7 +1824,10 @@ function ProjectModal({ project, teammatesOptions, onClose, onSave }) {
   );
 }
 
-function TaskModal({ task, currentUser, projects, developers, managers, onClose, onSave, onRefresh, onError, canDelete = false, onDelete }) {
+export function TaskModal({ task, currentUser, projects, developers, managers, onClose, onSave, onRefresh, onError, canDelete = false, onDelete, team: teamProp = MODULE_TEAM, hideProject = false }) {
+  // Shadow the module default so every internal team reference follows the prop.
+  // This lets other sectors (e.g. director tasks) reuse this modal unchanged.
+  const MODULE_TEAM = teamProp;
   const [reqExpanded, setReqExpanded] = useState(false);
   const [form, setForm] = useState({
     task_title: task?.title ?? '',
@@ -2254,15 +2302,17 @@ function TaskModal({ task, currentUser, projects, developers, managers, onClose,
               </div>
             )}
           </div>
-          <label>
-            Project
-            <ProjectSearchSelect
-              projects={projects}
-              value={form.project_id}
-              onChange={(id) => setForm((f) => ({ ...f, project_id: id }))}
-              placeholder="Search projects..."
-            />
-          </label>
+          {!hideProject && (
+            <label>
+              Project
+              <ProjectSearchSelect
+                projects={projects}
+                value={form.project_id}
+                onChange={(id) => setForm((f) => ({ ...f, project_id: id }))}
+                placeholder="Search projects..."
+              />
+            </label>
+          )}
           <label>
             Priority
             <select value={form.priority} onChange={(e) => setForm((f) => ({ ...f, priority: e.target.value }))}>

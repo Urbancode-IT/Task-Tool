@@ -633,3 +633,93 @@
 .admin-btn-primary:hover {
   background: #4f46e5;
 }
+
+/* ── Director tasks ── */
+.admin-section {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.admin-section-title {
+  margin: 0 0 0.75rem;
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--clr-slate-700);
+}
+
+.admin-director-toolbar {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.admin-director-toolbar .admin-section-title {
+  margin: 0;
+}
+
+.admin-director-form {
+  background: #fff;
+  border: 1px solid var(--clr-slate-200);
+  border-radius: 12px;
+  padding: 1.25rem;
+}
+
+.admin-director-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.9rem;
+}
+
+.admin-director-form-grid label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--clr-slate-700);
+}
+
+.admin-director-form-grid input,
+.admin-director-form-grid select,
+.admin-director-form-grid textarea {
+  padding: 0.55rem 0.7rem;
+  border: 1px solid var(--clr-slate-200);
+  border-radius: 8px;
+  font: inherit;
+  font-weight: 400;
+}
+
+.admin-director-form-full {
+  grid-column: 1 / -1;
+}
+
+.admin-director-form-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 1rem;
+}
+
+.admin-muted {
+  margin-top: 0.25rem;
+  font-size: 0.8rem;
+  color: var(--clr-slate-500);
+}
+
+.admin-status-select {
+  padding: 0.35rem 0.5rem;
+  border: 1px solid var(--clr-slate-200);
+  border-radius: 8px;
+  font: inherit;
+  font-size: 0.82rem;
+  background: #fff;
+  cursor: pointer;
+}
+
+@media (max-width: 640px) {
+  .admin-director-form-grid {
+    grid-template-columns: 1fr;
+  }
+}

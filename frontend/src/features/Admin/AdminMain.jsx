@@ -14,9 +14,11 @@ import {
   MdVisibility,
   MdLock,
   MdLockOpen,
+  MdSupervisorAccount,
 } from 'react-icons/md';
 import adminApi from '../../api/adminApi';
 import itUpdatesApi from '../../api/itUpdatesApi';
+import { TaskModal } from '../ITUpdates/ITUpdatesMain';
 import { getDisplayRole } from '../../utils/displayRole';
 import { toastSuccess, toastError } from '../../utils/toast';
 import ProjectSearchSelect from '../../components/ProjectSearchSelect';
@@ -99,7 +101,10 @@ const TAB_SUBTITLES = {
   users: 'Manage accounts, roles, and teams. Only admins can access this page.',
   locked_users: 'Users locked out for a missing EOD report. Approve to restore their access.',
   departments: 'Teams in the organisation. Users are assigned roles linked to these departments.',
+  director_tasks: 'Tasks directors assign to one another. Only directors can create them.',
 };
+
+const DIRECTOR_TASK_TAB = { key: 'director_tasks', label: 'Director Tasks', icon: MdSupervisorAccount };
 
 export default function AdminMain({ currentUser, onLogout }) {
   const [activeTab, setActiveTab] = useState('dashboard');
@@ -162,6 +167,135 @@ export default function AdminMain({ currentUser, onLogout }) {
         return null;
       }
     })();
+
+  const perms = Array.isArray(user?.permissions) ? user.permissions : [];
+  const isAdmin = perms.includes('admin.access');
+  const canManageDirectorTasks = perms.includes('director.manage');
+  const canViewDirectorTasks = isAdmin || perms.includes('director.view') || canManageDirectorTasks;
+
+  const [directors, setDirectors] = useState([]);
+  const [directorTasks, setDirectorTasks] = useState([]);
+  const [directorTasksLoading, setDirectorTasksLoading] = useState(false);
+  const [directorModal, setDirectorModal] = useState({ open: false, task: null });
+
+  const openDirectorTask = (task = null) => setDirectorModal({ open: true, task });
+  const closeDirectorTask = () => setDirectorModal({ open: false, task: null });
+
+  const visibleTabs = useMemo(() => {
+    const tabs = isAdmin ? [...ADMIN_TABS] : [];
+    if (canViewDirectorTasks) tabs.push(DIRECTOR_TASK_TAB);
+    return tabs.length ? tabs : ADMIN_TABS;
+  }, [isAdmin, canViewDirectorTasks]);
+
+  const loadDirectors = () => {
+    itUpdatesApi
+      .getDirectors()
+      .then((res) => setDirectors(Array.isArray(res.data) ? res.data : []))
+      .catch(() => setDirectors([]));
+  };
+
+  const loadDirectorTasks = () => {
+    setDirectorTasksLoading(true);
+    itUpdatesApi
+      .getTasks({ team: 'director' })
+      .then((res) => setDirectorTasks(Array.isArray(res.data) ? res.data : []))
+      .catch(() => setDirectorTasks([]))
+      .finally(() => setDirectorTasksLoading(false));
+  };
+
+  // Create or update a director-to-director task (payload comes from the shared TaskModal).
+  // Goes through the shared /tasks path, which emails the assignee on assignment. New tasks
+  // also create their requirements, exactly like the IT Updates flow.
+  const saveDirectorTask = async (payload) => {
+    const assignedBy = payload.assigned_by;
+    const assignedTo = payload.assigned_to;
+    if (!assignedBy || !assignedTo) {
+      toastError('Select both the assigning and the receiving director.');
+      return false;
+    }
+    if (String(assignedBy) === String(assignedTo)) {
+      toastError('A director cannot assign a task to themselves.');
+      return false;
+    }
+    if (!String(payload.task_title ?? '').trim()) {
+      toastError('Task title is required.');
+      return false;
+    }
+    const body = {
+      title: payload.task_title,
+      task_description: payload.task_description ?? null,
+      assigned_to: assignedTo,
+      assigned_by: assignedBy,
+      created_by: user?.id ?? user?.user_id ?? null,
+      status: payload.status,
+      priority: payload.priority,
+      task_date: payload.task_date,
+      dueDate: payload.due_date ?? payload.dueDate,
+      team: 'director',
+    };
+    try {
+      const isEdit = Boolean(directorModal.task?.id);
+      if (isEdit) {
+        await itUpdatesApi.updateTask(directorModal.task.id, { ...body, team: 'director' });
+      } else {
+        const res = await itUpdatesApi.createTask({ ...body }, { team: 'director' });
+        const newTaskId = res.data?.id || res.data?.task_id;
+        if (newTaskId && payload.requirements?.length > 0) {
+          await Promise.all(
+            payload.requirements.map((req) =>
+              itUpdatesApi.createRequirement(
+                newTaskId,
+                {
+                  title: req.title,
+                  status: req.status,
+                  priority: req.priority,
+                  due_date: req.due_date || null,
+                  team: 'director',
+                },
+                { team: 'director' }
+              )
+            )
+          );
+        }
+      }
+      toastSuccess(isEdit ? 'Director task updated' : 'Director task created');
+      loadDirectorTasks();
+      return true;
+    } catch (err) {
+      toastError(err?.response?.data?.message || 'Failed to save director task');
+      return false;
+    }
+  };
+
+  const handleDirectorStatusChange = async (task, status) => {
+    const id = task?.task_id ?? task?.id;
+    if (id == null) return;
+    try {
+      await itUpdatesApi.updateTask(id, { status, team: 'director' });
+      setDirectorTasks((prev) =>
+        prev.map((t) => (String(t.task_id ?? t.id) === String(id) ? { ...t, status } : t))
+      );
+      toastSuccess('Status updated');
+    } catch (err) {
+      toastError(err?.response?.data?.message || 'Failed to update status');
+    }
+  };
+
+  const handleDeleteDirectorTask = async (task) => {
+    const id = task?.task_id ?? task?.id;
+    if (id == null) return false;
+    const label = task.task_title || task.title || 'this task';
+    if (!window.confirm(`Delete "${label}"? This cannot be undone.`)) return false;
+    try {
+      await itUpdatesApi.deleteTask(id, { team: 'director' });
+      setDirectorTasks((prev) => prev.filter((t) => String(t.task_id ?? t.id) !== String(id)));
+      toastSuccess('Director task deleted');
+      return true;
+    } catch (err) {
+      toastError(err?.response?.data?.message || 'Failed to delete director task');
+      return false;
+    }
+  };
 
   const loadUsers = () => {
     setLoading(true);
@@ -273,19 +407,40 @@ export default function AdminMain({ currentUser, onLogout }) {
   };
 
   useEffect(() => {
-    loadUsers();
-    loadRoles();
-    loadDepartments();
-    loadDashboardStats();
-    loadReviewTasks();
-    loadPendingSummary();
-    loadOverdueTasks();
+    if (isAdmin) {
+      loadUsers();
+      loadRoles();
+      loadDepartments();
+      loadDashboardStats();
+      loadReviewTasks();
+      loadPendingSummary();
+      loadOverdueTasks();
+    }
+    if (canViewDirectorTasks) {
+      loadDirectors();
+      loadDirectorTasks();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Keep the active tab valid for the current user's available tabs (e.g. a
+  // director-only user has no dashboard).
+  useEffect(() => {
+    if (!visibleTabs.some((t) => t.key === activeTab)) {
+      setActiveTab(visibleTabs[0]?.key || 'dashboard');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visibleTabs]);
 
   useEffect(() => {
     if (activeTab === 'review_tasks') loadReviewTasks();
     if (activeTab === 'overdue_tasks') loadOverdueTasks();
     if (activeTab === 'locked_users') loadLockedUsers();
+    if (activeTab === 'director_tasks' && canViewDirectorTasks) {
+      loadDirectors();
+      loadDirectorTasks();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab]);
 
   useEffect(() => {
@@ -493,21 +648,27 @@ export default function AdminMain({ currentUser, onLogout }) {
     [users, usersTeamFilter]
   );
 
-  const tabConfig = ADMIN_TABS.find((t) => t.key === activeTab);
+  const tabConfig = visibleTabs.find((t) => t.key === activeTab);
   const handleNavClick = (key) => {
     setActiveTab(key);
     setSidebarOpen(false);
   };
 
   const refreshAll = () => {
-    loadUsers();
-    loadRoles();
-    loadDepartments();
-    loadDashboardStats();
-    loadReviewTasks();
-    loadPendingSummary();
-    loadOverdueTasks();
-    if (activeTab === 'overview') loadOverviewData();
+    if (isAdmin) {
+      loadUsers();
+      loadRoles();
+      loadDepartments();
+      loadDashboardStats();
+      loadReviewTasks();
+      loadPendingSummary();
+      loadOverdueTasks();
+      if (activeTab === 'overview') loadOverviewData();
+    }
+    if (canViewDirectorTasks) {
+      loadDirectors();
+      loadDirectorTasks();
+    }
   };
 
   return (
@@ -526,7 +687,7 @@ export default function AdminMain({ currentUser, onLogout }) {
         </div>
         <nav className="it-updates-sidebar-nav">
           <div className="it-updates-sidebar-nav-label">Navigation</div>
-          {ADMIN_TABS.map((tab) => {
+          {visibleTabs.map((tab) => {
             const Icon = tab.icon;
             return (
               <button
@@ -1181,8 +1342,156 @@ export default function AdminMain({ currentUser, onLogout }) {
               </div>
             </section>
           )}
+
+          {activeTab === 'director_tasks' && (
+            <section className="admin-section">
+              <div className="admin-director-toolbar">
+                <div>
+                  <h3 className="admin-section-title">Director tasks</h3>
+                  {canManageDirectorTasks && directors.length < 2 && (
+                    <p className="admin-muted">
+                      At least two users must hold the Director role before tasks can be
+                      assigned. Assign the Director role from the Users tab.
+                    </p>
+                  )}
+                </div>
+                {canManageDirectorTasks && (
+                  <button
+                    type="button"
+                    className="it-updates-btn it-updates-btn-primary"
+                    onClick={() => openDirectorTask(null)}
+                    disabled={directors.length < 2}
+                  >
+                    <MdAdd size={18} />
+                    Add task
+                  </button>
+                )}
+              </div>
+
+              <div className="admin-review-panel">
+                {directorTasksLoading ? (
+                  <div className="admin-loading">Loading…</div>
+                ) : (
+                  <div className="admin-table-wrap">
+                    <table className="admin-table">
+                      <thead>
+                        <tr>
+                          <th>Task</th>
+                          <th>Assigned by</th>
+                          <th>Assigned to</th>
+                          <th>Priority</th>
+                          <th>Status</th>
+                          <th>Due</th>
+                          {canManageDirectorTasks && <th className="admin-th-actions">Actions</th>}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {directorTasks.map((t) => {
+                          const id = t.task_id || t.id;
+                          const title = t.task_title || t.title || 'Task';
+                          const assignee = t.assignee || '—';
+                          const assignedBy = t.assigned_by_name || t.assigned_by_username || '—';
+                          const priority = t.priority || 'medium';
+                          const status = t.status || '—';
+                          const due = t.dueDate || t.due_date;
+                          return (
+                            <tr key={String(id)}>
+                              <td>
+                                {canManageDirectorTasks ? (
+                                  <button
+                                    type="button"
+                                    className="admin-task-link"
+                                    onClick={() => openDirectorTask(t)}
+                                    title="Open task (edit, requirements)"
+                                  >
+                                    <strong>{title}</strong>
+                                  </button>
+                                ) : (
+                                  <strong>{title}</strong>
+                                )}
+                                {t.task_description && (
+                                  <div className="admin-muted">{t.task_description}</div>
+                                )}
+                              </td>
+                              <td>{assignedBy}</td>
+                              <td>{assignee}</td>
+                              <td>
+                                <span className={`admin-priority ${priority}`}>{priority}</span>
+                              </td>
+                              <td>
+                                {canManageDirectorTasks ? (
+                                  <select
+                                    className="admin-status-select"
+                                    value={status}
+                                    onChange={(e) => handleDirectorStatusChange(t, e.target.value)}
+                                  >
+                                    <option value="todo">To do</option>
+                                    <option value="in_progress">In Progress</option>
+                                    <option value="review">Review</option>
+                                    <option value="rework">Rework</option>
+                                    <option value="completed">Completed</option>
+                                  </select>
+                                ) : (
+                                  status
+                                )}
+                              </td>
+                              <td>{due ? new Date(due).toLocaleDateString() : '—'}</td>
+                              {canManageDirectorTasks && (
+                                <td className="admin-td-actions">
+                                  <button
+                                    type="button"
+                                    className="admin-btn-sm admin-btn-view-task"
+                                    onClick={() => openDirectorTask(t)}
+                                    title="Open / edit task"
+                                  >
+                                    <MdEdit size={16} aria-hidden /> Edit
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="admin-btn-sm"
+                                    style={{ border: '1px solid #ef4444', color: '#ef4444' }}
+                                    onClick={() => handleDeleteDirectorTask(t)}
+                                    title="Delete task"
+                                  >
+                                    <MdDelete size={16} aria-hidden /> Delete
+                                  </button>
+                                </td>
+                              )}
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                    {!directorTasks.length && (
+                      <div className="admin-empty">No director tasks yet.</div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </section>
+          )}
         </main>
       </div>
+
+      {directorModal.open && (
+        <TaskModal
+          task={directorModal.task}
+          currentUser={user}
+          team="director"
+          hideProject
+          projects={[]}
+          developers={directors}
+          managers={directors}
+          onClose={closeDirectorTask}
+          onSave={saveDirectorTask}
+          onRefresh={loadDirectorTasks}
+          onError={(msg) => setError(msg)}
+          canDelete={Boolean(directorModal.task?.id) && canManageDirectorTasks}
+          onDelete={async () => {
+            if (await handleDeleteDirectorTask(directorModal.task)) closeDirectorTask();
+          }}
+        />
+      )}
 
       {addUserModal && (
         <AdminAddUserModal

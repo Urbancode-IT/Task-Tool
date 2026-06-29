@@ -936,6 +936,30 @@
 }
 
 /* ─── Kanban Board ─── */
+.social-media-kanban-wrap {
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 0.2rem 0.45rem 0.35rem;
+  scrollbar-width: thin;
+  scrollbar-color: #cbd5e1 transparent;
+}
+
+.social-media-columns {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(240px, 290px);
+  gap: 1.5rem;
+  min-width: max-content;
+  align-items: start;
+  padding: 0.3rem 0.2rem 0.4rem;
+}
+
+.social-media-columns .it-updates-column {
+  width: 100%;
+  min-width: 240px;
+  flex: 0 0 240px;
+}
+
 .it-updates-tasks-header {
   display: flex;
   align-items: center;

@@ -20,7 +20,12 @@ const MODULES = [
     icon: MdGavel,
     permissions: ['legal_finance.view', 'legal_finance.manage'],
   },
-  { key: 'admin', label: 'Management', icon: MdAdminPanelSettings, permission: 'admin.access' },
+  {
+    key: 'admin',
+    label: 'Management',
+    icon: MdAdminPanelSettings,
+    permissions: ['admin.access', 'director.view', 'director.manage'],
+  },
 ];
 
 export default function MainLayout({ currentUser, onLogout }) {

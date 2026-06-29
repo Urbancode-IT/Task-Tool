@@ -79,6 +79,11 @@ const itUpdatesApi = {
     return apiClient.get(`${BASE_PATH}/users`);
   },
 
+  // Users holding the Director role (for director-to-director task assignment).
+  getDirectors: () => {
+    return apiClient.get(`${BASE_PATH}/directors`);
+  },
+
   createUser: (userData) => {
     return apiClient.post(`${BASE_PATH}/users`, userData);
   },

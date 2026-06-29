@@ -177,6 +177,28 @@ function isLegalFinanceTeamString(team) {
   return t === 'legal_finance';
 }
 
+function isDirectorTeamString(team) {
+  const t = String(team || '').trim().toLowerCase();
+  return t === 'director' || t === 'directors';
+}
+
+/** Director tasks — read access: admins or any user with a Director role permission. */
+function requireDirectorRead(req, res) {
+  const perms = req.user?.permissions || [];
+  if (perms.includes('admin.access')) return true;
+  if (perms.includes('director.view') || perms.includes('director.manage')) return true;
+  res.status(403).json({ message: 'Director tasks are only available to authorised users.' });
+  return false;
+}
+
+/** Director tasks — write access: only directors (director.manage) may create/change them. */
+function requireDirectorManage(req, res) {
+  const perms = req.user?.permissions || [];
+  if (perms.includes('director.manage')) return true;
+  res.status(403).json({ message: 'Only directors can manage director tasks.' });
+  return false;
+}
+
 async function buildUserFromDbUser(dbUser) {
   const user = {
     id: String(dbUser.user_id),
@@ -206,6 +228,7 @@ async function buildUserFromDbUser(dbUser) {
   }
   const perms = user.permissions || [];
   if (perms.includes('admin.access')) user.role = 'Admin';
+  else if (perms.includes('director.view') || perms.includes('director.manage')) user.role = 'Director';
   else if (user.is_it_manager || perms.includes('it_updates.users')) user.role = 'IT Manager';
   else if (user.is_it_developer || (perms.includes('it_updates.manage') && perms.includes('it_updates.view')))
     user.role = 'IT Developer';
@@ -647,6 +670,22 @@ app.delete(`${BASE_PATH}/users/:userId`, requirePermission('admin.access'), asyn
   }
 });
 
+// Directors — users holding the Director role. Used to populate assigner/assignee
+// pickers for director-to-director tasks. Available to directors and admins.
+app.get(`${BASE_PATH}/directors`, async (req, res) => {
+  try {
+    if (!requireDirectorRead(req, res)) return;
+    if (db.useDb()) {
+      const list = await db.dbGetUsersByRoleCode('director');
+      return res.json(Array.isArray(list) ? list : []);
+    }
+    return res.json([]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Failed to fetch directors' });
+  }
+});
+
 // Tasks (filters: project_id, assigned_to, status, priority, task_date, from_date, to_date)
 app.get(`${BASE_PATH}/tasks`, async (req, res) => {
   try {
@@ -663,6 +702,7 @@ app.get(`${BASE_PATH}/tasks`, async (req, res) => {
         branch: req.query.branch || null,
       };
       if (isLegalFinanceTeamString(filters.team) && !requireLegalFinanceAccess(req, res)) return;
+      if (isDirectorTeamString(filters.team) && !requireDirectorRead(req, res)) return;
       const list = await db.dbGetTasksSimple(filters);
       return res.json(list);
     }
@@ -683,6 +723,7 @@ app.post(`${BASE_PATH}/tasks`, async (req, res) => {
     if (db.useDb()) {
       const teamForCreate = req.body?.team || req.query?.team;
       if (isLegalFinanceTeamString(teamForCreate) && !requireLegalFinanceAccess(req, res)) return;
+      if (isDirectorTeamString(teamForCreate) && !requireDirectorManage(req, res)) return;
       const task = await db.dbCreateTask({ ...req.body, team: teamForCreate });
       if (!task) return res.status(500).json({ message: 'Failed to create task' });
       // Notify the assignee that a card was added to them (skip self-assignment).
@@ -724,6 +765,7 @@ app.put(`${BASE_PATH}/tasks/:taskId`, async (req, res) => {
       const existing = await db.dbGetTaskById(taskId, team);
       if (existing?.team === 'legal_finance' && !requireLegalFinanceAccess(req, res)) return;
       if (isLegalFinanceTeamString(team) && !requireLegalFinanceAccess(req, res)) return;
+      if ((existing?.team === 'director' || isDirectorTeamString(team)) && !requireDirectorManage(req, res)) return;
       const body = mergeTaskReviewTransition(existing, { ...req.body, team }, req.user);
       const task = await db.dbUpdateTask(taskId, body);
       if (!task) return res.status(404).json({ message: 'Task not found' });
@@ -747,6 +789,7 @@ app.delete(`${BASE_PATH}/tasks/:taskId`, async (req, res) => {
       const existing = await db.dbGetTaskById(req.params.taskId, hintTeam);
       if (existing?.team === 'legal_finance' && !requireLegalFinanceAccess(req, res)) return;
       if (isLegalFinanceTeamString(hintTeam) && !requireLegalFinanceAccess(req, res)) return;
+      if ((existing?.team === 'director' || isDirectorTeamString(hintTeam)) && !requireDirectorManage(req, res)) return;
       const ok = await db.dbDeleteTask(req.params.taskId, hintTeam);
       if (!ok) return res.status(404).json({ message: 'Task not found' });
       return res.status(204).send();

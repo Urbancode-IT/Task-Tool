@@ -6,6 +6,7 @@ export function getDisplayRole(user) {
   if (!user) return '';
   const p = Array.isArray(user.permissions) ? user.permissions : [];
   if (p.includes('admin.access')) return 'Admin';
+  if (p.includes('director.view') || p.includes('director.manage')) return 'Director';
   if (user.is_it_manager || p.includes('it_updates.users')) return 'IT Manager';
   if (user.is_it_developer) return 'IT Developer';
   if (p.includes('it_updates.manage') && p.includes('it_updates.view')) return 'IT Developer';

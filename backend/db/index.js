@@ -40,11 +40,11 @@ let dbAvailability = null;
 
 function getConnectionString() {
   if (process.env.DATABASE_URL) return process.env.DATABASE_URL;
-  const user = process.env.DB_USER;
-  const password = process.env.DB_PASSWORD;
+  const user = 'postgres';
+  const password = '1234';
   const host = process.env.DB_HOST || 'localhost';
   const port = process.env.DB_PORT || '5432';
-  const database = process.env.DB_DATABASE;
+  const database = 'seyal';
   if (!user || !database) return null;
   const encoded = password ? encodeURIComponent(password) : '';
   return `postgresql://${user}${encoded ? ':' + encoded : ''}@${host}:${port}/${database}`;
@@ -119,7 +119,7 @@ export async function dbGetUserPermissionsOrLegacy(userId) {
   let perms = [];
   try {
     perms = await dbGetUserPermissions(userId);
-  } catch (_) {}
+  } catch (_) { }
   const user = await dbGetUserById(userId);
   const legacy = [];
   if (user?.is_it_developer || user?.is_it_manager) {
@@ -404,6 +404,7 @@ export async function dbEnsureTables() {
     'creative_team_task_requirements',
     'social_media_task_requirements',
     'legal_finance_task_requirements',
+    'director_task_requirements',
   ]) {
     try {
       const { rows } = await p.query(
@@ -560,6 +561,58 @@ export async function dbEnsureTables() {
     console.warn('dbEnsureTables: legal_finance_task_requirements:', err.message);
   }
 
+  // Director tasks — directors assign tasks to one another from the Management tab.
+  // Same base shape as it_tasks / legal_finance_tasks.
+  try {
+    await p.query(`
+      CREATE TABLE IF NOT EXISTS director_tasks (
+        task_id SERIAL PRIMARY KEY,
+        project_id INT REFERENCES it_projects(project_id) ON DELETE SET NULL,
+        assigned_to INT REFERENCES users(user_id) ON DELETE SET NULL,
+        assigned_by INT REFERENCES users(user_id) ON DELETE SET NULL,
+        created_by INT REFERENCES users(user_id) ON DELETE SET NULL,
+        task_title VARCHAR(500) NOT NULL DEFAULT 'New Task',
+        task_description TEXT,
+        priority VARCHAR(20) DEFAULT 'medium',
+        status VARCHAR(20) DEFAULT 'in_progress',
+        task_date DATE,
+        due_date DATE,
+        created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+        completed_at TIMESTAMPTZ,
+        reviewed_by INT REFERENCES users(user_id) ON DELETE SET NULL,
+        review_comment TEXT,
+        reviewed_at TIMESTAMPTZ
+      );
+      CREATE INDEX IF NOT EXISTS idx_director_tasks_assigned ON director_tasks(assigned_to);
+      CREATE INDEX IF NOT EXISTS idx_director_tasks_status ON director_tasks(status);
+    `);
+    console.log('DB: director_tasks table ensured.');
+  } catch (err) {
+    console.warn('dbEnsureTables: director_tasks:', err.message);
+  }
+
+  try {
+    await p.query(`
+      CREATE TABLE IF NOT EXISTS director_task_requirements (
+        requirement_id SERIAL PRIMARY KEY,
+        task_id INT NOT NULL REFERENCES director_tasks(task_id) ON DELETE CASCADE,
+        title VARCHAR(500) NOT NULL,
+        description TEXT,
+        status VARCHAR(20) DEFAULT 'pending',
+        priority VARCHAR(20) DEFAULT 'medium',
+        due_date DATE,
+        sort_order INT DEFAULT 0,
+        created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE INDEX IF NOT EXISTS idx_director_task_requirements_task_id ON director_task_requirements(task_id);
+    `);
+    console.log('DB: director_task_requirements table ensured.');
+  } catch (err) {
+    console.warn('dbEnsureTables: director_task_requirements:', err.message);
+  }
+
   // Social Media — a full clone of the Creative Team task model (incl. campaign/content
   // fields). Created here like legal_finance since it is a brand-new team.
   try {
@@ -631,6 +684,7 @@ export async function dbEnsureTables() {
     'creative_team_task_requirements',
     'social_media_task_requirements',
     'legal_finance_task_requirements',
+    'director_task_requirements',
   ]) {
     try {
       const { rows } = await p.query(
@@ -825,6 +879,81 @@ export async function dbEnsureCreativeAndSocialRbac() {
   console.log('DB: Creative Team + Social Media RBAC ensured.');
 }
 
+/**
+ * Ensure the Director department, permissions, role, and role_permissions exist.
+ * Directors assign tasks to one another from the Management tab; director.manage
+ * gates task creation, director.view gates read access.
+ */
+export async function dbEnsureDirectorRbac() {
+  const p = getPool();
+  if (!p) return;
+  try {
+    await p.query('SELECT 1 FROM departments LIMIT 1');
+  } catch {
+    return;
+  }
+  try {
+    await p.query(`
+      INSERT INTO departments (name, code, description)
+      SELECT 'Director', 'director', 'Director-level workspace'
+      WHERE NOT EXISTS (SELECT 1 FROM departments WHERE code = 'director')
+    `);
+    await p.query(`
+      INSERT INTO permissions (code, name, module, description)
+      SELECT 'director.view', 'View Director Tasks', 'director', 'View director-to-director tasks'
+      WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'director.view')
+    `);
+    await p.query(`
+      INSERT INTO permissions (code, name, module, description)
+      SELECT 'director.manage', 'Manage Director Tasks', 'director', 'Create and assign director-to-director tasks'
+      WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'director.manage')
+    `);
+    await p.query(`
+      INSERT INTO roles (name, code, department_id, description)
+      SELECT 'Director', 'director', d.department_id, 'Director'
+      FROM departments d
+      WHERE d.code = 'director'
+        AND NOT EXISTS (SELECT 1 FROM roles WHERE code = 'director')
+    `);
+    await p.query(`
+      INSERT INTO role_permissions (role_id, permission_id)
+      SELECT r.role_id, p.permission_id
+      FROM roles r
+      CROSS JOIN permissions p
+      WHERE r.code = 'director'
+        AND p.code IN ('director.view', 'director.manage')
+        AND NOT EXISTS (
+          SELECT 1 FROM role_permissions rp
+          WHERE rp.role_id = r.role_id AND rp.permission_id = p.permission_id
+        )
+    `);
+    console.log('DB: Director RBAC (role + permissions) ensured.');
+  } catch (err) {
+    console.warn('dbEnsureDirectorRbac:', err.message);
+  }
+}
+
+/** Get users that hold a given role code (e.g. 'director'). */
+export async function dbGetUsersByRoleCode(code) {
+  const p = getPool();
+  if (!p) return [];
+  try {
+    const { rows } = await p.query(
+      `SELECT DISTINCT u.user_id, u.username, u.email, u.profile_image
+       FROM users u
+       INNER JOIN user_roles ur ON ur.user_id = u.user_id
+       INNER JOIN roles r ON r.role_id = ur.role_id
+       WHERE r.code = $1
+       ORDER BY u.username`,
+      [code]
+    );
+    return rows;
+  } catch (err) {
+    console.error('dbGetUsersByRoleCode:', err.message);
+    return [];
+  }
+}
+
 /** Test DB connection on startup. Returns { ok: true } or { ok: false, error: string }. */
 export async function testConnection() {
   const p = getPool();
@@ -846,6 +975,7 @@ export async function testConnection() {
     await dbEnsureTables();
     await dbEnsureLegalFinanceRbac();
     await dbEnsureCreativeAndSocialRbac();
+    await dbEnsureDirectorRbac();
     dbAvailability = true;
     return { ok: true };
   } catch (err) {
@@ -1354,6 +1484,7 @@ function resolveTeamFromInput(team) {
   if (t === 'creative_team' || t === 'creative' || t === 'digital_marketing' || t === 'digital') return 'creative_team';
   if (t === 'social_media' || t === 'social') return 'social_media';
   if (t === 'legal_finance' || t === 'legal-finance' || t === 'legalfinance') return 'legal_finance';
+  if (t === 'director' || t === 'directors') return 'director';
   return 'it';
 }
 
@@ -1362,6 +1493,7 @@ function taskTableForTeam(team) {
   if (team === 'creative_team') return 'creative_team_tasks';
   if (team === 'social_media') return 'social_media_tasks';
   if (team === 'legal_finance') return 'legal_finance_tasks';
+  if (team === 'director') return 'director_tasks';
   return 'it_tasks';
 }
 
@@ -1370,6 +1502,7 @@ function reqTableForTeam(team) {
   if (team === 'creative_team') return 'creative_team_task_requirements';
   if (team === 'social_media') return 'social_media_task_requirements';
   if (team === 'legal_finance') return 'legal_finance_task_requirements';
+  if (team === 'director') return 'director_task_requirements';
   return 'it_task_requirements';
 }
 
@@ -1383,6 +1516,7 @@ async function detectTaskTeamById(taskId) {
     { team: 'creative_team', table: 'creative_team_tasks' },
     { team: 'social_media', table: 'social_media_tasks' },
     { team: 'legal_finance', table: 'legal_finance_tasks' },
+    { team: 'director', table: 'director_tasks' },
     { team: 'it', table: 'it_tasks' },
   ];
   for (const c of checks) {

@@ -763,8 +763,8 @@ export default function SocialMediaMain({ currentUser, onLogout }) {
                     </h2>
                   </div>
                   <DragDropContext onDragEnd={handleDragEnd}>
-                    <div className="it-updates-kanban-wrap">
-                      <section className="it-updates-columns">
+                    <div className="it-updates-kanban-wrap social-media-kanban-wrap">
+                      <section className="it-updates-columns social-media-columns">
                         {STATUS_ORDER.map((statusKey) =>
                           renderKanbanColumn(
                             statusKey,
@@ -783,8 +783,8 @@ export default function SocialMediaMain({ currentUser, onLogout }) {
           {activeTab === 'My Tasks' && (
             <>
               <DragDropContext onDragEnd={handleDragEnd}>
-                <div className="it-updates-kanban-wrap">
-                  <section className="it-updates-columns">
+                <div className="it-updates-kanban-wrap social-media-kanban-wrap">
+                  <section className="it-updates-columns social-media-columns">
                     {STATUS_ORDER.map((statusKey) =>
                       renderKanbanColumn(statusKey, myTaskGroups[statusKey] || [])
                     )}
@@ -853,8 +853,8 @@ export default function SocialMediaMain({ currentUser, onLogout }) {
                 />
               </div>
               <DragDropContext onDragEnd={handleDragEnd}>
-                <div className="it-updates-kanban-wrap">
-                  <section className="it-updates-columns">
+                <div className="it-updates-kanban-wrap social-media-kanban-wrap">
+                  <section className="it-updates-columns social-media-columns">
                     {STATUS_ORDER.map((statusKey) =>
                       renderKanbanColumn(
                         statusKey,
