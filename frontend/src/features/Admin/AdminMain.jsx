@@ -18,11 +18,11 @@ import {
 } from 'react-icons/md';
 import adminApi from '../../api/adminApi';
 import itUpdatesApi from '../../api/itUpdatesApi';
-import { TaskModal } from '../ITUpdates/ITUpdatesMain';
+import { TaskModal, TaskBoard } from '../ITUpdates/ITUpdatesMain';
 import { getDisplayRole } from '../../utils/displayRole';
 import { toastSuccess, toastError } from '../../utils/toast';
 import ProjectSearchSelect from '../../components/ProjectSearchSelect';
-import logoSrc from '../../assets/logo.png';
+const logoSrc = '/favicon.png';
 import SidebarUser from '../../components/SidebarUser';
 import { AdminAddUserModal, AdminUserDetailModal } from './AdminUserModals';
 import { formatUserRowRole } from '../../utils/displayRole';
@@ -105,6 +105,9 @@ const TAB_SUBTITLES = {
 };
 
 const DIRECTOR_TASK_TAB = { key: 'director_tasks', label: 'Director Tasks', icon: MdSupervisorAccount };
+
+// Director tasks are not linked to projects; the shared board takes an empty lookup.
+const EMPTY_PROJECT_MAP = new Map();
 
 export default function AdminMain({ currentUser, onLogout }) {
   const [activeTab, setActiveTab] = useState('dashboard');
@@ -267,17 +270,24 @@ export default function AdminMain({ currentUser, onLogout }) {
     }
   };
 
-  const handleDirectorStatusChange = async (task, status) => {
-    const id = task?.task_id ?? task?.id;
-    if (id == null) return;
+  // Drag a card to another column → update its status. Mirrors the IT Updates board.
+  const handleDirectorDragEnd = async (result) => {
+    if (!result.destination) return;
+    const newStatus = result.destination.droppableId;
+    const id = result.draggableId.replace('task-', '');
+    const task = directorTasks.find((t) => String(t.id) === String(id));
+    if (!task || task.status === newStatus) return;
+    setDirectorTasks((prev) =>
+      prev.map((t) => (String(t.id) === String(id) ? { ...t, status: newStatus } : t))
+    );
     try {
-      await itUpdatesApi.updateTask(id, { status, team: 'director' });
-      setDirectorTasks((prev) =>
-        prev.map((t) => (String(t.task_id ?? t.id) === String(id) ? { ...t, status } : t))
-      );
-      toastSuccess('Status updated');
+      await itUpdatesApi.updateTask(id, { status: newStatus, team: 'director' });
+      toastSuccess('Task moved');
     } catch (err) {
-      toastError(err?.response?.data?.message || 'Failed to update status');
+      setDirectorTasks((prev) =>
+        prev.map((t) => (String(t.id) === String(id) ? { ...t, status: task.status } : t))
+      );
+      toastError(err?.response?.data?.message || 'Failed to update task status');
     }
   };
 
@@ -682,8 +692,11 @@ export default function AdminMain({ currentUser, onLogout }) {
 
       <aside className={`it-updates-sidebar ${sidebarOpen ? 'open' : ''}`}>
         <div className="it-updates-sidebar-brand">
-          <img src={logoSrc} alt="Workspace" className="it-updates-sidebar-logo" />
-          <span className="it-updates-sidebar-title">Management</span>
+          <img src={logoSrc} alt="Seyal" className="it-updates-sidebar-logo" />
+          <div className="it-updates-sidebar-brand-text">
+            <span className="it-updates-sidebar-title">Seyal</span>
+            <span className="it-updates-sidebar-subtitle">Management</span>
+          </div>
         </div>
         <nav className="it-updates-sidebar-nav">
           <div className="it-updates-sidebar-nav-label">Navigation</div>
@@ -1368,106 +1381,16 @@ export default function AdminMain({ currentUser, onLogout }) {
                 )}
               </div>
 
-              <div className="admin-review-panel">
-                {directorTasksLoading ? (
-                  <div className="admin-loading">Loading…</div>
-                ) : (
-                  <div className="admin-table-wrap">
-                    <table className="admin-table">
-                      <thead>
-                        <tr>
-                          <th>Task</th>
-                          <th>Assigned by</th>
-                          <th>Assigned to</th>
-                          <th>Priority</th>
-                          <th>Status</th>
-                          <th>Due</th>
-                          {canManageDirectorTasks && <th className="admin-th-actions">Actions</th>}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {directorTasks.map((t) => {
-                          const id = t.task_id || t.id;
-                          const title = t.task_title || t.title || 'Task';
-                          const assignee = t.assignee || '—';
-                          const assignedBy = t.assigned_by_name || t.assigned_by_username || '—';
-                          const priority = t.priority || 'medium';
-                          const status = t.status || '—';
-                          const due = t.dueDate || t.due_date;
-                          return (
-                            <tr key={String(id)}>
-                              <td>
-                                {canManageDirectorTasks ? (
-                                  <button
-                                    type="button"
-                                    className="admin-task-link"
-                                    onClick={() => openDirectorTask(t)}
-                                    title="Open task (edit, requirements)"
-                                  >
-                                    <strong>{title}</strong>
-                                  </button>
-                                ) : (
-                                  <strong>{title}</strong>
-                                )}
-                                {t.task_description && (
-                                  <div className="admin-muted">{t.task_description}</div>
-                                )}
-                              </td>
-                              <td>{assignedBy}</td>
-                              <td>{assignee}</td>
-                              <td>
-                                <span className={`admin-priority ${priority}`}>{priority}</span>
-                              </td>
-                              <td>
-                                {canManageDirectorTasks ? (
-                                  <select
-                                    className="admin-status-select"
-                                    value={status}
-                                    onChange={(e) => handleDirectorStatusChange(t, e.target.value)}
-                                  >
-                                    <option value="todo">To do</option>
-                                    <option value="in_progress">In Progress</option>
-                                    <option value="review">Review</option>
-                                    <option value="rework">Rework</option>
-                                    <option value="completed">Completed</option>
-                                  </select>
-                                ) : (
-                                  status
-                                )}
-                              </td>
-                              <td>{due ? new Date(due).toLocaleDateString() : '—'}</td>
-                              {canManageDirectorTasks && (
-                                <td className="admin-td-actions">
-                                  <button
-                                    type="button"
-                                    className="admin-btn-sm admin-btn-view-task"
-                                    onClick={() => openDirectorTask(t)}
-                                    title="Open / edit task"
-                                  >
-                                    <MdEdit size={16} aria-hidden /> Edit
-                                  </button>
-                                  <button
-                                    type="button"
-                                    className="admin-btn-sm"
-                                    style={{ border: '1px solid #ef4444', color: '#ef4444' }}
-                                    onClick={() => handleDeleteDirectorTask(t)}
-                                    title="Delete task"
-                                  >
-                                    <MdDelete size={16} aria-hidden /> Delete
-                                  </button>
-                                </td>
-                              )}
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                    {!directorTasks.length && (
-                      <div className="admin-empty">No director tasks yet.</div>
-                    )}
-                  </div>
-                )}
-              </div>
+              {directorTasksLoading ? (
+                <div className="admin-loading">Loading…</div>
+              ) : (
+                <TaskBoard
+                  tasks={directorTasks}
+                  onDragEnd={canManageDirectorTasks ? handleDirectorDragEnd : () => {}}
+                  onCardClick={canManageDirectorTasks ? openDirectorTask : undefined}
+                  projectById={EMPTY_PROJECT_MAP}
+                />
+              )}
             </section>
           )}
         </main>
@@ -1479,6 +1402,7 @@ export default function AdminMain({ currentUser, onLogout }) {
           currentUser={user}
           team="director"
           hideProject
+          hideTimer
           projects={[]}
           developers={directors}
           managers={directors}

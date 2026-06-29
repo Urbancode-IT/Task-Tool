@@ -2,19 +2,28 @@
 
 /* ─── Design Tokens ─── */
 :root {
-  /* Primary palette — deep indigo/violet spectrum */
-  --clr-primary-50: #eef2ff;
-  --clr-primary-100: #e0e7ff;
-  --clr-primary-200: #c7d2fe;
-  --clr-primary-300: #a5b4fc;
-  --clr-primary-400: #818cf8;
-  --clr-primary-500: #6366f1;
-  --clr-primary-600: #4f46e5;
-  --clr-primary-700: #4338ca;
+  /* Primary palette — blue→violet, matched to the Seyal logo gradient */
+  --clr-primary-50: #eef0ff;
+  --clr-primary-100: #e3e6ff;
+  --clr-primary-200: #d2d4ff;
+  --clr-primary-300: #b9bbff;
+  --clr-primary-400: #8b86ff;
+  --clr-primary-500: #6c5cff;
+  --clr-primary-600: #5b46f2;
+  --clr-primary-700: #4632c9;
 
-  /* Accent — Cyan spark */
-  --clr-accent-400: #22d3ee;
-  --clr-accent-500: #06b6d4;
+  /* Accent — azure blue (the logo's blue end) */
+  --clr-accent-400: #4f97ff;
+  --clr-accent-500: #2b7fff;
+
+  /* Brand — exact logo endpoints + signature gradient.
+     The Seyal mark runs from azure blue (bottom-left) to violet (top-right). */
+  --brand-blue: #2b7fff;
+  --brand-indigo: #6c5cff;
+  --brand-violet: #8b3bff;
+  --brand-gradient: linear-gradient(135deg, var(--brand-blue) 0%, var(--brand-indigo) 50%, var(--brand-violet) 100%);
+  --brand-gradient-soft: linear-gradient(135deg, #eef3ff 0%, #f2eeff 100%);
+  --brand-on: #ffffff;
 
   /* Neutrals */
   --clr-slate-50: #f8fafc;
@@ -40,8 +49,8 @@
   --surface-card: #ffffff;
   --surface-elevated: #ffffff;
 
-  /* Sidebar */
-  --sidebar-bg: var(--clr-slate-900);
+  /* Sidebar — deep brand-tinted navy so the logo sits on-palette */
+  --sidebar-bg: #0b1024;
   --sidebar-width: 260px;
   --sidebar-collapsed: 72px;
 
@@ -58,7 +67,7 @@
   --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.07), 0 2px 4px -2px rgba(0, 0, 0, 0.05);
   --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.08), 0 4px 6px -4px rgba(0, 0, 0, 0.04);
   --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.08), 0 8px 10px -6px rgba(0, 0, 0, 0.04);
-  --shadow-glow: 0 0 20px rgba(99, 102, 241, 0.15);
+  --shadow-glow: 0 0 20px rgba(108, 92, 255, 0.18);
 
   /* Transitions */
   --transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);

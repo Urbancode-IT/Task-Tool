@@ -64,8 +64,8 @@
 }
 
 .main-layout-module-btn.active {
-  background: rgba(99, 102, 241, 0.2);
-  color: #a5b4fc;
+  background: rgba(108, 92, 255, 0.2);
+  color: #b9bbff;
 }
 
 @media (max-width: 640px) {

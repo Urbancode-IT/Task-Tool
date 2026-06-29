@@ -13,7 +13,7 @@
 /* ─── Sidebar ─── */
 .it-updates-sidebar {
   width: var(--sidebar-width);
-  background: var(--sidebar-bg);
+  background: linear-gradient(168deg, #0a1330 0%, #141038 55%, #1d1147 100%);
   display: flex;
   flex-direction: column;
   position: fixed;
@@ -45,7 +45,7 @@
   font-family: var(--font-display);
   font-size: 1.15rem;
   font-weight: 700;
-  background: linear-gradient(135deg, #c7d2fe, #818cf8);
+  background: linear-gradient(135deg, #d2d4ff, #8b86ff);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
@@ -108,7 +108,8 @@
 
 .it-updates-nav-item.active {
   color: #ffffff;
-  background: linear-gradient(135deg, rgba(99, 102, 241, 0.2), rgba(99, 102, 241, 0.08));
+  background: linear-gradient(135deg, rgba(43, 127, 255, 0.32), rgba(139, 59, 255, 0.26));
+  box-shadow: inset 0 0 0 1px rgba(139, 134, 255, 0.18);
 }
 
 .it-updates-nav-item.active::before {
@@ -320,14 +321,14 @@
 }
 
 .it-updates-btn-primary {
-  background: linear-gradient(135deg, var(--clr-primary-600), var(--clr-primary-500));
+  background: var(--brand-gradient);
   color: #ffffff;
-  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.3);
+  box-shadow: 0 2px 8px rgba(108, 92, 255, 0.3);
 }
 
 .it-updates-btn-primary:hover {
   transform: translateY(-1px);
-  box-shadow: 0 6px 20px rgba(99, 102, 241, 0.4);
+  box-shadow: 0 6px 20px rgba(108, 92, 255, 0.4);
 }
 
 .it-updates-btn-primary:active {
@@ -412,7 +413,7 @@
   font-weight: 700;
   color: #fff;
   flex-shrink: 0;
-  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.2);
+  box-shadow: 0 2px 8px rgba(108, 92, 255, 0.2);
 }
 
 .it-updates-avatar.small {
@@ -694,9 +695,9 @@
 }
 
 .it-updates-file-input:hover .it-updates-file-btn {
-  background: var(--clr-primary-50, #eef2ff);
+  background: var(--clr-primary-50, #eef0ff);
   border-color: var(--clr-primary-300);
-  color: var(--clr-primary-600, #4f46e5);
+  color: var(--clr-primary-600, #5b46f2);
 }
 
 .it-updates-file-name {
@@ -1057,7 +1058,7 @@
 }
 
 .it-updates-column-body.it-updates-drop-zone {
-  background: rgba(99, 102, 241, 0.04);
+  background: rgba(108, 92, 255, 0.04);
   border: 2px dashed var(--clr-primary-300);
   border-radius: var(--radius-md);
 }
@@ -1199,9 +1200,9 @@
   font-size: 0.62rem;
   font-weight: 700;
   letter-spacing: 0.01em;
-  color: var(--clr-primary-600, #4f46e5);
-  background: rgba(99, 102, 241, 0.12);
-  border: 1px solid rgba(99, 102, 241, 0.25);
+  color: var(--clr-primary-600, #5b46f2);
+  background: rgba(108, 92, 255, 0.12);
+  border: 1px solid rgba(108, 92, 255, 0.25);
   padding: 0.12rem 0.45rem;
   border-radius: var(--radius-full);
   white-space: nowrap;
@@ -1456,7 +1457,7 @@
 .it-updates-filters select:focus {
   border-color: var(--clr-primary-400);
   outline: none;
-  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+  box-shadow: 0 0 0 3px rgba(108, 92, 255, 0.1);
 }
 
 /* ─── Period (time-interval) filter — dropdown button ─── */
@@ -1527,8 +1528,8 @@
 }
 
 .it-updates-period-option.active {
-  background: rgba(99, 102, 241, 0.12);
-  color: var(--clr-primary-600, #4f46e5);
+  background: rgba(108, 92, 255, 0.12);
+  color: var(--clr-primary-600, #5b46f2);
   font-weight: 600;
 }
 
@@ -1569,7 +1570,7 @@
   margin-top: 0.5rem;
   border: none;
   background: transparent;
-  color: var(--clr-primary-600, #4f46e5);
+  color: var(--clr-primary-600, #5b46f2);
   font-size: 0.8rem;
   font-weight: 600;
   cursor: pointer;
@@ -1617,7 +1618,7 @@
 .it-updates-overview-filters select:focus {
   border-color: var(--clr-primary-400);
   outline: none;
-  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+  box-shadow: 0 0 0 3px rgba(108, 92, 255, 0.1);
 }
 
 /* ─── Overview Table ─── */
@@ -1668,7 +1669,7 @@
   border: none;
   padding: 0;
   font: inherit;
-  color: var(--clr-primary-600, #4f46e5);
+  color: var(--clr-primary-600, #5b46f2);
   cursor: pointer;
   text-decoration: none;
   text-align: left;
@@ -2012,7 +2013,7 @@
 .it-updates-modal-form textarea:focus {
   border-color: var(--clr-primary-400);
   outline: none;
-  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+  box-shadow: 0 0 0 3px rgba(108, 92, 255, 0.1);
 }
 
 .it-updates-modal-form textarea {
@@ -2114,7 +2115,7 @@
 .it-updates-eod-date input:focus {
   border-color: var(--clr-primary-400);
   outline: none;
-  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+  box-shadow: 0 0 0 3px rgba(108, 92, 255, 0.1);
 }
 
 .it-updates-eod-field {
@@ -2164,7 +2165,7 @@
 .it-updates-multi-select-trigger:focus {
   border-color: var(--clr-primary-400);
   outline: none;
-  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+  box-shadow: 0 0 0 3px rgba(108, 92, 255, 0.1);
 }
 
 .it-updates-multi-select-chips {
@@ -2186,7 +2187,7 @@
   gap: 0.3rem;
   padding: 0.2rem 0.45rem;
   border-radius: var(--radius-sm);
-  background: rgba(99, 102, 241, 0.12);
+  background: rgba(108, 92, 255, 0.12);
   color: var(--clr-primary-700);
   text-transform: none;
   font-size: 0.82rem;
@@ -2259,7 +2260,7 @@
 }
 
 .it-updates-multi-select-option.selected {
-  background: rgba(99, 102, 241, 0.08);
+  background: rgba(108, 92, 255, 0.08);
 }
 
 .it-updates-modal-form .it-updates-multi-select-option input[type='checkbox'] {
@@ -2673,7 +2674,7 @@
 }
 
 .req-timer-running {
-  color: var(--clr-primary-600, #4f46e5);
+  color: var(--clr-primary-600, #5b46f2);
 }
 
 .req-timer-btn {
@@ -2684,7 +2685,7 @@
   height: 20px;
   border: none;
   border-radius: 50%;
-  background: var(--clr-primary-500, #6366f1);
+  background: var(--clr-primary-500, #6c5cff);
   color: #fff;
   cursor: pointer;
   flex-shrink: 0;
@@ -2692,7 +2693,7 @@
 }
 
 .req-timer-btn:hover {
-  background: var(--clr-primary-600, #4f46e5);
+  background: var(--clr-primary-600, #5b46f2);
 }
 
 .req-timer-btn-pause {
@@ -2933,7 +2934,7 @@
 .req-form textarea:focus {
   border-color: var(--clr-primary-400);
   outline: none;
-  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+  box-shadow: 0 0 0 3px rgba(108, 92, 255, 0.1);
 }
 
 .req-form textarea {
@@ -3055,7 +3056,7 @@
 .req-manual-select:focus {
   border-color: var(--clr-primary-400);
   outline: none;
-  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.12);
+  box-shadow: 0 0 0 3px rgba(108, 92, 255, 0.12);
 }
 
 .req-manual-error {
@@ -3099,7 +3100,7 @@
 
 .req-manual-save:hover:not(:disabled) {
   background: var(--clr-primary-700);
-  box-shadow: 0 4px 12px rgba(79, 70, 229, 0.3);
+  box-shadow: 0 4px 12px rgba(91, 70, 242, 0.3);
 }
 
 .req-manual-save:disabled {

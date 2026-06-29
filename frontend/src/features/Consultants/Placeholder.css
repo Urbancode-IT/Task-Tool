@@ -29,10 +29,10 @@
   height: 64px;
   border-radius: 999px;
   margin-bottom: 1.25rem;
-  background: radial-gradient(circle at 30% 0%, #a5b4fc, #4f46e5);
+  background: radial-gradient(circle at 30% 0%, #b9bbff, #5b46f2);
   color: white;
   box-shadow:
-    0 14px 35px rgba(79, 70, 229, 0.5),
+    0 14px 35px rgba(91, 70, 242, 0.5),
     0 0 0 1px rgba(255, 255, 255, 0.2);
 }
 

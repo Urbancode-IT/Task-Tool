@@ -100,14 +100,14 @@
   height: 44px;
   border-radius: var(--radius-md);
   object-fit: cover;
-  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
+  box-shadow: 0 4px 12px rgba(108, 92, 255, 0.3);
 }
 
 .auth-logo-text {
   font-family: var(--font-display);
   font-size: 1.35rem;
   font-weight: 700;
-  background: linear-gradient(135deg, #a5b4fc, #818cf8);
+  background: linear-gradient(135deg, #b9bbff, #8b86ff);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
@@ -201,7 +201,7 @@
 
 .auth-field input:focus {
   border-color: var(--clr-primary-500);
-  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15), 0 0 20px rgba(99, 102, 241, 0.1);
+  box-shadow: 0 0 0 3px rgba(108, 92, 255, 0.15), 0 0 20px rgba(108, 92, 255, 0.1);
 }
 
 .auth-error {
@@ -242,7 +242,7 @@
 
 .auth-button:hover:not(:disabled) {
   transform: translateY(-1px);
-  box-shadow: 0 8px 24px rgba(99, 102, 241, 0.4), 0 0 40px rgba(99, 102, 241, 0.15);
+  box-shadow: 0 8px 24px rgba(108, 92, 255, 0.4), 0 0 40px rgba(108, 92, 255, 0.15);
 }
 
 .auth-button:hover:not(:disabled)::before {
@@ -381,8 +381,8 @@
   font-size: 0.74rem;
   font-weight: 700;
   letter-spacing: 0.02em;
-  color: #4f46e5;
-  background: #eef2ff;
+  color: #5b46f2;
+  background: #eef0ff;
 }
 
 .eod-lock-logout {

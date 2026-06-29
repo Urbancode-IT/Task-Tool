@@ -124,6 +124,152 @@ function Avatar({ user, size = 'md' }) {
   );
 }
 
+/**
+ * Reusable Kanban board: status columns (todo → completed) with draggable cards.
+ * Shared by the IT Updates sector and the Management → Director tasks panel.
+ *   tasks       — flat task array (grouped by status internally)
+ *   onDragEnd   — @hello-pangea/dnd drag handler (move card → new status)
+ *   onCardClick — open the task (edit/requirements)
+ *   projectById — Map of projectId → project (pass an empty Map when N/A)
+ */
+export function TaskBoard({ tasks = [], onDragEnd, onCardClick, projectById }) {
+  const groups = useMemo(() => groupTasksByStatus(tasks), [tasks]);
+  const pById = projectById || new Map();
+
+  const renderColumn = (statusKey, items) => (
+    <div
+      key={statusKey}
+      className="it-updates-column"
+      style={{ borderTopColor: STATUS_COLORS[statusKey] }}
+    >
+      <div className="it-updates-column-header">
+        <span>{STATUS_LABELS[statusKey]}</span>
+        <span className="it-updates-column-count">{items.length}</span>
+      </div>
+      <Droppable droppableId={statusKey}>
+        {(provided, snapshot) => (
+          <div
+            ref={provided.innerRef}
+            {...provided.droppableProps}
+            className={`it-updates-column-body ${snapshot.isDraggingOver ? 'it-updates-drop-zone' : ''}`}
+          >
+            {items.map((task, idx) => (
+              <Draggable key={`task-${task.id}`} draggableId={`task-${task.id}`} index={idx}>
+                {(provided, snapshot) => {
+                  const cardProject =
+                    task?.projectId != null ? pById.get(String(task.projectId)) : null;
+                  const desc = (task.task_description || task.description || '').trim();
+                  const descSnippet = desc.length > 50 ? desc.slice(0, 50) + '...' : desc;
+                  const overdue = isTaskOverdue(task);
+                  return (
+                    <div
+                      ref={provided.innerRef}
+                      {...provided.draggableProps}
+                      {...provided.dragHandleProps}
+                      className={[
+                        'it-updates-task-card',
+                        snapshot.isDragging && 'it-updates-task-card-dragging',
+                        overdue && 'it-updates-task-card-overdue',
+                      ]
+                        .filter(Boolean)
+                        .join(' ')}
+                      onClick={() => onCardClick?.(task)}
+                    >
+                      <div className="it-updates-task-card-toprow">
+                        <div
+                          className="it-updates-task-card-priority"
+                          style={{
+                            backgroundColor: (PRIORITY_COLORS[task.priority] || PRIORITY_COLORS.medium) + '18',
+                            color: PRIORITY_COLORS[task.priority] || PRIORITY_COLORS.medium,
+                          }}
+                        >
+                          {(task.priority || 'medium').toUpperCase()}
+                        </div>
+                        {overdue ? (
+                          <span className="it-updates-task-card-pending-tag" title="Past due date">
+                            Pending
+                          </span>
+                        ) : null}
+                      </div>
+                      <div className="it-updates-task-card-title">{task.title}</div>
+                      {descSnippet ? (
+                        <div className="it-updates-task-card-desc">{descSnippet}</div>
+                      ) : null}
+                      {task.req_total > 0 && (
+                        <div className="it-updates-task-card-reqs">
+                          <div className="it-updates-task-card-reqs-label">
+                            <MdChecklist size={12} />
+                            <span>{task.req_completed}/{task.req_total} subtasks</span>
+                          </div>
+                          <div className="it-updates-task-card-reqs-bar">
+                            <div
+                              className="it-updates-task-card-reqs-fill"
+                              style={{ width: `${Math.round((task.req_completed / task.req_total) * 100)}%` }}
+                            />
+                          </div>
+                        </div>
+                      )}
+                      <div className="it-updates-task-card-footer">
+                        <ProjectLogo
+                          src={cardProject?.logo || task.project_logo}
+                          name={cardProject?.name || cardProject?.project_name || task.project_name}
+                          size={26}
+                          className="it-updates-task-card-logo"
+                        />
+                        <div className="it-updates-task-card-people">
+                          {task.assigned_by_name ? (
+                            <span className="it-updates-task-card-person">
+                              <Avatar
+                                user={{ username: task.assigned_by_name, profile_image: task.assigned_by_profile_image }}
+                                size="small"
+                              />
+                            </span>
+                          ) : null}
+                          <span className="it-updates-task-card-person">
+                            <Avatar
+                              user={{ username: task.assignee, profile_image: task.assignee_profile_image }}
+                              size="small"
+                            />
+                          </span>
+                        </div>
+                      </div>
+                      {task.status === 'completed' &&
+                        (task.reviewed_by_username || task.review_comment) && (
+                          <div className="it-updates-task-card-review">
+                            {task.reviewed_by_username ? (
+                              <span>Reviewed by {task.reviewed_by_username}</span>
+                            ) : null}
+                            {task.review_comment ? (
+                              <span className="it-updates-task-card-review-comment">{task.review_comment}</span>
+                            ) : null}
+                          </div>
+                        )}
+                    </div>
+                  );
+                }}
+              </Draggable>
+            ))}
+            {provided.placeholder}
+            {!items.length && <div className="it-updates-empty-column">No tasks</div>}
+          </div>
+        )}
+      </Droppable>
+    </div>
+  );
+
+  return (
+    <DragDropContext onDragEnd={onDragEnd}>
+      <div className="it-updates-kanban-wrap">
+        <section className="it-updates-columns">
+          {['todo', 'in_progress', 'review', 'rework', 'completed'].map((statusKey) =>
+            renderColumn(statusKey, groups[statusKey] || [])
+          )}
+        </section>
+      </div>
+    </DragDropContext>
+  );
+}
+
 const ITUpdatesMain = ({ currentUser, onLogout }) => {
   const [activeTab, setActiveTab] = useState('Dashboard');
   const [loading, setLoading] = useState(false);
@@ -440,8 +586,6 @@ const ITUpdatesMain = ({ currentUser, onLogout }) => {
     return map;
   }, [projects]);
 
-  const allTasksGroups = useMemo(() => groupTasksByStatus(allTasksFiltered), [allTasksFiltered]);
-  const myTaskGroups = useMemo(() => groupTasksByStatus(myTasks), [myTasks]);
 
   const handleDragEnd = useCallback(
     async (result) => {
@@ -644,132 +788,7 @@ const ITUpdatesMain = ({ currentUser, onLogout }) => {
     setSidebarOpen(false);
   };
 
-  const renderKanbanColumn = (statusKey, items) => (
-    <div
-      key={statusKey}
-      className="it-updates-column"
-      style={{ borderTopColor: STATUS_COLORS[statusKey] }}
-    >
-      <div className="it-updates-column-header">
-        <span>{STATUS_LABELS[statusKey]}</span>
-        <span className="it-updates-column-count">{items.length}</span>
-      </div>
-      <Droppable droppableId={statusKey}>
-        {(provided, snapshot) => (
-          <div
-            ref={provided.innerRef}
-            {...provided.droppableProps}
-            className={`it-updates-column-body ${snapshot.isDraggingOver ? 'it-updates-drop-zone' : ''}`}
-          >
-            {items.map((task, idx) => (
-              <Draggable
-                key={`task-${task.id}`}
-                draggableId={`task-${task.id}`}
-                index={idx}
-              >
-                {(provided, snapshot) => {
-                  const cardProject =
-                    task?.projectId != null ? projectById.get(String(task.projectId)) : null;
-                  const desc = (task.task_description || task.description || '').trim();
-                  const descSnippet = desc.length > 50 ? desc.slice(0, 50) + '...' : desc;
-                  const overdue = isTaskOverdue(task);
-                  return (
-                    <div
-                      ref={provided.innerRef}
-                      {...provided.draggableProps}
-                      {...provided.dragHandleProps}
-                      className={[
-                        'it-updates-task-card',
-                        snapshot.isDragging && 'it-updates-task-card-dragging',
-                        overdue && 'it-updates-task-card-overdue',
-                      ]
-                        .filter(Boolean)
-                        .join(' ')}
-                      onClick={() => openTaskModal(task)}
-                    >
-                      <div className="it-updates-task-card-toprow">
-                        <div
-                          className="it-updates-task-card-priority"
-                          style={{
-                            backgroundColor: (PRIORITY_COLORS[task.priority] || PRIORITY_COLORS.medium) + '18',
-                            color: PRIORITY_COLORS[task.priority] || PRIORITY_COLORS.medium,
-                          }}
-                        >
-                          {(task.priority || 'medium').toUpperCase()}
-                        </div>
-                        {overdue ? (
-                          <span className="it-updates-task-card-pending-tag" title="Past due date">
-                            Pending
-                          </span>
-                        ) : null}
-                      </div>
-                      <div className="it-updates-task-card-title">{task.title}</div>
-                      {descSnippet ? (
-                        <div className="it-updates-task-card-desc">{descSnippet}</div>
-                      ) : null}
-                      {task.req_total > 0 && (
-                        <div className="it-updates-task-card-reqs">
-                          <div className="it-updates-task-card-reqs-label">
-                            <MdChecklist size={12} />
-                            <span>{task.req_completed}/{task.req_total} subtasks</span>
-                          </div>
-                          <div className="it-updates-task-card-reqs-bar">
-                            <div
-                              className="it-updates-task-card-reqs-fill"
-                              style={{ width: `${Math.round((task.req_completed / task.req_total) * 100)}%` }}
-                            />
-                          </div>
-                        </div>
-                      )}
-                      <div className="it-updates-task-card-footer">
-                        <ProjectLogo
-                          src={cardProject?.logo || task.project_logo}
-                          name={cardProject?.name || cardProject?.project_name || task.project_name}
-                          size={26}
-                          className="it-updates-task-card-logo"
-                        />
-                        <div className="it-updates-task-card-people">
-                          {task.assigned_by_name ? (
-                            <span className="it-updates-task-card-person">
-                              <Avatar
-                                user={{ username: task.assigned_by_name, profile_image: task.assigned_by_profile_image }}
-                                size="small"
-                              />
-                            </span>
-                          ) : null}
-                          <span className="it-updates-task-card-person">
-                            <Avatar
-                              user={{ username: task.assignee, profile_image: task.assignee_profile_image }}
-                              size="small"
-                            />
-                          </span>
-                        </div>
-                      </div>
-                      {task.status === 'completed' &&
-                        (task.reviewed_by_username || task.review_comment) && (
-                          <div className="it-updates-task-card-review">
-                            {task.reviewed_by_username ? (
-                              <span>Reviewed by {task.reviewed_by_username}</span>
-                            ) : null}
-                            {task.review_comment ? (
-                              <span className="it-updates-task-card-review-comment">{task.review_comment}</span>
-                            ) : null}
-                          </div>
-                        )}
-                    </div>
-                  );
-                }}
-              </Draggable>
-            ))}
-            {provided.placeholder}
-            {!items.length && (
-              <div className="it-updates-empty-column">No tasks</div>
-            )}
-          </div>
-        )}
-      </Droppable>
-    </div>
-  );
+  // Board rendering moved to the shared <TaskBoard> component (module scope above).
 
   const tabConfig = TABS.find((t) => t.key === activeTab);
 
@@ -984,20 +1003,12 @@ const ITUpdatesMain = ({ currentUser, onLogout }) => {
           )}
 
           {activeTab === 'My Tasks' && (
-            <>
-              <DragDropContext onDragEnd={handleDragEnd}>
-                <div className="it-updates-kanban-wrap">
-                  <section className="it-updates-columns">
-                    {(['todo', 'in_progress', 'review', 'rework', 'completed']).map((statusKey) =>
-                      renderKanbanColumn(
-                        statusKey,
-                        myTaskGroups[statusKey] || []
-                      )
-                    )}
-                  </section>
-                </div>
-              </DragDropContext>
-            </>
+            <TaskBoard
+              tasks={myTasks}
+              onDragEnd={handleDragEnd}
+              onCardClick={openTaskModal}
+              projectById={projectById}
+            />
           )}
 
           {activeTab === 'All Tasks' && (
@@ -1066,18 +1077,12 @@ const ITUpdatesMain = ({ currentUser, onLogout }) => {
                   }
                 />
               </div>
-              <DragDropContext onDragEnd={handleDragEnd}>
-                <div className="it-updates-kanban-wrap">
-                  <section className="it-updates-columns">
-                    {(['todo', 'in_progress', 'review', 'rework', 'completed']).map((statusKey) =>
-                      renderKanbanColumn(
-                        statusKey,
-                        allTasksGroups[statusKey] || []
-                      )
-                    )}
-                  </section>
-                </div>
-              </DragDropContext>
+              <TaskBoard
+                tasks={allTasksFiltered}
+                onDragEnd={handleDragEnd}
+                onCardClick={openTaskModal}
+                projectById={projectById}
+              />
             </>
           )}
 
@@ -1824,7 +1829,7 @@ function ProjectModal({ project, teammatesOptions, onClose, onSave, canDelete = 
   );
 }
 
-export function TaskModal({ task, currentUser, projects, developers, managers, onClose, onSave, onRefresh, onError, canDelete = false, onDelete, team: teamProp = MODULE_TEAM, hideProject = false }) {
+export function TaskModal({ task, currentUser, projects, developers, managers, onClose, onSave, onRefresh, onError, canDelete = false, onDelete, team: teamProp = MODULE_TEAM, hideProject = false, hideTimer = false }) {
   // Shadow the module default so every internal team reference follows the prop.
   // This lets other sectors (e.g. director tasks) reuse this modal unchanged.
   const MODULE_TEAM = teamProp;
@@ -1968,8 +1973,9 @@ export function TaskModal({ task, currentUser, projects, developers, managers, o
 
   const handleToggleReqStatus = async (req) => {
     const newStatus = req.status === 'completed' ? 'pending' : 'completed';
-    // A requirement cannot be ticked complete without recorded work time.
-    if (newStatus === 'completed') {
+    // A requirement cannot be ticked complete without recorded work time —
+    // unless the timer is hidden for this modal (e.g. director tasks).
+    if (!hideTimer && newStatus === 'completed') {
       const hasTime = Number(req.timeSpentSeconds || 0) > 0 || Boolean(req.timerRunning);
       if (!hasTime) {
         toastError('Please enter the time you worked on this requirement first.');
@@ -2230,20 +2236,24 @@ export function TaskModal({ task, currentUser, projects, developers, managers, o
                       </span>
                     </div>
                     <div className="req-td req-td-actions">
-                      <RequirementTimer
-                        req={req}
-                        taskId={task?.id}
-                        team={MODULE_TEAM}
-                        disabled={String(req.id).startsWith('temp-')}
-                        onUpdate={(u) => setRequirements((prev) => prev.map((r) => (r.id === req.id ? u : r)))}
-                      />
-                      <RequirementManualTime
-                        req={req}
-                        taskId={task?.id}
-                        team={MODULE_TEAM}
-                        disabled={String(req.id).startsWith('temp-')}
-                        onUpdate={(u) => setRequirements((prev) => prev.map((r) => (r.id === req.id ? u : r)))}
-                      />
+                      {!hideTimer && (
+                        <>
+                          <RequirementTimer
+                            req={req}
+                            taskId={task?.id}
+                            team={MODULE_TEAM}
+                            disabled={String(req.id).startsWith('temp-')}
+                            onUpdate={(u) => setRequirements((prev) => prev.map((r) => (r.id === req.id ? u : r)))}
+                          />
+                          <RequirementManualTime
+                            req={req}
+                            taskId={task?.id}
+                            team={MODULE_TEAM}
+                            disabled={String(req.id).startsWith('temp-')}
+                            onUpdate={(u) => setRequirements((prev) => prev.map((r) => (r.id === req.id ? u : r)))}
+                          />
+                        </>
+                      )}
                       <button type="button" className="req-action-btn" onClick={() => startEditReq(req)} title="Edit" aria-label="Edit">
                         <MdEdit size={15} />
                       </button>

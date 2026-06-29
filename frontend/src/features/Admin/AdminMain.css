@@ -152,7 +152,7 @@
 }
 
 .admin-team-filter-btn.active {
-  background: linear-gradient(135deg, #6366f1, #4f46e5);
+  background: linear-gradient(135deg, #6c5cff, #5b46f2);
   border-color: transparent;
   color: #fff;
 }
@@ -507,13 +507,13 @@
 }
 
 .admin-btn-view-task {
-  border-color: #c7d2fe;
-  color: #4338ca;
+  border-color: #d2d4ff;
+  color: #4632c9;
 }
 
 .admin-btn-view-task:hover {
-  background: #eef2ff;
-  border-color: #a5b4fc;
+  background: #eef0ff;
+  border-color: #b9bbff;
 }
 
 .admin-modal-backdrop {
@@ -626,12 +626,12 @@
 }
 
 .admin-btn-primary {
-  background: #6366f1;
+  background: var(--brand-gradient);
   color: #fff;
 }
 
 .admin-btn-primary:hover {
-  background: #4f46e5;
+  filter: brightness(1.05);
 }
 
 /* ── Director tasks ── */
