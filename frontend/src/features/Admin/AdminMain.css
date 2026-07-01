@@ -172,6 +172,18 @@
   color: var(--clr-primary-700);
 }
 
+.admin-username-link-avatar {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  text-decoration: none;
+}
+
+.admin-username-link-avatar:hover {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
 .admin-task-link {
   background: none;
   border: none;

@@ -1057,11 +1057,12 @@ export default function AdminMain({ currentUser, onLogout }) {
                             <td>
                               <button
                                 type="button"
-                                className="admin-username-link"
+                                className="admin-username-link admin-username-link-avatar"
                                 onClick={() =>
                                   setUserDetailModal({ open: true, user: u, mode: 'view' })
                                 }
                               >
+                                <Avatar user={u} />
                                 {u.username}
                               </button>
                             </td>
