@@ -3308,7 +3308,7 @@ export async function dbGetUsersWithRoles() {
   if (!p) return [];
   try {
     const { rows } = await p.query(
-      `SELECT u.user_id, u.username, u.email, u.is_it_developer, u.is_it_manager, u.branch, u.created_at,
+      `SELECT u.user_id, u.username, u.email, u.profile_image, u.is_it_developer, u.is_it_manager, u.branch, u.created_at,
               COALESCE(array_agg(r.name) FILTER (WHERE r.role_id IS NOT NULL), '{}') AS role_names,
               COALESCE(array_agg(r.code) FILTER (WHERE r.role_id IS NOT NULL), '{}') AS role_codes
        FROM users u

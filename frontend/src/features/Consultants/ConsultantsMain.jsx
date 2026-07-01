@@ -23,7 +23,7 @@ import { taskInPeriod, EMPTY_PERIOD } from '../../utils/taskPeriod';
 import { controlKeys, textareaSubmit, escapeCloses } from '../../utils/formKeys';
 import PeriodFilter from '../../components/PeriodFilter';
 import TaskComments from '../../components/TaskComments';
-const logoSrc = '/favicon.png';
+const logoSrc = '/logo-icon.png';
 import ProjectLogo from '../../components/ProjectLogo';
 import SidebarUser from '../../components/SidebarUser';
 import RequirementTimer from '../../components/RequirementTimer';

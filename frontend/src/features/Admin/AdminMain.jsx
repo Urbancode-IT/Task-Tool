@@ -22,7 +22,7 @@ import { TaskModal, TaskBoard } from '../ITUpdates/ITUpdatesMain';
 import { getDisplayRole } from '../../utils/displayRole';
 import { toastSuccess, toastError } from '../../utils/toast';
 import ProjectSearchSelect from '../../components/ProjectSearchSelect';
-const logoSrc = '/favicon.png';
+const logoSrc = '/logo-icon.png';
 import SidebarUser from '../../components/SidebarUser';
 import { AdminAddUserModal, AdminUserDetailModal } from './AdminUserModals';
 import { formatUserRowRole } from '../../utils/displayRole';

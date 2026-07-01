@@ -34,10 +34,10 @@
 }
 
 .it-updates-sidebar-logo {
-  width: 36px;
-  height: 36px;
+  width: 40px;
+  height: 40px;
   border-radius: var(--radius-md);
-  object-fit: cover;
+  object-fit: contain;
   flex-shrink: 0;
 }
 
