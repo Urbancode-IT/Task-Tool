@@ -216,10 +216,9 @@ export default function AdminMain({ currentUser, onLogout }) {
       toastError('Select both the assigning and the receiving director.');
       return false;
     }
-    if (String(assignedBy) === String(assignedTo)) {
-      toastError('A director cannot assign a task to themselves.');
-      return false;
-    }
+    // A director may assign a task to themselves. The director-tasks flow is gated by the
+    // director.manage permission (front-end + requireDirectorManage on POST /tasks), so only
+    // directors can assign here — outsiders cannot assign tasks to directors.
     if (!String(payload.task_title ?? '').trim()) {
       toastError('Task title is required.');
       return false;
