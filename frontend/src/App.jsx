@@ -46,7 +46,7 @@ const LoginPage = ({ onLogin }) => {
               type="text"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              placeholder="e.g. atchaya@seyal.local"
+              placeholder="Enter your email address"
               required
               autoComplete="username"
             />

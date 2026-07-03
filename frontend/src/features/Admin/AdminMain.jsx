@@ -36,8 +36,8 @@ const ADMIN_TABS = [
   { key: 'overdue_tasks', label: 'Overdue Tasks', icon: MdDashboard },
   { key: 'overview', label: 'Overview', icon: MdTableChart },
   { key: 'users', label: 'Users', icon: MdPeople },
-  { key: 'locked_users', label: 'Locked Users', icon: MdLock },
   { key: 'departments', label: 'Departments', icon: MdBusiness },
+  { key: 'locked_users', label: 'Locked Users', icon: MdLock },
 ];
 
 const IT_TEAM_ROLE_CODES = new Set(['it_developer', 'it_manager', 'admin']);
@@ -185,9 +185,13 @@ export default function AdminMain({ currentUser, onLogout }) {
   const closeDirectorTask = () => setDirectorModal({ open: false, task: null });
 
   const visibleTabs = useMemo(() => {
-    const tabs = isAdmin ? [...ADMIN_TABS] : [];
-    if (canViewDirectorTasks) tabs.push(DIRECTOR_TASK_TAB);
-    return tabs.length ? tabs : ADMIN_TABS;
+    if (!isAdmin) {
+      return canViewDirectorTasks ? [DIRECTOR_TASK_TAB] : ADMIN_TABS;
+    }
+    const tabs = [...ADMIN_TABS];
+    // Director Tasks sits in 2nd place (right after Dashboard); Locked Users stays last.
+    if (canViewDirectorTasks) tabs.splice(1, 0, DIRECTOR_TASK_TAB);
+    return tabs;
   }, [isAdmin, canViewDirectorTasks]);
 
   const loadDirectors = () => {
