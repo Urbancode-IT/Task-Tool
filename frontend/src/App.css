@@ -224,7 +224,7 @@
   font-size: 0.95rem;
   font-weight: 600;
   cursor: pointer;
-  background: linear-gradient(135deg, var(--clr-primary-600), var(--clr-primary-500));
+  background: var(--clr-primary-600);
   color: #ffffff;
   position: relative;
   overflow: hidden;
@@ -235,7 +235,7 @@
   content: '';
   position: absolute;
   inset: 0;
-  background: linear-gradient(135deg, rgba(255, 255, 255, 0.1), transparent);
+  background: rgba(255, 255, 255, 0.12);
   opacity: 0;
   transition: opacity var(--transition-fast);
 }

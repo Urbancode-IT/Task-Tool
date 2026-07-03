@@ -152,7 +152,7 @@
 }
 
 .admin-team-filter-btn.active {
-  background: linear-gradient(135deg, #6c5cff, #5b46f2);
+  background: var(--clr-primary-600);
   border-color: transparent;
   color: #fff;
 }
@@ -638,7 +638,7 @@
 }
 
 .admin-btn-primary {
-  background: var(--brand-gradient);
+  background: var(--clr-primary-600);
   color: #fff;
 }
 

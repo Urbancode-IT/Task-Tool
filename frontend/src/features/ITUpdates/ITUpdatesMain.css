@@ -321,7 +321,7 @@
 }
 
 .it-updates-btn-primary {
-  background: var(--brand-gradient);
+  background: var(--clr-primary-600);
   color: #ffffff;
   box-shadow: 0 2px 8px rgba(108, 92, 255, 0.3);
 }
@@ -561,7 +561,7 @@
 }
 
 .it-updates-team-filter-btn.active {
-  background: linear-gradient(135deg, var(--clr-primary-600), var(--clr-primary-700));
+  background: var(--clr-primary-600);
   border-color: transparent;
   color: #fff;
 }
