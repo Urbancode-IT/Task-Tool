@@ -303,6 +303,17 @@ export function TaskBoard({ tasks = [], onDragEnd, onCardClick, projectById, sta
   );
 }
 
+// Keep only the tasks that belong to this sector's projects, so Internal and
+// External never show each other's cards. Tasks with no project are Internal.
+function scopeTasksToProjects(taskList, projList, scope) {
+  const idSet = new Set((projList || []).map((p) => String(p.project_id ?? p.id)));
+  return (taskList || []).filter(Boolean).filter((t) => {
+    const pv = t.projectId ?? t.project_id;
+    if (pv == null || pv === '') return scope === 'internal';
+    return idSet.has(String(pv));
+  });
+}
+
 const ITUpdatesMain = ({ currentUser, onLogout, scope = 'internal' }) => {
   const isExternalScope = scope === 'external';
   const [activeTab, setActiveTab] = useState('Dashboard');
@@ -341,7 +352,9 @@ const ITUpdatesMain = ({ currentUser, onLogout, scope = 'internal' }) => {
     return [
       { key: 'Dashboard', label: 'Dashboard', icon: MdDashboard },
       { key: 'My Dashboard', label: 'My Dashboard', icon: MdHome },
-      { key: 'Tasks', label: 'Tasks', icon: MdViewKanban },
+      { key: 'Tasks', label: 'Client CRM', icon: MdViewKanban },
+      { key: 'My Tasks', label: 'My Tasks', icon: MdChecklist },
+      { key: 'All Tasks', label: 'All Tasks', icon: MdViewKanban },
       { key: 'Projects', label: 'Projects', icon: MdFolder },
       { key: 'Overview', label: 'Overview', icon: MdTableChart },
       { key: 'EOD Updates', label: 'EOD Updates', icon: MdOutlineAssignment },
@@ -349,21 +362,30 @@ const ITUpdatesMain = ({ currentUser, onLogout, scope = 'internal' }) => {
   }, [isExternalScope]);
 
   // Task board column labels + order: freelancing flow (with Prospect) for External.
-  const boardStatusLabels = isExternalScope ? EXTERNAL_STATUS_LABELS : STATUS_LABELS;
-  const boardStatuses = isExternalScope ? EXTERNAL_STATUSES : DEFAULT_STATUSES;
+  // Only the Client CRM tab uses the freelancing headings (with Prospect). My Tasks /
+  // All Tasks use the same standard columns as Internal, in both sectors.
+  const isClientCrm = isExternalScope && activeTab === 'Tasks';
+  const boardStatusLabels = isClientCrm ? EXTERNAL_STATUS_LABELS : STATUS_LABELS;
+  const boardStatuses = isClientCrm ? EXTERNAL_STATUSES : DEFAULT_STATUSES;
 
-  // Count of task cards in each board stage (for the External dashboard chart).
+  // The External dashboard pipeline chart always reflects the CRM (freelancing) stages.
+  const pipelineStatuses = isExternalScope ? EXTERNAL_STATUSES : DEFAULT_STATUSES;
+  const pipelineLabels = isExternalScope ? EXTERNAL_STATUS_LABELS : STATUS_LABELS;
+
+  // Count of task cards in each pipeline stage (for the External dashboard chart).
   const stageCounts = useMemo(() => {
     const counts = {};
-    boardStatuses.forEach((s) => {
+    pipelineStatuses.forEach((s) => {
       counts[s] = 0;
     });
     (tasks || []).forEach((t) => {
+      // The External pipeline chart reflects only Client CRM cards.
+      if (isExternalScope && !t.is_crm) return;
       const s = t.status || 'in_progress';
       counts[s] = (counts[s] || 0) + 1;
     });
     return counts;
-  }, [tasks, boardStatuses]);
+  }, [tasks, pipelineStatuses, isExternalScope]);
 
   const isAdmin = useMemo(
     () => Array.isArray(user?.permissions) && user.permissions.includes('admin.access'),
@@ -395,8 +417,11 @@ const ITUpdatesMain = ({ currentUser, onLogout, scope = 'internal' }) => {
     if (!user) return [];
     const key = user.name || user.username || user.email;
     const id = user.id ?? user.user_id;
+    // Exclude Client CRM cards — those live only on the CRM board.
     return tasks.filter(
-      (t) => t.assignee === key || (id != null && String(t.assigned_to) === String(id))
+      (t) =>
+        !t.is_crm &&
+        (t.assignee === key || (id != null && String(t.assigned_to) === String(id)))
     );
   }, [tasks, user]);
 
@@ -414,9 +439,8 @@ const ITUpdatesMain = ({ currentUser, onLogout, scope = 'internal' }) => {
       setTeamOverview(Array.isArray(teamRes.data) ? teamRes.data.filter(Boolean) : []);
       const projList = Array.isArray(projRes.data) ? projRes.data.filter(Boolean) : [];
       setProjects(projList);
-      // My Tasks / All Tasks / Overview show the full task board (unchanged from
-      // before). Only the Projects list is scoped per sector (internal/external).
-      setTasks(Array.isArray(tasksRes.data) ? tasksRes.data.filter(Boolean) : []);
+      // Scope tasks to this sector's projects so Internal/External don't mix cards.
+      setTasks(scopeTasksToProjects(tasksRes.data, projList, scope));
     } catch (err) {
       setError(
         err?.response?.data?.message ||
@@ -443,11 +467,11 @@ const ITUpdatesMain = ({ currentUser, onLogout, scope = 'internal' }) => {
   const fetchTasksWithFilters = useCallback(async (filters) => {
     try {
       const res = await itUpdatesApi.getTasks({ ...filters, team: 'it' });
-      setTasks(Array.isArray(res.data) ? res.data : []);
+      setTasks(scopeTasksToProjects(res.data, projects, scope));
     } catch {
       setError('Failed to load tasks');
     }
-  }, []);
+  }, [projects, scope]);
 
   // All Tasks filters client-side; ensure we hold the full task list (the Overview
   // tab can narrow `tasks` server-side, so reload when entering All Tasks).
@@ -815,7 +839,9 @@ const ITUpdatesMain = ({ currentUser, onLogout, scope = 'internal' }) => {
       if (isEdit) {
         await itUpdatesApi.updateTask(taskModal.task.id, { ...body, team: MODULE_TEAM });
       } else {
-        const res = await itUpdatesApi.createTask({ ...body, team: MODULE_TEAM });
+        // Cards created on the Client CRM board are flagged so they stay out of the
+        // ordinary task boards (and vice-versa) even if a project changes sector.
+        const res = await itUpdatesApi.createTask({ ...body, is_crm: isClientCrm, team: MODULE_TEAM });
         const newTaskId = res.data?.id || res.data?.task_id;
         if (newTaskId && payload.requirements?.length > 0) {
           // Change to Promise.all to catch errors, or at least log them
@@ -938,7 +964,7 @@ const ITUpdatesMain = ({ currentUser, onLogout, scope = 'internal' }) => {
                 {activeTab === 'My Dashboard' && (isAdmin ? "Members' working hours, projects and leave" : 'Your working hours, projects and leave')}
                 {activeTab === 'My Tasks' && 'Tasks assigned to you'}
                 {activeTab === 'All Tasks' && 'All tasks across projects'}
-                {activeTab === 'Tasks' && 'Tasks across external projects'}
+                {activeTab === 'Tasks' && 'Client pipeline across external projects'}
                 {activeTab === 'Projects' && 'Manage your projects'}
                 {activeTab === 'Overview' && 'Detailed task overview and filters'}
                 {activeTab === 'EOD Updates' && 'End-of-day reports from the team'}
@@ -953,18 +979,20 @@ const ITUpdatesMain = ({ currentUser, onLogout, scope = 'internal' }) => {
                 onClick={() => openTaskModal(null)}
               >
                 <MdAdd size={18} />
-                Add task
+                {activeTab === 'Tasks' ? 'Add project' : 'Add task'}
               </button>
             )}
-            <button
-              type="button"
-              className="it-updates-btn it-updates-btn-secondary"
-              onClick={() => setEodModal(true)}
-              title="Submit EOD Report"
-            >
-              <MdOutlineAssignment size={16} />
-              <span>EOD</span>
-            </button>
+            {activeTab !== 'Tasks' && (
+              <button
+                type="button"
+                className="it-updates-btn it-updates-btn-secondary"
+                onClick={() => setEodModal(true)}
+                title="Submit EOD Report"
+              >
+                <MdOutlineAssignment size={16} />
+                <span>EOD</span>
+              </button>
+            )}
             <button
               type="button"
               className="it-updates-btn it-updates-btn-icon"
@@ -988,6 +1016,7 @@ const ITUpdatesMain = ({ currentUser, onLogout, scope = 'internal' }) => {
               currentUser={user}
               members={teamOverview}
               isAdmin={isAdmin}
+              projectType={scope}
             />
           )}
           {activeTab === 'Dashboard' && (
@@ -1017,10 +1046,10 @@ const ITUpdatesMain = ({ currentUser, onLogout, scope = 'internal' }) => {
                     <h2>Pipeline by stage</h2>
                   </div>
                   {(() => {
-                    const maxCount = Math.max(1, ...boardStatuses.map((s) => stageCounts[s] || 0));
+                    const maxCount = Math.max(1, ...pipelineStatuses.map((s) => stageCounts[s] || 0));
                     return (
                       <div className="ext-pipeline-chart">
-                        {boardStatuses.map((s) => {
+                        {pipelineStatuses.map((s) => {
                           const count = stageCounts[s] || 0;
                           const pct = Math.round((count / maxCount) * 100);
                           return (
@@ -1032,8 +1061,8 @@ const ITUpdatesMain = ({ currentUser, onLogout, scope = 'internal' }) => {
                                   style={{ height: `${pct}%`, backgroundColor: STATUS_COLORS[s] }}
                                 />
                               </div>
-                              <div className="ext-pipeline-label" title={boardStatusLabels[s]}>
-                                {boardStatusLabels[s]}
+                              <div className="ext-pipeline-label" title={pipelineLabels[s]}>
+                                {pipelineLabels[s]}
                               </div>
                             </div>
                           );
@@ -1200,7 +1229,9 @@ const ITUpdatesMain = ({ currentUser, onLogout, scope = 'internal' }) => {
                 />
               </div>
               <TaskBoard
-                tasks={allTasksFiltered}
+                tasks={allTasksFiltered.filter((t) =>
+                  activeTab === 'Tasks' ? t.is_crm === true : t.is_crm !== true
+                )}
                 onDragEnd={handleDragEnd}
                 onCardClick={openTaskModal}
                 projectById={projectById}

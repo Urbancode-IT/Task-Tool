@@ -25,7 +25,7 @@ const round1 = (n) => Math.round(n * 10) / 10;
  * baseline, sortable by period (week/month/custom), with a self-service leave
  * toggle. Members see only themselves; admins can pick any member.
  */
-export default function MemberDashboard({ currentUser, members = [], isAdmin = false, team = 'it' }) {
+export default function MemberDashboard({ currentUser, members = [], isAdmin = false, team = 'it', projectType = null }) {
   const myId = String(currentUser?.id ?? currentUser?.user_id ?? '');
   const [selectedUserId, setSelectedUserId] = useState(myId);
   const [period, setPeriod] = useState({ preset: 'week', from: '', to: '' });
@@ -44,6 +44,7 @@ export default function MemberDashboard({ currentUser, members = [], isAdmin = f
         from: from || undefined,
         to: to || undefined,
         team,
+        type: projectType || undefined,
       });
       setData(res.data || { daily: [], byProject: [], projects: [], leaves: [], totalSeconds: 0, taskStats: { total: 0, completed: 0, in_progress: 0, todo: 0, review: 0, overdue: 0 } });
     } catch {
@@ -52,7 +53,7 @@ export default function MemberDashboard({ currentUser, members = [], isAdmin = f
     } finally {
       setLoading(false);
     }
-  }, [selectedUserId, from, to, team]);
+  }, [selectedUserId, from, to, team, projectType]);
 
   useEffect(() => { load(); }, [load]);
 

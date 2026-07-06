@@ -397,6 +397,14 @@ export async function dbEnsureTables() {
     console.warn('dbEnsureTables: project_comments table check failed:', err.message);
   }
 
+  // Flag distinguishing Client CRM cards (created in the External CRM board) from
+  // ordinary tasks, so moving a project between sectors never mixes them.
+  try {
+    await p.query('ALTER TABLE it_tasks ADD COLUMN IF NOT EXISTS is_crm BOOLEAN DEFAULT false;');
+  } catch (err) {
+    console.warn('dbEnsureTables: it_tasks.is_crm check failed:', err.message);
+  }
+
   // Profile pictures are stored inline as data URLs, so the column must be TEXT
   // (not a narrow VARCHAR) to avoid truncation.
   try {
@@ -1611,6 +1619,7 @@ export async function dbGetTasksSimple(filters = {}) {
       publish_link: r.publish_link ?? null,
       target_date: r.target_date ?? null,
       publish_date: r.publish_date ?? null,
+      is_crm: Boolean(r.is_crm),
       team: normalizedTeam,
     }));
   } catch (err) {
@@ -1807,6 +1816,11 @@ export async function dbCreateTask(data) {
       toNullableDate(data.target_date),
       toNullableDate(data.publish_date)
     );
+  }
+  // it_tasks carries the CRM flag (Client CRM cards vs ordinary tasks).
+  if (team === 'it') {
+    insertColumns.push('is_crm');
+    insertValues.push(Boolean(data.is_crm));
   }
   const placeholders = insertValues.map((_, idx) => `$${idx + 1}`).join(', ');
   const {
@@ -3136,7 +3150,7 @@ const EMPTY_DASHBOARD = { daily: [], byProject: [], projects: [], leaves: [], to
  * Member dashboard data: worked seconds per day, per-project breakdown, the projects
  * the member is assigned to, and leave days — all within [from, to] (yyyy-mm-dd).
  */
-export async function dbGetMemberDashboard(userId, from, to, team = 'it') {
+export async function dbGetMemberDashboard(userId, from, to, team = 'it', projectType = null) {
   const p = getPool();
   if (!p) return EMPTY_DASHBOARD;
   const uid = parseInt(String(userId), 10);
@@ -3144,14 +3158,26 @@ export async function dbGetMemberDashboard(userId, from, to, team = 'it') {
   const taskTable = taskTableForTeam(team);
   const hasProjects = team === 'it'; // only it_tasks carries project_id + it_projects exists
   const params = [uid, from || '0001-01-01', to || '9999-12-31'];
+  // Scope the dashboard to a project sector so Internal and External differ.
+  // Internal also counts tasks with no project; External only external projects.
+  const scoped = hasProjects && (projectType === 'internal' || projectType === 'external');
+  const projMatch =
+    projectType === 'external'
+      ? "pr.project_type = 'external'"
+      : "COALESCE(pr.project_type, 'internal') = 'internal'";
   try {
-    const { rows: dailyRows } = await p.query(
-      `SELECT to_char(work_date, 'YYYY-MM-DD') AS date, SUM(seconds)::int AS seconds
-       FROM requirement_time_logs
-       WHERE user_id = $1 AND work_date BETWEEN $2 AND $3
-       GROUP BY work_date ORDER BY work_date`,
-      params
-    );
+    const dailySql = scoped
+      ? `SELECT to_char(l.work_date, 'YYYY-MM-DD') AS date, SUM(l.seconds)::int AS seconds
+         FROM requirement_time_logs l
+         LEFT JOIN ${taskTable} t ON t.task_id = l.task_id
+         LEFT JOIN it_projects pr ON pr.project_id = t.project_id
+         WHERE l.user_id = $1 AND l.work_date BETWEEN $2 AND $3 AND ${projMatch}
+         GROUP BY l.work_date ORDER BY l.work_date`
+      : `SELECT to_char(work_date, 'YYYY-MM-DD') AS date, SUM(seconds)::int AS seconds
+         FROM requirement_time_logs
+         WHERE user_id = $1 AND work_date BETWEEN $2 AND $3
+         GROUP BY work_date ORDER BY work_date`;
+    const { rows: dailyRows } = await p.query(dailySql, params);
     let byProject = [];
     let projects = [];
     if (hasProjects) {
@@ -3162,7 +3188,7 @@ export async function dbGetMemberDashboard(userId, from, to, team = 'it') {
          FROM requirement_time_logs l
          LEFT JOIN ${taskTable} t ON t.task_id = l.task_id
          LEFT JOIN it_projects pr ON pr.project_id = t.project_id
-         WHERE l.user_id = $1 AND l.work_date BETWEEN $2 AND $3
+         WHERE l.user_id = $1 AND l.work_date BETWEEN $2 AND $3 ${scoped ? `AND ${projMatch}` : ''}
          GROUP BY pr.project_id, pr.project_name
          ORDER BY seconds DESC`,
         params
@@ -3176,7 +3202,7 @@ export async function dbGetMemberDashboard(userId, from, to, team = 'it') {
         `SELECT DISTINCT pr.project_id AS id, pr.project_name AS name, pr.status, pr.logo
          FROM ${taskTable} t
          JOIN it_projects pr ON pr.project_id = t.project_id
-         WHERE t.assigned_to = $1
+         WHERE t.assigned_to = $1 ${scoped ? `AND ${projMatch}` : ''}
          ORDER BY pr.project_name`,
         [uid]
       );
@@ -3193,14 +3219,16 @@ export async function dbGetMemberDashboard(userId, from, to, team = 'it') {
       const { rows: ts } = await p.query(
         `SELECT
            COUNT(*)::int AS total,
-           COUNT(*) FILTER (WHERE status = 'completed')::int AS completed,
-           COUNT(*) FILTER (WHERE status = 'in_progress')::int AS in_progress,
-           COUNT(*) FILTER (WHERE status = 'todo')::int AS todo,
-           COUNT(*) FILTER (WHERE status IN ('review', 'rework'))::int AS review,
-           COUNT(*) FILTER (WHERE due_date IS NOT NULL AND due_date < CURRENT_DATE AND status <> 'completed')::int AS overdue
-         FROM ${taskTable}
-         WHERE assigned_to = $1
-           AND COALESCE(task_date, created_at::date) BETWEEN $2 AND $3`,
+           COUNT(*) FILTER (WHERE t.status = 'completed')::int AS completed,
+           COUNT(*) FILTER (WHERE t.status = 'in_progress')::int AS in_progress,
+           COUNT(*) FILTER (WHERE t.status = 'todo')::int AS todo,
+           COUNT(*) FILTER (WHERE t.status IN ('review', 'rework'))::int AS review,
+           COUNT(*) FILTER (WHERE t.due_date IS NOT NULL AND t.due_date < CURRENT_DATE AND t.status <> 'completed')::int AS overdue
+         FROM ${taskTable} t
+         ${hasProjects ? 'LEFT JOIN it_projects pr ON pr.project_id = t.project_id' : ''}
+         WHERE t.assigned_to = $1
+           AND COALESCE(t.task_date, t.created_at::date) BETWEEN $2 AND $3
+           ${scoped ? `AND ${projMatch}` : ''}`,
         params
       );
       if (ts[0]) {

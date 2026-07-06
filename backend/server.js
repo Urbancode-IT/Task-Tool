@@ -1514,8 +1514,9 @@ app.get(
       if (!actor.isAdmin && actor.id != null && actor.id !== targetId) {
         return res.status(403).json({ message: 'You can only view your own dashboard.' });
       }
-      const { from, to, team } = req.query;
-      const data = await db.dbGetMemberDashboard(targetId, from || null, to || null, team || 'it');
+      const { from, to, team, type } = req.query;
+      const projectType = type === 'internal' || type === 'external' ? type : null;
+      const data = await db.dbGetMemberDashboard(targetId, from || null, to || null, team || 'it', projectType);
       return res.json(data);
     } catch (err) {
       console.error('member dashboard:', err.message);
