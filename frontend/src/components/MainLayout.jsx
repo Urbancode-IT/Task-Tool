@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { MdComputer, MdPeople, MdCampaign, MdShare, MdAdminPanelSettings, MdGavel } from 'react-icons/md';
+import { MdFolderSpecial, MdPublic, MdPeople, MdCampaign, MdShare, MdAdminPanelSettings, MdGavel } from 'react-icons/md';
 import ITUpdatesMain from '../features/ITUpdates/ITUpdatesMain';
 import ConsultantsMain from '../features/Consultants/ConsultantsMain';
 import CreativeTeamMain from '../features/CreativeTeam/CreativeTeamMain';
@@ -10,7 +10,10 @@ import ToastContainer from './Toast';
 import './MainLayout.css';
 
 const MODULES = [
-  { key: 'it_updates', label: 'IT Updates', icon: MdComputer, permission: 'it_updates.view' },
+  // "IT Updates" is now the Internal Projects sector. External Projects sits beside
+  // it and is available to the same IT-team members (gated by it_updates.view).
+  { key: 'it_updates', label: 'Internal Projects', icon: MdFolderSpecial, permission: 'it_updates.view' },
+  { key: 'external_projects', label: 'External Projects', icon: MdPublic, permission: 'it_updates.view' },
   { key: 'consultants', label: 'Consultants', icon: MdPeople, permission: 'consultants.view' },
   { key: 'creative_team', label: 'Creative Team', icon: MdCampaign, permission: 'creative_team.view' },
   { key: 'social_media', label: 'Social Media Management', icon: MdShare, permission: 'social_media.view' },
@@ -53,7 +56,9 @@ export default function MainLayout({ currentUser, onLogout }) {
   const renderContent = () => {
     switch (safeActiveModule) {
       case 'it_updates':
-        return <ITUpdatesMain currentUser={user} onLogout={onLogout} />;
+        return <ITUpdatesMain currentUser={user} onLogout={onLogout} scope="internal" />;
+      case 'external_projects':
+        return <ITUpdatesMain currentUser={user} onLogout={onLogout} scope="external" />;
       case 'consultants':
         return <ConsultantsMain currentUser={user} onLogout={onLogout} />;
       case 'creative_team':
@@ -73,6 +78,7 @@ export default function MainLayout({ currentUser, onLogout }) {
   // so the global header needs left padding to avoid overlap.
   const hasSidebar = [
     'it_updates',
+    'external_projects',
     'consultants',
     'creative_team',
     'social_media',

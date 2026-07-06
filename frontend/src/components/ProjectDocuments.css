@@ -1,0 +1,164 @@
+/* Three document slots laid out neatly side by side (one per column). */
+.proj-docs {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+@media (max-width: 560px) {
+  .proj-docs {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Wrapper used when embedding the panel inside the IT Updates project modal. */
+.it-updates-project-docs {
+  margin-top: 0.25rem;
+}
+.it-updates-project-docs-label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--clr-slate-700, #334155);
+  margin-bottom: 0.5rem;
+}
+.it-updates-project-docs-hint {
+  font-size: 0.8rem;
+  color: var(--clr-slate-500);
+  margin-top: 0.25rem;
+}
+
+.proj-docs-empty {
+  color: var(--clr-slate-500);
+  font-size: 0.9rem;
+}
+
+.proj-docs-slot {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.65rem;
+  padding: 0.9rem;
+  border: 1px solid var(--clr-slate-200);
+  border-radius: var(--radius-md);
+  background: var(--surface-card, #fff);
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.proj-docs-slot.has-file {
+  border-color: var(--clr-primary-300);
+}
+
+.proj-docs-slot:hover {
+  box-shadow: 0 2px 10px rgba(15, 23, 42, 0.06);
+}
+
+.proj-docs-slot-icon {
+  flex-shrink: 0;
+  width: 42px;
+  height: 42px;
+  border-radius: var(--radius-md);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--clr-primary-50);
+  color: var(--clr-primary-600);
+}
+
+.proj-docs-slot.has-file .proj-docs-slot-icon {
+  background: var(--clr-primary-600);
+  color: #fff;
+}
+
+.proj-docs-slot-body {
+  flex: 1;
+  width: 100%;
+  min-width: 0;
+}
+
+.proj-docs-slot-title {
+  font-weight: 600;
+  font-size: 0.92rem;
+  color: var(--clr-slate-800, #1e293b);
+}
+
+.proj-docs-slot-hint {
+  font-size: 0.78rem;
+  color: var(--clr-slate-500);
+  margin-top: 0.15rem;
+}
+
+.proj-docs-slot-meta {
+  display: flex;
+  flex-direction: column;
+  margin-top: 0.15rem;
+  min-width: 0;
+}
+
+.proj-docs-file {
+  font-size: 0.82rem;
+  color: var(--clr-primary-700);
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.proj-docs-sub {
+  font-size: 0.72rem;
+  color: var(--clr-slate-500);
+}
+
+.proj-docs-slot-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  width: 100%;
+  margin-top: auto;
+}
+
+.proj-docs-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.45rem 0.55rem;
+  border: 1px solid var(--clr-slate-200);
+  border-radius: var(--radius-sm, 8px);
+  background: var(--clr-slate-50, #f8fafc);
+  color: var(--clr-slate-700);
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background var(--transition-fast), color var(--transition-fast),
+    border-color var(--transition-fast);
+}
+
+.proj-docs-btn:hover:not(:disabled) {
+  border-color: var(--clr-primary-300);
+  color: var(--clr-primary-700);
+  background: var(--clr-primary-50);
+}
+
+.proj-docs-btn:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.proj-docs-btn-upload {
+  background: var(--clr-primary-600);
+  color: #fff;
+  border-color: transparent;
+  padding: 0.45rem 0.85rem;
+}
+
+.proj-docs-btn-upload:hover:not(:disabled) {
+  filter: brightness(1.05);
+  color: #fff;
+  background: var(--clr-primary-600);
+}
+
+.proj-docs-btn-danger:hover:not(:disabled) {
+  border-color: #fca5a5;
+  color: #dc2626;
+  background: #fef2f2;
+}

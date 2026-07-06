@@ -8,8 +8,11 @@ const withTeamParam = (data = {}, params = {}) => {
 };
 
 const itUpdatesApi = {
-  getProjects: (status) => {
-    const params = status ? { status } : {};
+  // type: 'internal' | 'external' (optional) to scope to a project sector.
+  getProjects: (status, type) => {
+    const params = {};
+    if (status) params.status = status;
+    if (type) params.type = type;
     return apiClient.get(`${BASE_PATH}/projects`, { params });
   },
 
@@ -24,6 +27,32 @@ const itUpdatesApi = {
   deleteProject: (projectId) => {
     return apiClient.delete(`${BASE_PATH}/projects/${projectId}`);
   },
+
+  // ── Project documents (Project Documentation / BRD / Credentials) ──
+  listProjectDocuments: (projectId) =>
+    apiClient.get(`${BASE_PATH}/projects/${projectId}/documents`),
+  getProjectDocument: (projectId, docType) =>
+    apiClient.get(`${BASE_PATH}/projects/${projectId}/documents/${docType}`),
+  uploadProjectDocument: (projectId, docType, data) =>
+    apiClient.put(`${BASE_PATH}/projects/${projectId}/documents/${docType}`, data),
+  deleteProjectDocument: (projectId, docType) =>
+    apiClient.delete(`${BASE_PATH}/projects/${projectId}/documents/${docType}`),
+
+  // ── Project notes/comments (with @mention → email) ──
+  getProjectComments: (projectId) =>
+    apiClient.get(`${BASE_PATH}/projects/${projectId}/comments`),
+  addProjectComment: (projectId, data) =>
+    apiClient.post(`${BASE_PATH}/projects/${projectId}/comments`, data),
+  updateProjectComment: (projectId, commentId, data) =>
+    apiClient.put(`${BASE_PATH}/projects/${projectId}/comments/${commentId}`, data),
+  deleteProjectComment: (projectId, commentId, userId) =>
+    apiClient.delete(`${BASE_PATH}/projects/${projectId}/comments/${commentId}`, {
+      params: { user_id: userId },
+    }),
+  likeProjectComment: (projectId, commentId, userId) =>
+    apiClient.post(`${BASE_PATH}/projects/${projectId}/comments/${commentId}/like`, {
+      user_id: userId,
+    }),
 
   getTasks: (filters = {}) => {
     return apiClient.get(`${BASE_PATH}/tasks`, { params: filters });

@@ -29,6 +29,9 @@ import PeriodFilter from '../../components/PeriodFilter';
 import TaskComments from '../../components/TaskComments';
 const logoSrc = '/logo-icon.png';
 import ProjectLogo from '../../components/ProjectLogo';
+import ProjectDocuments from '../../components/ProjectDocuments';
+import ProjectRequirements from '../../components/ProjectRequirements';
+import MemberPicker from '../../components/MemberPicker';
 import SidebarUser from '../../components/SidebarUser';
 import RequirementTimer from '../../components/RequirementTimer';
 import RequirementManualTime from '../../components/RequirementManualTime';
@@ -38,6 +41,16 @@ import { sanitizeCommentHtml } from '../../utils/sanitizeHtml';
 import { BRANCHES } from '../Admin/AdminUserModals';
 import MemberDashboard from './MemberDashboard';
 import './ITUpdatesMain.css';
+
+// Adapter so the shared comment thread posts to project-comment endpoints
+// (@mention → email, same as tasks/EOD).
+const projectCommentApi = {
+  getComments: (id) => itUpdatesApi.getProjectComments(id),
+  addComment: (id, body) => itUpdatesApi.addProjectComment(id, body),
+  updateComment: (id, commentId, body) => itUpdatesApi.updateProjectComment(id, commentId, body),
+  deleteComment: (id, commentId, userId) => itUpdatesApi.deleteProjectComment(id, commentId, userId),
+  likeComment: (id, commentId, userId) => itUpdatesApi.likeProjectComment(id, commentId, userId),
+};
 
 const TABS = [
   { key: 'Dashboard', label: 'Home', icon: MdHome },
@@ -55,14 +68,31 @@ const EMPTY_OVERVIEW_FILTERS = { from_date: '', to_date: '', assigned_to: '', pr
 
 const STATUS_LABELS = {
   todo: 'To do',
+  prospect: 'Prospect',
   in_progress: 'In Progress',
   review: 'Review',
   rework: 'Rework',
   completed: 'Completed',
 };
 
+// External Projects (freelancing) relabels the task states as a client/lead flow,
+// with an extra "Prospect" stage between Incoming Leads and Converted Clients.
+const EXTERNAL_STATUS_LABELS = {
+  todo: 'Incoming Leads',
+  prospect: 'Prospect',
+  in_progress: 'Converted Clients',
+  review: 'Projects in Progress',
+  rework: 'Dropped / Lost Clients',
+  completed: 'Successfully Delivered',
+};
+
+// Column order per sector. External inserts 'prospect' after 'todo'.
+const DEFAULT_STATUSES = ['todo', 'in_progress', 'review', 'rework', 'completed'];
+const EXTERNAL_STATUSES = ['todo', 'prospect', 'in_progress', 'review', 'rework', 'completed'];
+
 const STATUS_COLORS = {
   todo: '#94a3b8',
+  prospect: '#06b6d4',
   in_progress: '#6366f1',
   review: '#8b5cf6',
   rework: '#f97316',
@@ -132,7 +162,7 @@ function Avatar({ user, size = 'md' }) {
  *   onCardClick — open the task (edit/requirements)
  *   projectById — Map of projectId → project (pass an empty Map when N/A)
  */
-export function TaskBoard({ tasks = [], onDragEnd, onCardClick, projectById }) {
+export function TaskBoard({ tasks = [], onDragEnd, onCardClick, projectById, statusLabels = STATUS_LABELS, statuses = DEFAULT_STATUSES }) {
   const groups = useMemo(() => groupTasksByStatus(tasks), [tasks]);
   const pById = projectById || new Map();
 
@@ -143,7 +173,7 @@ export function TaskBoard({ tasks = [], onDragEnd, onCardClick, projectById }) {
       style={{ borderTopColor: STATUS_COLORS[statusKey] }}
     >
       <div className="it-updates-column-header">
-        <span>{STATUS_LABELS[statusKey]}</span>
+        <span>{statusLabels[statusKey]}</span>
         <span className="it-updates-column-count">{items.length}</span>
       </div>
       <Droppable droppableId={statusKey}>
@@ -260,8 +290,11 @@ export function TaskBoard({ tasks = [], onDragEnd, onCardClick, projectById }) {
   return (
     <DragDropContext onDragEnd={onDragEnd}>
       <div className="it-updates-kanban-wrap">
-        <section className="it-updates-columns">
-          {['todo', 'in_progress', 'review', 'rework', 'completed'].map((statusKey) =>
+        <section
+          className="it-updates-columns"
+          style={{ gridTemplateColumns: `repeat(${statuses.length}, minmax(0, 1fr))` }}
+        >
+          {statuses.map((statusKey) =>
             renderColumn(statusKey, groups[statusKey] || [])
           )}
         </section>
@@ -270,7 +303,8 @@ export function TaskBoard({ tasks = [], onDragEnd, onCardClick, projectById }) {
   );
 }
 
-const ITUpdatesMain = ({ currentUser, onLogout }) => {
+const ITUpdatesMain = ({ currentUser, onLogout, scope = 'internal' }) => {
+  const isExternalScope = scope === 'external';
   const [activeTab, setActiveTab] = useState('Dashboard');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -300,7 +334,36 @@ const ITUpdatesMain = ({ currentUser, onLogout }) => {
       }
     })();
 
-  const visibleTabs = useMemo(() => TABS, []);
+  const visibleTabs = useMemo(() => {
+    if (!isExternalScope) return TABS;
+    // External: the projects dashboard is the default "Dashboard" tab; the personal
+    // member dashboard becomes "My Dashboard". Tasks is a single merged tab.
+    return [
+      { key: 'Dashboard', label: 'Dashboard', icon: MdDashboard },
+      { key: 'My Dashboard', label: 'My Dashboard', icon: MdHome },
+      { key: 'Tasks', label: 'Tasks', icon: MdViewKanban },
+      { key: 'Projects', label: 'Projects', icon: MdFolder },
+      { key: 'Overview', label: 'Overview', icon: MdTableChart },
+      { key: 'EOD Updates', label: 'EOD Updates', icon: MdOutlineAssignment },
+    ];
+  }, [isExternalScope]);
+
+  // Task board column labels + order: freelancing flow (with Prospect) for External.
+  const boardStatusLabels = isExternalScope ? EXTERNAL_STATUS_LABELS : STATUS_LABELS;
+  const boardStatuses = isExternalScope ? EXTERNAL_STATUSES : DEFAULT_STATUSES;
+
+  // Count of task cards in each board stage (for the External dashboard chart).
+  const stageCounts = useMemo(() => {
+    const counts = {};
+    boardStatuses.forEach((s) => {
+      counts[s] = 0;
+    });
+    (tasks || []).forEach((t) => {
+      const s = t.status || 'in_progress';
+      counts[s] = (counts[s] || 0) + 1;
+    });
+    return counts;
+  }, [tasks, boardStatuses]);
 
   const isAdmin = useMemo(
     () => Array.isArray(user?.permissions) && user.permissions.includes('admin.access'),
@@ -344,12 +407,15 @@ const ITUpdatesMain = ({ currentUser, onLogout }) => {
       const [statsRes, teamRes, projRes, tasksRes] = await Promise.all([
         itUpdatesApi.getDashboardStats(),
         itUpdatesApi.getTeamOverview({ team: 'it' }),
-        itUpdatesApi.getProjects(),
+        itUpdatesApi.getProjects(undefined, scope),
         itUpdatesApi.getTasks({ team: 'it' }),
       ]);
       setDashboardData(statsRes.data);
       setTeamOverview(Array.isArray(teamRes.data) ? teamRes.data.filter(Boolean) : []);
-      setProjects(Array.isArray(projRes.data) ? projRes.data.filter(Boolean) : []);
+      const projList = Array.isArray(projRes.data) ? projRes.data.filter(Boolean) : [];
+      setProjects(projList);
+      // My Tasks / All Tasks / Overview show the full task board (unchanged from
+      // before). Only the Projects list is scoped per sector (internal/external).
       setTasks(Array.isArray(tasksRes.data) ? tasksRes.data.filter(Boolean) : []);
     } catch (err) {
       setError(
@@ -359,7 +425,7 @@ const ITUpdatesMain = ({ currentUser, onLogout }) => {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [scope]);
 
   useEffect(() => {
     loadAllData();
@@ -386,7 +452,7 @@ const ITUpdatesMain = ({ currentUser, onLogout }) => {
   // All Tasks filters client-side; ensure we hold the full task list (the Overview
   // tab can narrow `tasks` server-side, so reload when entering All Tasks).
   useEffect(() => {
-    if (activeTab === 'All Tasks') loadAllData();
+    if (activeTab === 'All Tasks' || activeTab === 'Tasks') loadAllData();
   }, [activeTab, loadAllData]);
 
   const allTasksFiltered = useMemo(() => {
@@ -538,6 +604,15 @@ const ITUpdatesMain = ({ currentUser, onLogout }) => {
   }, [activeTab, currentUser?.branch]);
 
   const stats = useMemo(() => {
+    // External dashboard is derived from that sector's own projects.
+    if (isExternalScope) {
+      const list = (projects || []).filter(Boolean);
+      return {
+        active_projects: list.filter((p) => (p.status || 'active') === 'active').length,
+        active_tasks: list.reduce((s, p) => s + (p.total_tasks || 0), 0),
+        completed_tasks: list.reduce((s, p) => s + (p.completed_tasks || 0), 0),
+      };
+    }
     const d = dashboardData;
     if (!d) return { active_projects: 0, active_tasks: 0, completed_tasks: 0 };
     if (d.stats) return d.stats;
@@ -546,20 +621,24 @@ const ITUpdatesMain = ({ currentUser, onLogout }) => {
       active_tasks: d.totalTasks ?? 0,
       completed_tasks: d.completedTasksToday ?? 0,
     };
-  }, [dashboardData]);
+  }, [dashboardData, projects, isExternalScope]);
 
   const dashboardProjects = useMemo(() => {
+    const fromState = () =>
+      (projects || []).filter(Boolean).map((p) => ({
+        project_id: p?.id ?? p?.project_id,
+        project_name: p?.name ?? p?.project_name,
+        priority: p?.priority ?? 'medium',
+        total_tasks: p?.total_tasks ?? 0,
+        completed_tasks: p?.completed_tasks ?? 0,
+        completion_percentage: p?.completion_percentage ?? p?.progress ?? 0,
+      }));
+    // External: always use this sector's (external) projects, not the global list.
+    if (isExternalScope) return fromState();
     const d = dashboardData;
     if (d?.projects?.length) return d.projects;
-    return (projects || []).filter(Boolean).map((p) => ({
-      project_id: p?.id ?? p?.project_id,
-      project_name: p?.name ?? p?.project_name,
-      priority: p?.priority ?? 'medium',
-      total_tasks: p?.total_tasks ?? 0,
-      completed_tasks: p?.completed_tasks ?? 0,
-      completion_percentage: p?.completion_percentage ?? p?.progress ?? 0,
-    }));
-  }, [dashboardData, projects]);
+    return fromState();
+  }, [dashboardData, projects, isExternalScope]);
 
   const projectLinks = useMemo(
     () => (projects || []).filter((p) => Boolean((p.project_url || '').trim())),
@@ -602,7 +681,7 @@ const ITUpdatesMain = ({ currentUser, onLogout }) => {
       );
       try {
         await itUpdatesApi.updateTask(taskId, { status: newStatus, team: MODULE_TEAM });
-        toastSuccess(`Task moved to ${STATUS_LABELS[newStatus] || newStatus}`);
+        toastSuccess(`Task moved to ${boardStatusLabels[newStatus] || newStatus}`);
       } catch {
         setTasks((prev) =>
           prev.map((t) =>
@@ -620,6 +699,7 @@ const ITUpdatesMain = ({ currentUser, onLogout }) => {
   const openTaskModal = (task = null) => setTaskModal({ open: true, task });
   const closeProjectModal = () => setProjectModal({ open: false, project: null });
   const closeTaskModal = () => setTaskModal({ open: false, task: null });
+
 
   // Delete is available to admins and the task's creator/assigner.
   const myId = user?.id ?? user?.user_id ?? null;
@@ -662,6 +742,8 @@ const ITUpdatesMain = ({ currentUser, onLogout }) => {
         owner_user_id: payload.owner_user_id || null,
         owner_name: payload.owner_name || null,
         teammates: payload.teammates ?? [],
+        client_name: payload.client_name ?? null,
+        project_type: payload.project_type === 'external' ? 'external' : 'internal',
       };
       const isEdit = Boolean(projectModal.project?.id);
       if (isEdit) {
@@ -671,7 +753,7 @@ const ITUpdatesMain = ({ currentUser, onLogout }) => {
       }
       const [statsRes, projRes] = await Promise.all([
         itUpdatesApi.getDashboardStats(),
-        itUpdatesApi.getProjects(),
+        itUpdatesApi.getProjects(undefined, scope),
       ]);
       setDashboardData(statsRes?.data ?? null);
       setProjects(Array.isArray(projRes?.data) ? projRes.data.filter(Boolean) : []);
@@ -702,7 +784,7 @@ const ITUpdatesMain = ({ currentUser, onLogout }) => {
       await itUpdatesApi.deleteProject(project.id);
       const [statsRes, projRes] = await Promise.all([
         itUpdatesApi.getDashboardStats(),
-        itUpdatesApi.getProjects(),
+        itUpdatesApi.getProjects(undefined, scope),
       ]);
       setDashboardData(statsRes?.data ?? null);
       setProjects(Array.isArray(projRes?.data) ? projRes.data.filter(Boolean) : []);
@@ -790,7 +872,7 @@ const ITUpdatesMain = ({ currentUser, onLogout }) => {
 
   // Board rendering moved to the shared <TaskBoard> component (module scope above).
 
-  const tabConfig = TABS.find((t) => t.key === activeTab);
+  const tabConfig = visibleTabs.find((t) => t.key === activeTab);
 
   return (
     <div className="it-updates-shell">
@@ -806,7 +888,9 @@ const ITUpdatesMain = ({ currentUser, onLogout }) => {
           <img src={logoSrc} alt="Seyal" className="it-updates-sidebar-logo" />
           <div className="it-updates-sidebar-brand-text">
             <span className="it-updates-sidebar-title">Seyal</span>
-            <span className="it-updates-sidebar-subtitle">IT Team</span>
+            <span className="it-updates-sidebar-subtitle">
+              {isExternalScope ? 'External Projects' : 'Internal Projects'}
+            </span>
           </div>
         </div>
 
@@ -854,6 +938,7 @@ const ITUpdatesMain = ({ currentUser, onLogout }) => {
                 {activeTab === 'My Dashboard' && (isAdmin ? "Members' working hours, projects and leave" : 'Your working hours, projects and leave')}
                 {activeTab === 'My Tasks' && 'Tasks assigned to you'}
                 {activeTab === 'All Tasks' && 'All tasks across projects'}
+                {activeTab === 'Tasks' && 'Tasks across external projects'}
                 {activeTab === 'Projects' && 'Manage your projects'}
                 {activeTab === 'Overview' && 'Detailed task overview and filters'}
                 {activeTab === 'EOD Updates' && 'End-of-day reports from the team'}
@@ -861,7 +946,7 @@ const ITUpdatesMain = ({ currentUser, onLogout }) => {
             </div>
           </div>
           <div className="it-updates-topbar-right">
-            {(activeTab === 'My Tasks' || activeTab === 'All Tasks') && (
+            {(activeTab === 'My Tasks' || activeTab === 'All Tasks' || activeTab === 'Tasks') && (
               <button
                 type="button"
                 className="it-updates-btn it-updates-btn-primary"
@@ -915,12 +1000,49 @@ const ITUpdatesMain = ({ currentUser, onLogout }) => {
                   </div>
                 </div>
                 <div className="it-updates-stat-card">
-                  <div className="it-updates-stat-label">Completed Tasks Today</div>
+                  <div className="it-updates-stat-label">
+                    {isExternalScope ? 'Tasks Completed' : 'Completed Tasks Today'}
+                  </div>
                   <div className="it-updates-stat-value">
-                    {dashboardData?.completedTasksToday ?? stats.completed_tasks ?? 0}
+                    {isExternalScope
+                      ? stats.completed_tasks ?? 0
+                      : dashboardData?.completedTasksToday ?? stats.completed_tasks ?? 0}
                   </div>
                 </div>
               </section>
+
+              {isExternalScope && (
+                <section className="it-updates-panel it-updates-panel-full">
+                  <div className="it-updates-panel-header">
+                    <h2>Pipeline by stage</h2>
+                  </div>
+                  {(() => {
+                    const maxCount = Math.max(1, ...boardStatuses.map((s) => stageCounts[s] || 0));
+                    return (
+                      <div className="ext-pipeline-chart">
+                        {boardStatuses.map((s) => {
+                          const count = stageCounts[s] || 0;
+                          const pct = Math.round((count / maxCount) * 100);
+                          return (
+                            <div key={s} className="ext-pipeline-col">
+                              <div className="ext-pipeline-count">{count}</div>
+                              <div className="ext-pipeline-track">
+                                <div
+                                  className="ext-pipeline-bar"
+                                  style={{ height: `${pct}%`, backgroundColor: STATUS_COLORS[s] }}
+                                />
+                              </div>
+                              <div className="ext-pipeline-label" title={boardStatusLabels[s]}>
+                                {boardStatusLabels[s]}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  })()}
+                </section>
+              )}
 
               <section className="it-updates-dashboard-sections">
                 <div className="it-updates-panel it-updates-panel-full">
@@ -1008,10 +1130,12 @@ const ITUpdatesMain = ({ currentUser, onLogout }) => {
               onDragEnd={handleDragEnd}
               onCardClick={openTaskModal}
               projectById={projectById}
+              statusLabels={boardStatusLabels}
+              statuses={boardStatuses}
             />
           )}
 
-          {activeTab === 'All Tasks' && (
+          {(activeTab === 'All Tasks' || activeTab === 'Tasks') && (
             <>
               <div className="it-updates-filters">
                 <ProjectSearchSelect
@@ -1028,11 +1152,9 @@ const ITUpdatesMain = ({ currentUser, onLogout }) => {
                   }
                 >
                   <option value="">Statuses</option>
-                  <option value="todo">To do</option>
-                  <option value="in_progress">In Progress</option>
-                  <option value="review">Review</option>
-                  <option value="rework">Rework</option>
-                  <option value="completed">Completed</option>
+                  {boardStatuses.map((s) => (
+                    <option key={s} value={s}>{boardStatusLabels[s]}</option>
+                  ))}
                 </select>
                 <select
                   value={allTasksFiltersApplied.priority}
@@ -1082,6 +1204,8 @@ const ITUpdatesMain = ({ currentUser, onLogout }) => {
                 onDragEnd={handleDragEnd}
                 onCardClick={openTaskModal}
                 projectById={projectById}
+                statusLabels={boardStatusLabels}
+                statuses={boardStatuses}
               />
             </>
           )}
@@ -1468,7 +1592,9 @@ const ITUpdatesMain = ({ currentUser, onLogout }) => {
       {projectModal.open && (
         <ProjectModal
           project={projectModal.project}
-          teammatesOptions={developers}
+          teammatesOptions={teamOverview}
+          currentUser={user}
+          defaultProjectType={scope}
           onClose={closeProjectModal}
           onSave={handleSaveProject}
           canDelete={Boolean(projectModal.project?.id) && canDeleteProject(projectModal.project)}
@@ -1484,6 +1610,8 @@ const ITUpdatesMain = ({ currentUser, onLogout }) => {
           projects={projects}
           developers={developers}
           managers={managers}
+          statuses={boardStatuses}
+          statusLabels={boardStatusLabels}
           onClose={closeTaskModal}
           onSave={handleSaveTask}
           onRefresh={loadAllData}
@@ -1511,7 +1639,7 @@ const ITUpdatesMain = ({ currentUser, onLogout }) => {
   );
 };
 
-function ProjectModal({ project, teammatesOptions, onClose, onSave, canDelete = false, onDelete }) {
+function ProjectModal({ project, teammatesOptions, currentUser, defaultProjectType = 'internal', onClose, onSave, canDelete = false, onDelete }) {
   const initialTeammates = Array.isArray(project?.teammates)
     ? project.teammates
     : typeof project?.teammates_text === 'string'
@@ -1528,6 +1656,7 @@ function ProjectModal({ project, teammatesOptions, onClose, onSave, canDelete = 
   );
   const [form, setForm] = useState({
     project_name: project?.name ?? project?.project_name ?? '',
+    client_name: project?.client_name ?? '',
     project_code: project?.project_code ?? '',
     project_url: project?.project_url ?? '',
     logo: project?.logo ?? '',
@@ -1539,8 +1668,11 @@ function ProjectModal({ project, teammatesOptions, onClose, onSave, canDelete = 
     owner_user_id: project?.owner_user_id ? String(project.owner_user_id) : '',
     owner_name: project?.owner_name ?? project?.owner ?? '',
     teammates: initialTeammates,
+    project_type: project?.project_type ?? defaultProjectType,
   });
   const [saveState, setSaveState] = useState({ saving: false, saved: false });
+  // The sector this modal was opened in ('internal' | 'external').
+  const isExternalSector = defaultProjectType === 'external';
 
   useEffect(() => {
     const onClickOutside = (event) => {
@@ -1607,15 +1739,27 @@ function ProjectModal({ project, teammatesOptions, onClose, onSave, canDelete = 
               required
             />
           </label>
-          <label>
-            Project URL
-            <input
-              type="url"
-              placeholder="https://example.com"
-              value={form.project_url}
-              onChange={(e) => setForm((f) => ({ ...f, project_url: e.target.value }))}
-            />
-          </label>
+          {isExternalSector && (
+            <label>
+              Client's name
+              <input
+                value={form.client_name}
+                onChange={(e) => setForm((f) => ({ ...f, client_name: e.target.value }))}
+                placeholder="Client / company name"
+              />
+            </label>
+          )}
+          {!isExternalSector && (
+            <label>
+              Project URL
+              <input
+                type="url"
+                placeholder="https://example.com"
+                value={form.project_url}
+                onChange={(e) => setForm((f) => ({ ...f, project_url: e.target.value }))}
+              />
+            </label>
+          )}
           <label>
             Logo
             <span className="it-updates-file-input">
@@ -1651,107 +1795,41 @@ function ProjectModal({ project, teammatesOptions, onClose, onSave, canDelete = 
               rows={3}
             />
           </label>
+          {isExternalSector && (
+            <label>
+              Owner
+              <MemberPicker
+                members={teammatesOptions}
+                value={form.owner_name}
+                onChange={(v) =>
+                  setForm((f) => {
+                    const m = (teammatesOptions || []).find((u) => (u.username ?? u.assignee) === v);
+                    return { ...f, owner_name: v, owner_user_id: m ? String(m.user_id) : '' };
+                  })
+                }
+                placeholder="Select an owner from the IT team…"
+              />
+            </label>
+          )}
           <label>
-            Project owner
+            Project sector
             <select
-              value={form.owner_user_id}
-              onChange={(e) => {
-                const selectedId = e.target.value;
-                const selectedUser = (teammatesOptions || []).find(
-                  (u) => String(u.user_id ?? '') === String(selectedId)
-                );
-                setForm((f) => ({
-                  ...f,
-                  owner_user_id: selectedId,
-                  owner_name: selectedUser?.username ?? selectedUser?.assignee ?? '',
-                }));
-              }}
+              value={form.project_type}
+              onChange={(e) => setForm((f) => ({ ...f, project_type: e.target.value }))}
             >
-              <option value="">-- Select owner --</option>
-              {(teammatesOptions || []).map((u) => (
-                <option key={u.user_id ?? u.assignee} value={u.user_id ?? ''}>
-                  {u.username ?? u.assignee}
-                </option>
-              ))}
+              <option value="internal">Internal Projects</option>
+              <option value="external">External Projects</option>
             </select>
           </label>
-          <label>
+          <label className={isExternalSector ? 'it-updates-form-row-full' : undefined}>
             Teammates involved
-            <div className="it-updates-multi-select" ref={teammatesDropdownRef}>
-              <button
-                type="button"
-                className="it-updates-multi-select-trigger"
-                onClick={() => setIsTeammatesOpen((open) => !open)}
-              >
-                <div className="it-updates-multi-select-chips">
-                  {form.teammates.length === 0 && (
-                    <span className="it-updates-multi-select-placeholder">Select teammates</span>
-                  )}
-                  {form.teammates.map((name) => (
-                    <span key={`chip-${name}`} className="it-updates-multi-chip">
-                      {name}
-                      <span
-                        role="button"
-                        tabIndex={0}
-                        className="it-updates-multi-chip-remove"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setForm((f) => ({
-                            ...f,
-                            teammates: f.teammates.filter((teammate) => teammate !== name),
-                          }));
-                        }}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter' || e.key === ' ') {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            setForm((f) => ({
-                              ...f,
-                              teammates: f.teammates.filter((teammate) => teammate !== name),
-                            }));
-                          }
-                        }}
-                        aria-label={`Remove ${name}`}
-                      >
-                        x
-                      </span>
-                    </span>
-                  ))}
-                </div>
-                <span className="it-updates-multi-select-caret">▾</span>
-              </button>
-
-              {isTeammatesOpen && (
-                <div className="it-updates-multi-select-dropdown">
-                  <div className="it-updates-multi-select-header">Available teammates</div>
-                  <div className="it-updates-multi-select-list">
-                    {teammateChoices.map((name) => {
-                      const selected = form.teammates.includes(name);
-                      return (
-                        <label
-                          key={`option-${name}`}
-                          className={`it-updates-multi-select-option ${selected ? 'selected' : ''}`}
-                        >
-                          <input
-                            type="checkbox"
-                            checked={selected}
-                            onChange={() =>
-                              setForm((f) => ({
-                                ...f,
-                                teammates: selected
-                                  ? f.teammates.filter((teammate) => teammate !== name)
-                                  : [...f.teammates, name],
-                              }))
-                            }
-                          />
-                          <span>{name}</span>
-                        </label>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-            </div>
+            <MemberPicker
+              members={teammatesOptions}
+              multiple
+              value={form.teammates}
+              onChange={(arr) => setForm((f) => ({ ...f, teammates: arr }))}
+              placeholder="Select teammates from the IT team…"
+            />
           </label>
           <label>
             Status
@@ -1793,6 +1871,33 @@ function ProjectModal({ project, teammatesOptions, onClose, onSave, canDelete = 
               onChange={(e) => setForm((f) => ({ ...f, end_date: e.target.value }))}
             />
           </label>
+          {project?.id ? (
+            <div className="it-updates-project-docs it-updates-form-row-full">
+              <div className="it-updates-project-docs-label">Documents</div>
+              <ProjectDocuments projectId={project.id} />
+            </div>
+          ) : (
+            <p className="it-updates-project-docs-hint it-updates-form-row-full">
+              Save the project to attach its Project Documentation, BRD, and Credentials.
+            </p>
+          )}
+          {isExternalSector && project?.id && (
+            <div className="it-updates-form-row-full">
+              <ProjectRequirements projectId={project.id} initial={project.requirements} />
+            </div>
+          )}
+          {isExternalSector && project?.id && (
+            <div className="it-updates-form-row-full">
+              <div className="it-updates-project-docs-label">Comments</div>
+              <TaskComments
+                taskId={project.id}
+                team="it"
+                currentUser={currentUser}
+                canComment={Boolean(currentUser?.id ?? currentUser?.user_id)}
+                api={projectCommentApi}
+              />
+            </div>
+          )}
           <div className="it-updates-modal-actions">
             {project && canDelete && onDelete && (
               <button
@@ -1829,7 +1934,7 @@ function ProjectModal({ project, teammatesOptions, onClose, onSave, canDelete = 
   );
 }
 
-export function TaskModal({ task, currentUser, projects, developers, managers, onClose, onSave, onRefresh, onError, canDelete = false, onDelete, team: teamProp = MODULE_TEAM, hideProject = false, hideTimer = false }) {
+export function TaskModal({ task, currentUser, projects, developers, managers, onClose, onSave, onRefresh, onError, canDelete = false, onDelete, team: teamProp = MODULE_TEAM, hideProject = false, hideTimer = false, statuses = DEFAULT_STATUSES, statusLabels = STATUS_LABELS }) {
   // Shadow the module default so every internal team reference follows the prop.
   // This lets other sectors (e.g. director tasks) reuse this modal unchanged.
   const MODULE_TEAM = teamProp;
@@ -2129,11 +2234,9 @@ export function TaskModal({ task, currentUser, projects, developers, managers, o
           <label>
             Status
             <select value={form.status} onChange={(e) => setForm((f) => ({ ...f, status: e.target.value }))}>
-              <option value="todo">To do</option>
-              <option value="in_progress">In Progress</option>
-              <option value="review">Review</option>
-              <option value="rework">Rework</option>
-              <option value="completed">Completed</option>
+              {statuses.map((s) => (
+                <option key={s} value={s}>{statusLabels[s]}</option>
+              ))}
             </select>
           </label>
 

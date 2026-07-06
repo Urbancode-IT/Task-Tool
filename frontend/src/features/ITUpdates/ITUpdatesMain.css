@@ -3,6 +3,52 @@
    Sidebar + header + content layout with glassmorphism
    ═══════════════════════════════════════════════════════════ */
 
+/* ─── External dashboard: pipeline-by-stage bar chart ─── */
+.ext-pipeline-chart {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  gap: 0.75rem;
+  align-items: end;
+  padding: 0.5rem 0.25rem 0;
+  min-height: 220px;
+}
+.ext-pipeline-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.4rem;
+  min-width: 0;
+}
+.ext-pipeline-count {
+  font-weight: 700;
+  font-size: 0.9rem;
+  color: var(--clr-slate-700, #334155);
+}
+.ext-pipeline-track {
+  width: 100%;
+  height: 150px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+.ext-pipeline-bar {
+  width: 60%;
+  max-width: 56px;
+  min-height: 4px;
+  border-radius: 8px 8px 0 0;
+  transition: height var(--transition-base, 0.3s ease);
+}
+.ext-pipeline-label {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--clr-slate-500, #64748b);
+  text-align: center;
+  line-height: 1.2;
+  width: 100%;
+  overflow-wrap: anywhere;
+}
+
 /* ─── Layout Shell ─── */
 .it-updates-shell {
   display: flex;
@@ -1968,10 +2014,11 @@
   min-width: 0;
 }
 
-/* Full-width rows: textareas, multi-selects, sections, action bars */
+/* Full-width rows: textareas, multi-selects, sections, action bars.
+   `.it-updates-form-row-full` matches any element (label OR div wrapper). */
 .it-updates-modal-form > label:has(textarea),
 .it-updates-modal-form > label:has(.it-updates-multi-select),
-.it-updates-modal-form > label.it-updates-form-row-full,
+.it-updates-modal-form > .it-updates-form-row-full,
 .it-updates-modal-form > .it-updates-modal-actions,
 .it-updates-modal-form > .it-updates-review-meta,
 .it-updates-modal-form > .it-updates-rework-block,

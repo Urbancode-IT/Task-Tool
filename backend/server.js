@@ -76,7 +76,8 @@ app.use(
 
 // NOTE: CORS middleware above handles preflight requests; no extra OPTIONS route needed.
 
-app.use(express.json({ limit: '5mb' }));
+// Limit raised to fit base64-encoded project documents (10 MB file ≈ ~13.4 MB base64).
+app.use(express.json({ limit: '25mb' }));
 app.use(cookieParser());
 
 // In-memory demo users (used for login when no DB or for dev)
@@ -440,7 +441,9 @@ app.use(BASE_PATH, requireAuth, asyncMw(attachUserPermissions));
 app.get(`${BASE_PATH}/projects`, async (req, res) => {
   try {
     if (db.useDb()) {
-      const list = await db.dbGetProjects(req.query.status || null);
+      const projectType =
+        req.query.type === 'internal' || req.query.type === 'external' ? req.query.type : null;
+      const list = await db.dbGetProjects(req.query.status || null, projectType);
       if (list.length === 0) {
         console.warn('GET /projects: 0 rows. Ensure table it_projects exists (run it-updates-backend/db/schema.sql in your It_updates database).');
       } else {
@@ -517,6 +520,189 @@ app.delete(`${BASE_PATH}/projects/:projectId`, async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: 'Failed to delete project' });
+  }
+});
+
+/* ─── Project documents: Project Documentation / BRD / Credentials ───
+   Any authenticated user may upload or view (per requirement). Files are
+   base64 data URLs stored in project_documents (see db/index.js). */
+const PROJECT_DOC_TYPES = ['project_documentation', 'brd', 'credentials'];
+
+// List a project's document slots (metadata only, no file payload).
+app.get(`${BASE_PATH}/projects/:projectId/documents`, async (req, res) => {
+  try {
+    if (!db.useDb()) return res.json([]);
+    const list = await db.dbListProjectDocuments(req.params.projectId);
+    return res.json(list);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Failed to fetch project documents' });
+  }
+});
+
+// Fetch a single document including its file data (for view/download).
+app.get(`${BASE_PATH}/projects/:projectId/documents/:docType`, async (req, res) => {
+  try {
+    const { docType } = req.params;
+    if (!PROJECT_DOC_TYPES.includes(docType)) {
+      return res.status(400).json({ message: 'Invalid document type' });
+    }
+    if (!db.useDb()) return res.status(404).json({ message: 'Document not found' });
+    const doc = await db.dbGetProjectDocument(req.params.projectId, docType);
+    if (!doc || !doc.file_data) return res.status(404).json({ message: 'Document not found' });
+    return res.json(doc);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Failed to fetch document' });
+  }
+});
+
+// Upload / replace a document slot.
+app.put(`${BASE_PATH}/projects/:projectId/documents/:docType`, async (req, res) => {
+  try {
+    const { docType } = req.params;
+    if (!PROJECT_DOC_TYPES.includes(docType)) {
+      return res.status(400).json({ message: 'Invalid document type' });
+    }
+    if (!db.useDb()) return res.status(503).json({ message: 'Database unavailable' });
+    const { file_name, mime_type, file_data } = req.body || {};
+    if (!file_data) return res.status(400).json({ message: 'file_data is required' });
+    const saved = await db.dbUpsertProjectDocument(req.params.projectId, docType, {
+      file_name,
+      mime_type,
+      file_data,
+      uploaded_by: req.user?.id ?? null,
+      uploaded_by_name: req.user?.name || req.user?.username || null,
+    });
+    if (!saved) return res.status(500).json({ message: 'Failed to save document' });
+    return res.status(201).json(saved);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Failed to save document' });
+  }
+});
+
+// Remove a document slot.
+app.delete(`${BASE_PATH}/projects/:projectId/documents/:docType`, async (req, res) => {
+  try {
+    const { docType } = req.params;
+    if (!PROJECT_DOC_TYPES.includes(docType)) {
+      return res.status(400).json({ message: 'Invalid document type' });
+    }
+    if (!db.useDb()) return res.status(503).json({ message: 'Database unavailable' });
+    const ok = await db.dbDeleteProjectDocument(req.params.projectId, docType);
+    if (!ok) return res.status(404).json({ message: 'Document not found' });
+    return res.status(204).send();
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Failed to delete document' });
+  }
+});
+
+/* ─── Project notes/comments (with @mentions → email) ───
+   Reuses the shared comment thread. Any authenticated user can read/post. */
+async function projectTitleFor(projectId) {
+  try {
+    const proj = await db.dbGetProjectById(projectId);
+    return proj?.name || proj?.project_name || `Project #${projectId}`;
+  } catch {
+    return `Project #${projectId}`;
+  }
+}
+
+app.get(`${BASE_PATH}/projects/:projectId/comments`, async (req, res) => {
+  try {
+    if (!db.useDb()) return res.json([]);
+    const list = await db.dbGetProjectComments(req.params.projectId);
+    return res.json(list);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Failed to fetch project comments' });
+  }
+});
+
+app.post(`${BASE_PATH}/projects/:projectId/comments`, async (req, res) => {
+  const { projectId } = req.params;
+  const { message, author } = req.body || {};
+  if (!message) return res.status(400).json({ message: 'Message is required' });
+  try {
+    if (!db.useDb()) return res.status(503).json({ message: 'Database unavailable' });
+    const comment = await db.dbAddProjectComment(projectId, { ...req.body, author });
+    if (!comment) return res.status(500).json({ message: 'Failed to add comment' });
+    const clientMentions = (Array.isArray(req.body.mentions) ? req.body.mentions : []).map(String);
+    const htmlMentions = extractMentionUidsFromHtml(comment.message);
+    const mentionIds = [...new Set([...clientMentions, ...htmlMentions])];
+    if (mentionIds.length) {
+      const titleOverride = await projectTitleFor(projectId);
+      notifyMentions({
+        taskId: projectId,
+        mentionIds,
+        commenterName: comment.author,
+        html: comment.message,
+        titleOverride,
+      }).catch((e) => console.error('notifyMentions:', e.message));
+    }
+    return res.status(201).json(comment);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Failed to add comment' });
+  }
+});
+
+app.put(`${BASE_PATH}/projects/:projectId/comments/:commentId`, async (req, res) => {
+  const { projectId, commentId } = req.params;
+  const userId = req.body?.user_id;
+  if (!userId) return res.status(400).json({ message: 'user_id is required' });
+  try {
+    if (!db.useDb()) return res.status(503).json({ message: 'Database unavailable' });
+    const updated = await db.dbUpdateProjectComment(commentId, userId, req.body);
+    if (!updated) return res.status(403).json({ message: 'You can only edit your own comment.' });
+    const newMentionIds = Array.isArray(updated.newlyMentioned) ? updated.newlyMentioned : [];
+    if (newMentionIds.length) {
+      const titleOverride = await projectTitleFor(projectId);
+      notifyMentions({
+        taskId: projectId,
+        mentionIds: newMentionIds,
+        commenterName: updated.author,
+        html: updated.message,
+        titleOverride,
+      }).catch((e) => console.error('notifyMentions:', e.message));
+    }
+    return res.json(updated);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Failed to update comment' });
+  }
+});
+
+app.delete(`${BASE_PATH}/projects/:projectId/comments/:commentId`, async (req, res) => {
+  const { commentId } = req.params;
+  const userId = req.query.user_id || req.body?.user_id;
+  if (!userId) return res.status(400).json({ message: 'user_id is required' });
+  try {
+    if (!db.useDb()) return res.status(503).json({ message: 'Database unavailable' });
+    const isAdmin = (req.user?.permissions || []).includes('admin.access');
+    const ok = await db.dbDeleteProjectComment(commentId, userId, isAdmin);
+    if (!ok) return res.status(403).json({ message: 'You can only delete your own comment.' });
+    return res.status(204).send();
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Failed to delete comment' });
+  }
+});
+
+app.post(`${BASE_PATH}/projects/:projectId/comments/:commentId/like`, async (req, res) => {
+  const { commentId } = req.params;
+  const userId = req.body?.user_id;
+  if (!userId) return res.status(400).json({ message: 'user_id is required' });
+  try {
+    if (!db.useDb()) return res.status(503).json({ message: 'Database unavailable' });
+    const result = await db.dbToggleProjectCommentLike(commentId, userId);
+    if (!result) return res.status(500).json({ message: 'Failed to like comment' });
+    return res.json(result);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Failed to like comment' });
   }
 });
 

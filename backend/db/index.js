@@ -24,6 +24,40 @@ const normalizeTeammatesInput = (val) => {
 const teammatesToText = (val) => normalizeTeammatesInput(val).join(', ');
 const teammatesFromText = (val) => normalizeTeammatesInput(val);
 
+// Project requirements checklist: stored as a JSON array of { title, done } in a
+// TEXT column. Serialize/parse defensively so a bad value never breaks a query.
+const projectReqsToText = (val) => {
+  if (val == null) return null;
+  let arr = val;
+  if (typeof val === 'string') {
+    try {
+      arr = JSON.parse(val);
+    } catch {
+      return null;
+    }
+  }
+  if (!Array.isArray(arr)) return null;
+  const cleaned = arr
+    .map((r) => ({
+      title: String(r?.title ?? '').trim(),
+      done: Boolean(r?.done),
+    }))
+    .filter((r) => r.title);
+  return JSON.stringify(cleaned);
+};
+const projectReqsFromText = (val) => {
+  if (!val) return [];
+  try {
+    const arr = JSON.parse(val);
+    if (!Array.isArray(arr)) return [];
+    return arr
+      .map((r) => ({ title: String(r?.title ?? '').trim(), done: Boolean(r?.done) }))
+      .filter((r) => r.title);
+  } catch {
+    return [];
+  }
+};
+
 const { Pool } = pg;
 
 // Return DATE columns (OID 1082) as raw 'YYYY-MM-DD' strings rather than JS Date
@@ -301,10 +335,66 @@ export async function dbEnsureTables() {
       ADD COLUMN IF NOT EXISTS owner_name VARCHAR(200),
       ADD COLUMN IF NOT EXISTS teammates TEXT,
       ADD COLUMN IF NOT EXISTS project_url TEXT,
-      ADD COLUMN IF NOT EXISTS logo TEXT;
+      ADD COLUMN IF NOT EXISTS logo TEXT,
+      ADD COLUMN IF NOT EXISTS project_type VARCHAR(20) DEFAULT 'internal',
+      ADD COLUMN IF NOT EXISTS client_name VARCHAR(200),
+      ADD COLUMN IF NOT EXISTS requirements TEXT;
     `);
+    // Backfill any pre-existing rows so they show under Internal Projects.
+    await p.query(`UPDATE it_projects SET project_type = 'internal' WHERE project_type IS NULL;`);
   } catch (err) {
     console.warn('dbEnsureTables: project ownership columns check failed:', err.message);
+  }
+
+  // Per-project documents: three slots (project_documentation, brd, credentials).
+  // Files are stored inline as base64 data URLs in a TEXT column, matching the
+  // established pattern (profile_image, it_projects.logo). One current row per
+  // (project_id, doc_type); re-uploading replaces it.
+  try {
+    await p.query(`
+      CREATE TABLE IF NOT EXISTS project_documents (
+        doc_id SERIAL PRIMARY KEY,
+        project_id INT NOT NULL REFERENCES it_projects(project_id) ON DELETE CASCADE,
+        doc_type VARCHAR(40) NOT NULL,
+        file_name TEXT,
+        mime_type TEXT,
+        file_data TEXT,
+        uploaded_by INT,
+        uploaded_by_name TEXT,
+        uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE (project_id, doc_type)
+      );
+    `);
+  } catch (err) {
+    console.warn('dbEnsureTables: project_documents table check failed:', err.message);
+  }
+
+  // Project notes/comments — same model as EOD-report comments (replies, @mentions,
+  // likes). Mentions trigger email via notifyMentions, so members can post updates.
+  try {
+    await p.query(`
+      CREATE TABLE IF NOT EXISTS project_comments (
+        comment_id SERIAL PRIMARY KEY,
+        project_id INT NOT NULL REFERENCES it_projects(project_id) ON DELETE CASCADE,
+        user_id INT,
+        comment_text TEXT,
+        parent_id INT,
+        mentions TEXT,
+        edited_at TIMESTAMPTZ,
+        created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+    await p.query('CREATE INDEX IF NOT EXISTS idx_project_comments_project ON project_comments(project_id);');
+    await p.query(`
+      CREATE TABLE IF NOT EXISTS project_comment_likes (
+        comment_id INT NOT NULL REFERENCES project_comments(comment_id) ON DELETE CASCADE,
+        user_id INT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+        created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (comment_id, user_id)
+      );
+    `);
+  } catch (err) {
+    console.warn('dbEnsureTables: project_comments table check failed:', err.message);
   }
 
   // Profile pictures are stored inline as data URLs, so the column must be TEXT
@@ -985,14 +1075,22 @@ export async function testConnection() {
 }
 
 // Map DB rows to API shape
-export async function dbGetProjects(status = null) {
+export async function dbGetProjects(status = null, projectType = null) {
   const p = getPool();
   if (!p) return [];
   try {
-    const query = status
-      ? 'SELECT * FROM it_projects WHERE status = $1 ORDER BY project_id'
-      : 'SELECT * FROM it_projects ORDER BY project_id';
-    const params = status ? [status] : [];
+    const conds = [];
+    const params = [];
+    if (status) {
+      params.push(status);
+      conds.push(`status = $${params.length}`);
+    }
+    if (projectType) {
+      params.push(projectType);
+      conds.push(`project_type = $${params.length}`);
+    }
+    const where = conds.length ? ` WHERE ${conds.join(' AND ')}` : '';
+    const query = `SELECT * FROM it_projects${where} ORDER BY project_id`;
     const { rows } = await p.query(query, params);
     const projectIds = rows.map((r) => r.project_id);
     let progressMap = {};
@@ -1034,6 +1132,9 @@ export async function dbGetProjects(status = null) {
         owner_user_id: r.owner_user_id ?? null,
         teammates: teammatesFromText(r.teammates),
         teammates_text: r.teammates || '',
+        project_type: r.project_type || 'internal',
+        client_name: r.client_name || '',
+        requirements: projectReqsFromText(r.requirements),
         progress: progressMap[r.project_id] ?? 0,
         total_tasks: counts.total,
         completed_tasks: counts.completed,
@@ -1053,9 +1154,9 @@ export async function dbCreateProject(data) {
     rows: [row],
   } = await p.query(
     `INSERT INTO it_projects (
-      project_name, project_code, project_url, logo, description, status, priority, start_date, end_date, owner_user_id, owner_name, teammates
+      project_name, project_code, project_url, logo, description, status, priority, start_date, end_date, owner_user_id, owner_name, teammates, project_type, client_name, requirements
     )
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
      RETURNING *`,
     [
       data.name ?? data.project_name ?? 'Untitled Project',
@@ -1070,6 +1171,9 @@ export async function dbCreateProject(data) {
       toNullableInt(data.owner_user_id),
       data.owner_name ?? data.owner ?? null,
       teammatesToText(data.teammates ?? data.teammates_text),
+      data.project_type === 'external' ? 'external' : 'internal',
+      data.client_name ?? null,
+      projectReqsToText(data.requirements),
     ]
   );
   if (!row) return null;
@@ -1089,6 +1193,9 @@ export async function dbCreateProject(data) {
     owner_user_id: row.owner_user_id ?? null,
     teammates: teammatesFromText(row.teammates),
     teammates_text: row.teammates || '',
+    project_type: row.project_type || 'internal',
+    client_name: row.client_name || '',
+    requirements: projectReqsFromText(row.requirements),
     progress: 0,
   };
 }
@@ -1109,6 +1216,9 @@ export async function dbUpdateProject(projectId, data) {
     'owner_user_id',
     'owner_name',
     'teammates',
+    'project_type',
+    'client_name',
+    'requirements',
   ];
   const updates = [];
   const values = [];
@@ -1126,7 +1236,9 @@ export async function dbUpdateProject(projectId, data) {
             ? toNullableInt(v)
             : col === 'teammates'
               ? teammatesToText(v)
-              : v;
+              : col === 'requirements'
+                ? projectReqsToText(v)
+                : v;
       values.push(val);
       i++;
     }
@@ -1156,6 +1268,9 @@ export async function dbUpdateProject(projectId, data) {
     owner_user_id: row.owner_user_id ?? null,
     teammates: teammatesFromText(row.teammates),
     teammates_text: row.teammates || '',
+    project_type: row.project_type || 'internal',
+    client_name: row.client_name || '',
+    requirements: projectReqsFromText(row.requirements),
     progress: 0,
   };
 }
@@ -1184,6 +1299,9 @@ export async function dbGetProjectById(projectId) {
     owner_user_id: row.owner_user_id ?? null,
     teammates: teammatesFromText(row.teammates),
     teammates_text: row.teammates || '',
+    project_type: row.project_type || 'internal',
+    client_name: row.client_name || '',
+    requirements: projectReqsFromText(row.requirements),
     progress: 0,
   };
 }
@@ -1195,6 +1313,108 @@ export async function dbDeleteProject(projectId) {
     projectId,
   ]);
   return rowCount > 0;
+}
+
+/* ─── Project documents (project_documentation / brd / credentials) ─── */
+
+// The three document slots every project can carry.
+export const PROJECT_DOC_TYPES = ['project_documentation', 'brd', 'credentials'];
+
+// List a project's documents as lightweight metadata (no base64 payload) so the
+// board/detail loads fast. Use dbGetProjectDocument to fetch the actual file.
+export async function dbListProjectDocuments(projectId) {
+  const p = getPool();
+  if (!p) return [];
+  const id = toNullableInt(projectId);
+  if (id == null) return [];
+  try {
+    const { rows } = await p.query(
+      `SELECT doc_id, project_id, doc_type, file_name, mime_type,
+              uploaded_by, uploaded_by_name, uploaded_at,
+              (file_data IS NOT NULL) AS has_file
+       FROM project_documents WHERE project_id = $1`,
+      [id]
+    );
+    return rows;
+  } catch (err) {
+    console.error('dbListProjectDocuments:', err.message);
+    return [];
+  }
+}
+
+// Fetch a single document including its base64 file_data (for view/download).
+export async function dbGetProjectDocument(projectId, docType) {
+  const p = getPool();
+  if (!p) return null;
+  const id = toNullableInt(projectId);
+  if (id == null || !PROJECT_DOC_TYPES.includes(docType)) return null;
+  try {
+    const { rows } = await p.query(
+      `SELECT doc_id, project_id, doc_type, file_name, mime_type, file_data,
+              uploaded_by, uploaded_by_name, uploaded_at
+       FROM project_documents WHERE project_id = $1 AND doc_type = $2`,
+      [id, docType]
+    );
+    return rows[0] || null;
+  } catch (err) {
+    console.error('dbGetProjectDocument:', err.message);
+    return null;
+  }
+}
+
+// Insert or replace a document slot. Returns the stored metadata (no file_data).
+export async function dbUpsertProjectDocument(projectId, docType, doc = {}) {
+  const p = getPool();
+  if (!p) return null;
+  const id = toNullableInt(projectId);
+  if (id == null || !PROJECT_DOC_TYPES.includes(docType)) return null;
+  try {
+    const { rows } = await p.query(
+      `INSERT INTO project_documents
+         (project_id, doc_type, file_name, mime_type, file_data, uploaded_by, uploaded_by_name, uploaded_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, CURRENT_TIMESTAMP)
+       ON CONFLICT (project_id, doc_type) DO UPDATE SET
+         file_name = EXCLUDED.file_name,
+         mime_type = EXCLUDED.mime_type,
+         file_data = EXCLUDED.file_data,
+         uploaded_by = EXCLUDED.uploaded_by,
+         uploaded_by_name = EXCLUDED.uploaded_by_name,
+         uploaded_at = CURRENT_TIMESTAMP
+       RETURNING doc_id, project_id, doc_type, file_name, mime_type,
+                 uploaded_by, uploaded_by_name, uploaded_at,
+                 (file_data IS NOT NULL) AS has_file`,
+      [
+        id,
+        docType,
+        doc.file_name ?? null,
+        doc.mime_type ?? null,
+        doc.file_data ?? null,
+        toNullableInt(doc.uploaded_by),
+        doc.uploaded_by_name ?? null,
+      ]
+    );
+    return rows[0] || null;
+  } catch (err) {
+    console.error('dbUpsertProjectDocument:', err.message);
+    return null;
+  }
+}
+
+export async function dbDeleteProjectDocument(projectId, docType) {
+  const p = getPool();
+  if (!p) return false;
+  const id = toNullableInt(projectId);
+  if (id == null || !PROJECT_DOC_TYPES.includes(docType)) return false;
+  try {
+    const { rowCount } = await p.query(
+      'DELETE FROM project_documents WHERE project_id = $1 AND doc_type = $2',
+      [id, docType]
+    );
+    return rowCount > 0;
+  } catch (err) {
+    console.error('dbDeleteProjectDocument:', err.message);
+    return false;
+  }
 }
 
 // Tasks: API uses title, assignee, projectId, dueDate
@@ -2163,6 +2383,140 @@ export async function dbToggleEodCommentLike(commentId, userId) {
   }
   const { rows } = await p.query(
     'SELECT COUNT(*)::int AS n FROM eod_comment_likes WHERE comment_id = $1',
+    [cId]
+  );
+  return { liked, likeCount: Number(rows[0]?.n || 0) };
+}
+
+// ── Project comments/notes (same shape as task/EOD comments; project_id aliased to
+//    task_id so the shared mapCommentRow / frontend TaskComments work unchanged) ──
+export async function dbGetProjectComments(projectId) {
+  const p = getPool();
+  if (!p) return [];
+  const { rows } = await p.query(
+    `SELECT c.*, c.project_id AS task_id,
+            u.username AS author_username,
+            u.profile_image AS author_profile_image,
+            (SELECT COUNT(*) FROM project_comment_likes l WHERE l.comment_id = c.comment_id) AS like_count,
+            (SELECT COALESCE(ARRAY_AGG(l.user_id), '{}') FROM project_comment_likes l WHERE l.comment_id = c.comment_id) AS liked_user_ids
+     FROM project_comments c
+     LEFT JOIN users u ON c.user_id = u.user_id
+     WHERE c.project_id = $1
+     ORDER BY c.created_at`,
+    [projectId]
+  );
+  return rows.map(mapCommentRow);
+}
+
+export async function dbAddProjectComment(projectId, data) {
+  const p = getPool();
+  if (!p) return null;
+  const parentId =
+    data.parent_id != null && String(data.parent_id).trim() !== ''
+      ? parseInt(String(data.parent_id), 10)
+      : null;
+  const { rows: [row] } = await p.query(
+    `INSERT INTO project_comments (project_id, user_id, comment_text, parent_id, mentions)
+     VALUES ($1, $2, $3, $4, $5)
+     RETURNING *`,
+    [
+      projectId,
+      data.user_id || null,
+      data.message ?? data.comment_text ?? '',
+      Number.isFinite(parentId) ? parentId : null,
+      normalizeMentions(data.mentions),
+    ]
+  );
+  if (!row) return null;
+  let authorName = data.author || null;
+  let authorImage = null;
+  if (row.user_id != null) {
+    try {
+      const { rows: [u] } = await p.query(
+        'SELECT username, profile_image FROM users WHERE user_id = $1',
+        [row.user_id]
+      );
+      authorName = authorName || u?.username || null;
+      authorImage = u?.profile_image ?? null;
+    } catch { /* ignore */ }
+  }
+  return mapCommentRow({
+    ...row,
+    task_id: row.project_id,
+    author_username: authorName,
+    author_profile_image: authorImage,
+    like_count: 0,
+    liked_user_ids: [],
+  });
+}
+
+export async function dbUpdateProjectComment(commentId, userId, data) {
+  const p = getPool();
+  if (!p) return null;
+  const { rows: priorRows } = await p.query(
+    'SELECT mentions FROM project_comments WHERE comment_id = $1 AND user_id = $2',
+    [commentId, userId]
+  );
+  const priorMentions = priorRows[0]?.mentions
+    ? String(priorRows[0].mentions).split(',').map((s) => s.trim()).filter(Boolean)
+    : [];
+  const { rows } = await p.query(
+    `UPDATE project_comments
+     SET comment_text = $1, mentions = $2, edited_at = CURRENT_TIMESTAMP
+     WHERE comment_id = $3 AND user_id = $4
+     RETURNING *`,
+    [data.message ?? data.comment_text ?? '', normalizeMentions(data.mentions), commentId, userId]
+  );
+  const row = rows[0];
+  if (!row) return null;
+  const { rows: [enriched] } = await p.query(
+    `SELECT c.*, c.project_id AS task_id,
+            u.username AS author_username,
+            u.profile_image AS author_profile_image,
+            (SELECT COUNT(*) FROM project_comment_likes l WHERE l.comment_id = c.comment_id) AS like_count,
+            (SELECT COALESCE(ARRAY_AGG(l.user_id), '{}') FROM project_comment_likes l WHERE l.comment_id = c.comment_id) AS liked_user_ids
+     FROM project_comments c LEFT JOIN users u ON c.user_id = u.user_id
+     WHERE c.comment_id = $1`,
+    [row.comment_id]
+  );
+  const mapped = mapCommentRow(enriched);
+  const priorSet = new Set(priorMentions);
+  mapped.newlyMentioned = mapped.mentions.filter((id) => !priorSet.has(id));
+  return mapped;
+}
+
+export async function dbDeleteProjectComment(commentId, userId, isAdmin = false) {
+  const p = getPool();
+  if (!p) return false;
+  const id = parseInt(String(commentId), 10);
+  if (!Number.isFinite(id)) return false;
+  await p.query('DELETE FROM project_comments WHERE parent_id = $1', [id]);
+  const { rowCount } = isAdmin
+    ? await p.query('DELETE FROM project_comments WHERE comment_id = $1', [id])
+    : await p.query('DELETE FROM project_comments WHERE comment_id = $1 AND user_id = $2', [id, userId]);
+  return rowCount > 0;
+}
+
+export async function dbToggleProjectCommentLike(commentId, userId) {
+  const p = getPool();
+  if (!p) return null;
+  const cId = parseInt(String(commentId), 10);
+  const uId = parseInt(String(userId), 10);
+  if (!Number.isFinite(cId) || !Number.isFinite(uId)) return null;
+  const { rowCount } = await p.query(
+    'DELETE FROM project_comment_likes WHERE comment_id = $1 AND user_id = $2',
+    [cId, uId]
+  );
+  let liked = false;
+  if (rowCount === 0) {
+    await p.query(
+      'INSERT INTO project_comment_likes (comment_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
+      [cId, uId]
+    );
+    liked = true;
+  }
+  const { rows } = await p.query(
+    'SELECT COUNT(*)::int AS n FROM project_comment_likes WHERE comment_id = $1',
     [cId]
   );
   return { liked, likeCount: Number(rows[0]?.n || 0) };
