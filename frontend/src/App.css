@@ -7,7 +7,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--clr-slate-950);
+  background: var(--surface-bg);
   position: relative;
   overflow: hidden;
   padding: 1.5rem;
@@ -19,8 +19,8 @@
   content: '';
   position: absolute;
   border-radius: 50%;
-  filter: blur(100px);
-  opacity: 0.4;
+  filter: blur(120px);
+  opacity: 0.12;
   animation: auth-float 12s ease-in-out infinite alternate;
 }
 
@@ -56,8 +56,8 @@
   position: absolute;
   inset: 0;
   background-image:
-    linear-gradient(rgba(255, 255, 255, 0.02) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
+    linear-gradient(rgba(0, 84, 196, 0.045) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0, 84, 196, 0.045) 1px, transparent 1px);
   background-size: 60px 60px;
   pointer-events: none;
 }
@@ -65,17 +65,14 @@
 .auth-card {
   width: 100%;
   max-width: 440px;
-  background: rgba(30, 41, 59, 0.7);
-  backdrop-filter: blur(24px) saturate(1.4);
-  -webkit-backdrop-filter: blur(24px) saturate(1.4);
+  background: var(--surface-card);
   padding: 2.75rem 2.5rem;
   border-radius: var(--radius-xl);
-  border: 1px solid rgba(148, 163, 184, 0.12);
+  border: 1px solid var(--clr-slate-200);
   box-shadow:
-    0 32px 64px rgba(0, 0, 0, 0.4),
-    0 0 0 1px rgba(148, 163, 184, 0.06),
-    inset 0 1px 0 rgba(255, 255, 255, 0.05);
-  color: var(--clr-slate-200);
+    0 24px 50px rgba(0, 84, 196, 0.12),
+    0 2px 8px rgba(15, 23, 42, 0.05);
+  color: var(--clr-slate-800);
   position: relative;
   z-index: 1;
   animation: auth-card-enter 0.5s cubic-bezier(0.16, 1, 0.3, 1);
@@ -100,17 +97,14 @@
   height: 44px;
   border-radius: var(--radius-md);
   object-fit: cover;
-  box-shadow: 0 4px 12px rgba(108, 92, 255, 0.3);
+  box-shadow: 0 4px 12px rgba(0, 84, 196, 0.22);
 }
 
 .auth-logo-text {
   font-family: var(--font-display);
   font-size: 1.35rem;
   font-weight: 700;
-  background: linear-gradient(135deg, #b9bbff, #8b86ff);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
+  color: var(--clr-primary-600);
   letter-spacing: -0.02em;
 }
 
@@ -119,13 +113,13 @@
   font-size: 1.65rem;
   font-weight: 700;
   margin-bottom: 0.3rem;
-  color: #f1f5f9;
+  color: var(--clr-slate-900);
   letter-spacing: -0.02em;
 }
 
 .auth-subtitle {
   font-size: 0.9rem;
-  color: var(--clr-slate-400);
+  color: var(--clr-slate-500);
   margin-bottom: 2rem;
 }
 
@@ -178,17 +172,17 @@
 
 .auth-field span {
   font-size: 0.8rem;
-  font-weight: 500;
-  color: var(--clr-slate-400);
+  font-weight: 600;
+  color: var(--clr-slate-600);
   letter-spacing: 0.02em;
   text-transform: uppercase;
 }
 
 .auth-field input {
   border-radius: var(--radius-md);
-  border: 1px solid rgba(148, 163, 184, 0.2);
-  background: rgba(15, 23, 42, 0.6);
-  color: var(--clr-slate-100);
+  border: 1px solid var(--clr-slate-200);
+  background: #ffffff;
+  color: var(--clr-slate-800);
   padding: 0.75rem 1rem;
   font-size: 0.95rem;
   outline: none;
@@ -196,21 +190,21 @@
 }
 
 .auth-field input::placeholder {
-  color: var(--clr-slate-500);
+  color: var(--clr-slate-400);
 }
 
 .auth-field input:focus {
   border-color: var(--clr-primary-500);
-  box-shadow: 0 0 0 3px rgba(108, 92, 255, 0.15), 0 0 20px rgba(108, 92, 255, 0.1);
+  box-shadow: 0 0 0 3px rgba(0, 84, 196, 0.14);
 }
 
 .auth-error {
-  background: rgba(239, 68, 68, 0.12);
-  border: 1px solid rgba(239, 68, 68, 0.2);
+  background: #fef2f2;
+  border: 1px solid #fecaca;
   border-radius: var(--radius-md);
   padding: 0.65rem 0.9rem;
   font-size: 0.82rem;
-  color: #fca5a5;
+  color: #dc2626;
   display: flex;
   align-items: center;
   gap: 0.5rem;
@@ -242,7 +236,7 @@
 
 .auth-button:hover:not(:disabled) {
   transform: translateY(-1px);
-  box-shadow: 0 8px 24px rgba(108, 92, 255, 0.4), 0 0 40px rgba(108, 92, 255, 0.15);
+  box-shadow: 0 8px 22px rgba(0, 84, 196, 0.32);
 }
 
 .auth-button:hover:not(:disabled)::before {
@@ -381,7 +375,7 @@
   font-size: 0.74rem;
   font-weight: 700;
   letter-spacing: 0.02em;
-  color: #5b46f2;
+  color: #0054c4;
   background: #eef0ff;
 }
 

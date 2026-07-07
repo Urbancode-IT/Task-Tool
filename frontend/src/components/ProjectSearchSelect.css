@@ -16,7 +16,7 @@
 
 .project-search-field:focus-within {
   border-color: var(--clr-primary-400);
-  box-shadow: 0 0 0 3px rgba(108, 92, 255, 0.1);
+  box-shadow: 0 0 0 3px rgba(0, 84, 196, 0.1);
 }
 
 .project-search-icon {
@@ -82,8 +82,8 @@
 }
 
 .project-search-option.active {
-  background: rgba(108, 92, 255, 0.12);
-  color: var(--clr-primary-600, #5b46f2);
+  background: rgba(0, 84, 196, 0.12);
+  color: var(--clr-primary-600, #0054c4);
   font-weight: 600;
 }
 

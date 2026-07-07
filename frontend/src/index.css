@@ -2,27 +2,26 @@
 
 /* ─── Design Tokens ─── */
 :root {
-  /* Primary palette — blue→violet, matched to the Seyal logo gradient */
-  --clr-primary-50: #eef0ff;
-  --clr-primary-100: #e3e6ff;
-  --clr-primary-200: #d2d4ff;
-  --clr-primary-300: #b9bbff;
-  --clr-primary-400: #8b86ff;
-  --clr-primary-500: #6c5cff;
-  --clr-primary-600: #5b46f2;
-  --clr-primary-700: #4632c9;
+  /* Primary palette — single brand blue (#0054c4) with white tints. */
+  --clr-primary-50: #e8f0fb;
+  --clr-primary-100: #cfe0f6;
+  --clr-primary-200: #a3c3ec;
+  --clr-primary-300: #6f9fe0;
+  --clr-primary-400: #337bd4;
+  --clr-primary-500: #0054c4;
+  --clr-primary-600: #0054c4;
+  --clr-primary-700: #00429b;
 
-  /* Accent — azure blue (the logo's blue end) */
-  --clr-accent-400: #4f97ff;
-  --clr-accent-500: #2b7fff;
+  /* Accent — same brand blue (no secondary hue). */
+  --clr-accent-400: #337bd4;
+  --clr-accent-500: #0054c4;
 
-  /* Brand — exact logo endpoints + signature gradient.
-     The Seyal mark runs from azure blue (bottom-left) to violet (top-right). */
-  --brand-blue: #2b7fff;
-  --brand-indigo: #6c5cff;
-  --brand-violet: #8b3bff;
-  --brand-gradient: linear-gradient(135deg, var(--brand-blue) 0%, var(--brand-indigo) 50%, var(--brand-violet) 100%);
-  --brand-gradient-soft: linear-gradient(135deg, #eef3ff 0%, #f2eeff 100%);
+  /* Brand — a single blue, no multi-hue gradient. */
+  --brand-blue: #0054c4;
+  --brand-indigo: #0054c4;
+  --brand-violet: #0054c4;
+  --brand-gradient: #0054c4;
+  --brand-gradient-soft: #e8f0fb;
   --brand-on: #ffffff;
 
   /* Neutrals */
@@ -44,13 +43,13 @@
   --clr-danger: #ef4444;
   --clr-info: #3b82f6;
 
-  /* Surface */
-  --surface-bg: var(--clr-slate-50);
+  /* Surface — white cards on a barely-tinted white page. */
+  --surface-bg: #f4f8ff;
   --surface-card: #ffffff;
   --surface-elevated: #ffffff;
 
-  /* Sidebar — deep brand-tinted navy so the logo sits on-palette */
-  --sidebar-bg: #0b1024;
+  /* Sidebar — white with dark text and blue accents (light theme). */
+  --sidebar-bg: #ffffff;
   --sidebar-width: 260px;
   --sidebar-collapsed: 72px;
 
@@ -67,7 +66,7 @@
   --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.07), 0 2px 4px -2px rgba(0, 0, 0, 0.05);
   --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.08), 0 4px 6px -4px rgba(0, 0, 0, 0.04);
   --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.08), 0 8px 10px -6px rgba(0, 0, 0, 0.04);
-  --shadow-glow: 0 0 20px rgba(108, 92, 255, 0.18);
+  --shadow-glow: 0 0 20px rgba(0, 84, 196, 0.16);
 
   /* Transitions */
   --transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);

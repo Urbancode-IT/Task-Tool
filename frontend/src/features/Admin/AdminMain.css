@@ -519,13 +519,13 @@
 }
 
 .admin-btn-view-task {
-  border-color: #d2d4ff;
-  color: #4632c9;
+  border-color: #cfe0f6;
+  color: #00429b;
 }
 
 .admin-btn-view-task:hover {
   background: #eef0ff;
-  border-color: #b9bbff;
+  border-color: #a3c3ec;
 }
 
 .admin-modal-backdrop {

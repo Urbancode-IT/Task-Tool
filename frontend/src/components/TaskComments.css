@@ -98,7 +98,7 @@
 .task-comments-input:focus {
   outline: none;
   border-color: var(--clr-primary-400);
-  box-shadow: 0 0 0 3px rgba(108, 92, 255, 0.1);
+  box-shadow: 0 0 0 3px rgba(0, 84, 196, 0.1);
 }
 
 .task-comments-post {
@@ -144,7 +144,7 @@
 
 .tc-tool-active {
   background: var(--clr-primary-100, #e3e6ff);
-  color: var(--clr-primary-600, #5b46f2);
+  color: var(--clr-primary-600, #0054c4);
 }
 
 .tc-menu {
@@ -380,7 +380,7 @@
 
 .tc-mention {
   background: var(--clr-primary-100, #e3e6ff);
-  color: var(--clr-primary-600, #5b46f2);
+  color: var(--clr-primary-600, #0054c4);
   border-radius: 5px;
   padding: 0 4px;
   font-weight: 600;

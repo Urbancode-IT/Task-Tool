@@ -2,8 +2,10 @@ import React, { useState, useEffect } from 'react';
 import MainLayout from './components/MainLayout';
 import EodLockScreen from './components/EodLockScreen';
 import authApi from './api/authApi';
-import logoSrc from './assets/logo.png';
 import { MdVisibility, MdVisibilityOff } from 'react-icons/md';
+
+// Real Seyal brand icon (served from /public), same as the sidebar.
+const logoSrc = '/logo-icon.png';
 import './App.css';
 
 const LoginPage = ({ onLogin }) => {

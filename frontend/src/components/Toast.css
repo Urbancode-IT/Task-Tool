@@ -21,7 +21,7 @@
   color: #1e293b;
   box-shadow: 0 10px 25px rgba(15, 23, 42, 0.12),
               0 2px 6px rgba(15, 23, 42, 0.06);
-  border-left: 4px solid #6c5cff;
+  border-left: 4px solid #0054c4;
   font-size: 0.88rem;
   line-height: 1.35;
   animation: app-toast-in 0.22s cubic-bezier(0.16, 1, 0.3, 1);
@@ -38,7 +38,7 @@
 }
 
 .app-toast-info {
-  border-left-color: #6c5cff;
+  border-left-color: #0054c4;
 }
 
 .app-toast-icon {
@@ -52,7 +52,7 @@
   font-weight: 700;
   font-size: 0.75rem;
   color: #fff;
-  background: #6c5cff;
+  background: #0054c4;
   margin-top: 0.05rem;
 }
 
