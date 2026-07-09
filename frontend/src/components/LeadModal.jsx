@@ -306,8 +306,8 @@ export default function LeadModal({ lead, statusLabels = {}, statuses = [], onCl
                 {saveState.saving
                   ? 'Saving…'
                   : saveState.saved
-                    ? 'All changes saved'
-                    : 'Changes save automatically'}
+                    ? 'All ved'
+                    : 've automatically'}
               </span>
             ) : (
               <button type="submit" className="it-updates-btn it-updates-btn-primary" disabled={saving}>

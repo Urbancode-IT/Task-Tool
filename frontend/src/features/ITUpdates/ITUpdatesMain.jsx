@@ -2094,8 +2094,8 @@ function ProjectModal({ project, teammatesOptions, currentUser, defaultProjectTy
                 {saveState.saving
                   ? 'Saving…'
                   : saveState.saved
-                    ? 'All changes saved'
-                    : 'Changes save automatically'}
+                    ? 'All ved'
+                    : 've automatically'}
               </span>
             ) : (
               <button
@@ -2748,8 +2748,8 @@ export function TaskModal({ task, currentUser, projects, developers, managers, o
                 {saveState.saving
                   ? 'Saving…'
                   : saveState.saved
-                    ? 'All changes saved'
-                    : 'Changes save automatically'}
+                    ? 'All ved'
+                    : 've automatically'}
               </span>
             ) : (
               <button
