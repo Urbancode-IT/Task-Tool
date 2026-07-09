@@ -14,6 +14,7 @@ import {
   MdEdit,
   MdDelete,
   MdHome,
+  MdReplay,
 } from 'react-icons/md';
 import itUpdatesApi from '../../api/itUpdatesApi';
 import { getDisplayRole } from '../../utils/displayRole';
@@ -23,6 +24,7 @@ import { taskInPeriod, EMPTY_PERIOD } from '../../utils/taskPeriod';
 import { controlKeys, textareaSubmit, escapeCloses } from '../../utils/formKeys';
 import PeriodFilter from '../../components/PeriodFilter';
 import TaskComments from '../../components/TaskComments';
+import ModalKebabMenu from '../../components/ModalKebabMenu';
 const logoSrc = '/logo-icon.png';
 import ProjectLogo from '../../components/ProjectLogo';
 import SidebarUser from '../../components/SidebarUser';
@@ -1212,9 +1214,18 @@ function TaskModal({ task, currentUser, onClose, onSave, onRefresh, teamMembers,
       <div className="it-updates-modal it-updates-modal-wide" onClick={(e) => e.stopPropagation()}>
         <div className="it-updates-modal-header">
           <h2>{task ? 'Edit task' : 'New task'}</h2>
-          <button type="button" className="it-updates-modal-close" onClick={onClose}>
-            <MdClose size={22} />
-          </button>
+          <div className="it-updates-modal-header-actions">
+            {isExistingTask && canDelete && onDelete && (
+              <ModalKebabMenu
+                actions={[
+                  { label: 'Delete task', icon: <MdDelete size={16} />, onClick: onDelete, danger: true },
+                ]}
+              />
+            )}
+            <button type="button" className="it-updates-modal-close" onClick={onClose}>
+              <MdClose size={22} />
+            </button>
+          </div>
         </div>
         <form onSubmit={handleSubmit} onKeyDown={escapeCloses(onClose)} className="it-updates-modal-form">
           <label>
@@ -1457,7 +1468,7 @@ function TaskModal({ task, currentUser, onClose, onSave, onRefresh, teamMembers,
                   onClick={handleManualRework}
                   style={{ border: '1px solid #ef4444', color: '#ef4444' }}
                 >
-                  ↩ Send for rework
+                  <MdReplay size={16} /> Send for rework
                 </button>
               </div>
             </div>
@@ -1473,16 +1484,6 @@ function TaskModal({ task, currentUser, onClose, onSave, onRefresh, teamMembers,
           )}
 
           <div className="it-updates-modal-actions">
-            {isExistingTask && canDelete && onDelete && (
-              <button
-                type="button"
-                className="it-updates-btn it-updates-btn-secondary"
-                onClick={onDelete}
-                style={{ marginRight: 'auto', border: '1px solid #ef4444', color: '#ef4444' }}
-              >
-                <MdDelete size={16} /> Delete
-              </button>
-            )}
             <button type="button" className="it-updates-btn it-updates-btn-secondary" onClick={onClose}>
               Cancel
             </button>
@@ -1573,11 +1574,11 @@ function EodModal({ onClose, onSave }) {
               onChange={(e) => setForm((f) => ({ ...f, status: e.target.value }))}
               className="it-updates-status-select"
             >
-              <option value="on_track">🟢 On Track</option>
-              <option value="completed_for_day">✅ Completed for today</option>
-              <option value="delayed">🟡 Delayed</option>
-              <option value="blocked">🔴 Blocked</option>
-              <option value="stressed">😰 Stressed / Overloaded</option>
+              <option value="on_track">On Track</option>
+              <option value="completed_for_day">Completed for today</option>
+              <option value="delayed">Delayed</option>
+              <option value="blocked">Blocked</option>
+              <option value="stressed">Stressed / Overloaded</option>
             </select>
           </label>
           <div className="it-updates-modal-actions">

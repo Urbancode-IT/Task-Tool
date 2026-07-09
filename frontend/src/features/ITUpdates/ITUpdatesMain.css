@@ -417,12 +417,13 @@
 /* ─── Main Content Area ─── */
 .it-updates-main {
   flex: 1;
-  padding: 1.75rem 2rem 2.5rem;
+  padding: 0.85rem 2rem 2.5rem;
   display: flex;
   flex-direction: column;
   gap: 1.5rem;
   max-width: 1400px;
   width: 100%;
+  position: relative;
   margin: 0 auto;
 }
 
@@ -1898,9 +1899,7 @@
 .it-updates-modal-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(15, 23, 42, 0.28);
-  backdrop-filter: blur(2.5px);
-  -webkit-backdrop-filter: blur(2.5px);
+  background: rgba(15, 23, 42, 0.5);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -2531,7 +2530,9 @@
 
 /* Wide modal for task with requirements */
 .it-updates-modal-wide {
-  max-width: 760px;
+  max-width: 1040px;
+  min-height: 82vh;
+  max-height: 92vh;
 }
 
 /* Section container */
@@ -3206,4 +3207,109 @@
 
 .it-updates-table-reqs-none {
   color: var(--clr-slate-300);
+}
+/* ─── Backlogs (overdue work list) ─── */
+.it-updates-backlog-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  height: 22px;
+  padding: 0 0.5rem;
+  border-radius: 999px;
+  background: #fef2f2;
+  color: #dc2626;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+.it-updates-backlog-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.it-updates-backlog-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  width: 100%;
+  text-align: left;
+  padding: 0.7rem 0.9rem;
+  background: var(--surface-card, #fff);
+  border: 1px solid var(--clr-slate-200);
+  border-left: 3px solid #dc2626;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: box-shadow var(--transition-fast), border-color var(--transition-fast);
+}
+.it-updates-backlog-row:hover {
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.08);
+  border-color: var(--clr-slate-300);
+}
+.it-updates-backlog-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+.it-updates-backlog-title {
+  font-weight: 600;
+  font-size: 0.92rem;
+  color: var(--clr-slate-800, #1e293b);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.it-updates-backlog-sub {
+  font-size: 0.78rem;
+  color: var(--clr-slate-500, #64748b);
+}
+.it-updates-backlog-due {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.2rem;
+  font-size: 0.78rem;
+  color: var(--clr-slate-500, #64748b);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.it-updates-backlog-late {
+  font-weight: 700;
+  color: #dc2626;
+}
+
+/* ─── Auto-save status (edit modals) + card delete affordance ─── */
+.it-updates-autosave-status {
+  font-size: 0.82rem;
+  font-weight: 500;
+  color: var(--clr-slate-500, #64748b);
+  margin-left: auto;
+}
+.it-updates-project-card,
+.it-updates-task-card {
+  position: relative;
+}
+.it-updates-card-delete {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  border: none;
+  background: transparent;
+  color: var(--clr-slate-400, #94a3b8);
+  cursor: pointer;
+  padding: 3px;
+  border-radius: 6px;
+  display: inline-flex;
+  opacity: 0;
+  z-index: 2;
+  transition: opacity var(--transition-fast), background var(--transition-fast), color var(--transition-fast);
+}
+.it-updates-project-card:hover .it-updates-card-delete,
+.it-updates-task-card:hover .it-updates-card-delete {
+  opacity: 1;
+}
+.it-updates-card-delete:hover {
+  background: #fef2f2;
+  color: #dc2626;
 }

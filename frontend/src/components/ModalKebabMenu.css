@@ -1,0 +1,48 @@
+/* Three-dots menu shared across modal headers. */
+.modal-kebab {
+  position: relative;
+}
+.modal-kebab-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 30;
+  min-width: 170px;
+  background: #fff;
+  border: 1px solid var(--clr-slate-200);
+  border-radius: var(--radius-md);
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.16);
+  overflow: hidden;
+  padding: 0.25rem;
+}
+.modal-kebab-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  text-align: left;
+  border: none;
+  background: none;
+  padding: 0.5rem 0.6rem;
+  border-radius: var(--radius-sm, 6px);
+  font: inherit;
+  font-size: 0.85rem;
+  cursor: pointer;
+  color: var(--clr-slate-700, #334155);
+}
+.modal-kebab-item:hover {
+  background: var(--clr-slate-100, #f1f5f9);
+}
+.modal-kebab-item.danger {
+  color: #dc2626;
+}
+.modal-kebab-item.danger:hover {
+  background: #fef2f2;
+}
+
+/* Header wrapper: kebab + close button side by side. */
+.it-updates-modal-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}

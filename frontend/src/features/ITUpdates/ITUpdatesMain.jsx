@@ -17,6 +17,8 @@ import {
   MdEdit,
   MdDelete,
   MdHome,
+  MdReplay,
+  MdWarningAmber,
 } from 'react-icons/md';
 import itUpdatesApi from '../../api/itUpdatesApi';
 import { getDisplayRole } from '../../utils/displayRole';
@@ -32,6 +34,9 @@ import ProjectLogo from '../../components/ProjectLogo';
 import ProjectDocuments from '../../components/ProjectDocuments';
 import ProjectRequirements from '../../components/ProjectRequirements';
 import MemberPicker from '../../components/MemberPicker';
+import Preloader from '../../components/Preloader';
+import LeadModal from '../../components/LeadModal';
+import ModalKebabMenu from '../../components/ModalKebabMenu';
 import SidebarUser from '../../components/SidebarUser';
 import RequirementTimer from '../../components/RequirementTimer';
 import RequirementManualTime from '../../components/RequirementManualTime';
@@ -59,6 +64,7 @@ const TABS = [
   { key: 'All Tasks', label: 'All Tasks', icon: MdViewKanban },
   { key: 'Projects', label: 'Projects', icon: MdFolder },
   { key: 'Overview', label: 'Overview', icon: MdTableChart },
+  { key: 'Backlogs', label: 'Backlogs', icon: MdWarningAmber },
   { key: 'EOD Updates', label: 'EOD Updates', icon: MdOutlineAssignment },
 ];
 const MODULE_TEAM = 'it';
@@ -318,6 +324,8 @@ const ITUpdatesMain = ({ currentUser, onLogout, scope = 'internal' }) => {
   const isExternalScope = scope === 'external';
   const [activeTab, setActiveTab] = useState('Dashboard');
   const [loading, setLoading] = useState(false);
+  // Tracks the first data fetch so the full preloader shows only on initial load.
+  const [booted, setBooted] = useState(false);
   const [error, setError] = useState('');
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
@@ -448,6 +456,7 @@ const ITUpdatesMain = ({ currentUser, onLogout, scope = 'internal' }) => {
       );
     } finally {
       setLoading(false);
+      setBooted(true);
     }
   }, [scope]);
 
@@ -492,6 +501,15 @@ const ITUpdatesMain = ({ currentUser, onLogout, scope = 'internal' }) => {
   }, [tasks, allTasksFiltersApplied]);
 
   const overviewTasks = useMemo(() => tasks, [tasks]);
+
+  // Backlogs: overdue, not-completed tasks — most overdue first.
+  const overdueTasks = useMemo(
+    () =>
+      (tasks || [])
+        .filter((t) => isTaskOverdue(t))
+        .sort((a, b) => String(a.dueDate || '').localeCompare(String(b.dueDate || ''))),
+    [tasks]
+  );
 
   // Inline editor for Overview table (enabled only when you click the pencil icon)
   const [inlineEditingTaskId, setInlineEditingTaskId] = useState(null);
@@ -721,6 +739,46 @@ const ITUpdatesMain = ({ currentUser, onLogout, scope = 'internal' }) => {
 
   const openProjectModal = (project = null) => setProjectModal({ open: true, project });
   const openTaskModal = (task = null) => setTaskModal({ open: true, task });
+  const [leadModal, setLeadModal] = useState({ open: false, lead: null });
+  const openLeadModal = (lead = null) => setLeadModal({ open: true, lead });
+  const closeLeadModal = () => setLeadModal({ open: false, lead: null });
+
+  // Create/update a Client CRM lead (stored as an is_crm task with lead_details).
+  const handleSaveLead = async (form, { isEdit, silent = false } = {}) => {
+    try {
+      const body = {
+        title: form.business_name.trim(),
+        task_description: form.description,
+        status: form.status || 'todo',
+        is_crm: true,
+        lead_details: {
+          client_name: form.client_name,
+          mobile: form.mobile,
+          email: form.email,
+          website: form.website,
+          location: form.location,
+          service: form.service,
+          additional_requirement: form.additional_requirement,
+          lead_source: form.lead_source,
+          industry: form.industry,
+          client_type: form.client_type,
+        },
+        team: MODULE_TEAM,
+      };
+      if (isEdit && leadModal.lead?.id) {
+        await itUpdatesApi.updateTask(leadModal.lead.id, body);
+      } else {
+        await itUpdatesApi.createTask(body);
+      }
+      const tasksRes = await itUpdatesApi.getTasks({ team: MODULE_TEAM });
+      setTasks(scopeTasksToProjects(tasksRes?.data, projects, scope));
+      if (!silent) toastSuccess(isEdit ? 'Lead updated' : 'Lead added');
+      return true;
+    } catch (e) {
+      if (!silent) toastError(e?.response?.data?.message || 'Failed to save lead');
+      return false;
+    }
+  };
   const closeProjectModal = () => setProjectModal({ open: false, project: null });
   const closeTaskModal = () => setTaskModal({ open: false, task: null });
 
@@ -747,7 +805,7 @@ const ITUpdatesMain = ({ currentUser, onLogout, scope = 'internal' }) => {
     }
   };
 
-  const handleSaveProject = async (payload) => {
+  const handleSaveProject = async (payload, opts = {}) => {
     try {
       const normalizedProjectCode =
         payload?.project_code != null && String(payload.project_code).trim() !== ''
@@ -781,7 +839,7 @@ const ITUpdatesMain = ({ currentUser, onLogout, scope = 'internal' }) => {
       ]);
       setDashboardData(statsRes?.data ?? null);
       setProjects(Array.isArray(projRes?.data) ? projRes.data.filter(Boolean) : []);
-      toastSuccess(isEdit ? 'Project updated' : 'Project created');
+      if (!opts.silent) toastSuccess(isEdit ? 'Project updated' : 'Project created');
       return true;
     } catch (e) {
       const msg = e?.response?.data?.message || 'Failed to save project';
@@ -822,7 +880,7 @@ const ITUpdatesMain = ({ currentUser, onLogout, scope = 'internal' }) => {
     }
   };
 
-  const handleSaveTask = async (payload) => {
+  const handleSaveTask = async (payload, opts = {}) => {
     try {
       const body = {
         title: payload.task_title,
@@ -862,9 +920,9 @@ const ITUpdatesMain = ({ currentUser, onLogout, scope = 'internal' }) => {
         itUpdatesApi.getTasks({ team: MODULE_TEAM }),
         itUpdatesApi.getDashboardStats(),
       ]);
-      setTasks(Array.isArray(tasksRes?.data) ? tasksRes.data : []);
+      setTasks(scopeTasksToProjects(tasksRes?.data, projects, scope));
       setDashboardData(statsRes?.data ?? null);
-      toastSuccess(isEdit ? 'Task updated' : 'Task created');
+      if (!opts.silent) toastSuccess(isEdit ? 'Task updated' : 'Task created');
       return true;
     } catch (e) {
       const msg = e?.response?.data?.message || 'Failed to save task';
@@ -967,6 +1025,7 @@ const ITUpdatesMain = ({ currentUser, onLogout, scope = 'internal' }) => {
                 {activeTab === 'Tasks' && 'Client pipeline across external projects'}
                 {activeTab === 'Projects' && 'Manage your projects'}
                 {activeTab === 'Overview' && 'Detailed task overview and filters'}
+                {activeTab === 'Backlogs' && 'Overdue work that needs attention'}
                 {activeTab === 'EOD Updates' && 'End-of-day reports from the team'}
               </p>
             </div>
@@ -976,10 +1035,10 @@ const ITUpdatesMain = ({ currentUser, onLogout, scope = 'internal' }) => {
               <button
                 type="button"
                 className="it-updates-btn it-updates-btn-primary"
-                onClick={() => openTaskModal(null)}
+                onClick={() => (activeTab === 'Tasks' ? openLeadModal(null) : openTaskModal(null))}
               >
                 <MdAdd size={18} />
-                {activeTab === 'Tasks' ? 'Add project' : 'Add task'}
+                {activeTab === 'Tasks' ? 'Add lead' : 'Add task'}
               </button>
             )}
             {activeTab !== 'Tasks' && (
@@ -1011,6 +1070,7 @@ const ITUpdatesMain = ({ currentUser, onLogout, scope = 'internal' }) => {
         )}
 
         <main className="it-updates-main">
+          {!booted && <Preloader label="Loading your workspace…" />}
           {activeTab === 'My Dashboard' && (
             <MemberDashboard
               currentUser={user}
@@ -1233,7 +1293,7 @@ const ITUpdatesMain = ({ currentUser, onLogout, scope = 'internal' }) => {
                   activeTab === 'Tasks' ? t.is_crm === true : t.is_crm !== true
                 )}
                 onDragEnd={handleDragEnd}
-                onCardClick={openTaskModal}
+                onCardClick={activeTab === 'Tasks' ? openLeadModal : openTaskModal}
                 projectById={projectById}
                 statusLabels={boardStatusLabels}
                 statuses={boardStatuses}
@@ -1580,6 +1640,67 @@ const ITUpdatesMain = ({ currentUser, onLogout, scope = 'internal' }) => {
             </section>
           )}
 
+          {activeTab === 'Backlogs' && (
+            <section className="it-updates-panel it-updates-panel-full">
+              <div className="it-updates-panel-header">
+                <h2>Backlogs — overdue work</h2>
+                <span className="it-updates-backlog-count">{overdueTasks.length}</span>
+              </div>
+              {overdueTasks.length === 0 ? (
+                <div className="it-updates-empty">
+                  No overdue work — everything is on track.
+                </div>
+              ) : (
+                <div className="it-updates-backlog-list">
+                  {overdueTasks.map((t) => {
+                    const proj = projectById.get(String(t.projectId));
+                    const due = t.dueDate ? new Date(t.dueDate) : null;
+                    const days =
+                      due != null
+                        ? Math.max(
+                            0,
+                            Math.floor((Date.now() - due.getTime()) / 86400000)
+                          )
+                        : null;
+                    return (
+                      <button
+                        type="button"
+                        key={t.id}
+                        className="it-updates-backlog-row"
+                        onClick={() => openTaskModal(t)}
+                      >
+                        <span
+                          className="it-updates-priority-dot"
+                          style={{
+                            backgroundColor:
+                              PRIORITY_COLORS[t.priority] || PRIORITY_COLORS.medium,
+                          }}
+                        />
+                        <div className="it-updates-backlog-main">
+                          <span className="it-updates-backlog-title">
+                            {t.title || t.task_title}
+                          </span>
+                          <span className="it-updates-backlog-sub">
+                            {proj ? (proj.name ?? proj.project_name) + ' · ' : ''}
+                            {t.assignee || 'Unassigned'} · {STATUS_LABELS[t.status] ?? t.status}
+                          </span>
+                        </div>
+                        <span className="it-updates-backlog-due">
+                          Due {due ? due.toLocaleDateString() : '—'}
+                          {days != null && (
+                            <span className="it-updates-backlog-late">
+                              {days === 0 ? 'today' : `${days}d overdue`}
+                            </span>
+                          )}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </section>
+          )}
+
           {activeTab === 'EOD Updates' && (
             <section className="it-updates-panel it-updates-panel-full">
               <div className="it-updates-panel-header">
@@ -1650,6 +1771,19 @@ const ITUpdatesMain = ({ currentUser, onLogout, scope = 'internal' }) => {
           canDelete={canDeleteTask(taskModal.task)}
           onDelete={async () => {
             if (await handleDeleteTask(taskModal.task)) closeTaskModal();
+          }}
+        />
+      )}
+      {leadModal.open && (
+        <LeadModal
+          lead={leadModal.lead}
+          statuses={boardStatuses}
+          statusLabels={boardStatusLabels}
+          canDelete={canDeleteTask(leadModal.lead)}
+          onClose={closeLeadModal}
+          onSave={handleSaveLead}
+          onDelete={async () => {
+            if (await handleDeleteTask(leadModal.lead)) closeLeadModal();
           }}
         />
       )}
@@ -1734,16 +1868,14 @@ function ProjectModal({ project, teammatesOptions, currentUser, defaultProjectTy
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (saveState.saving) return;
-
     if (!form.project_name.trim()) {
       toastError('Project name is required.');
       return;
     }
-
+    // Existing projects auto-save each edit; explicit submit only creates new ones.
+    if (project?.id || saveState.saving) return;
     setSaveState({ saving: true, saved: false });
     const ok = await onSave(form);
-
     if (ok) {
       setSaveState({ saving: false, saved: true });
       window.setTimeout(() => onClose(), 900);
@@ -1752,14 +1884,41 @@ function ProjectModal({ project, teammatesOptions, currentUser, defaultProjectTy
     }
   };
 
+  // Auto-save every edit of an existing project (debounced, silent, stays open).
+  const autoSaveSkip = useRef(true);
+  useEffect(() => {
+    if (!project?.id) return;
+    if (autoSaveSkip.current) {
+      autoSaveSkip.current = false;
+      return;
+    }
+    if (!form.project_name.trim()) return;
+    const h = setTimeout(async () => {
+      setSaveState({ saving: true, saved: false });
+      const ok = await onSave(form, { silent: true });
+      setSaveState({ saving: false, saved: ok });
+    }, 700);
+    return () => clearTimeout(h);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form]);
+
   return (
     <div className="it-updates-modal-backdrop">
       <div className="it-updates-modal" onClick={(e) => e.stopPropagation()}>
         <div className="it-updates-modal-header">
           <h2>{project ? 'Edit project' : 'New project'}</h2>
-          <button type="button" className="it-updates-modal-close" onClick={onClose}>
-            <MdClose size={22} />
-          </button>
+          <div className="it-updates-modal-header-actions">
+            {project?.id && canDelete && onDelete && (
+              <ModalKebabMenu
+                actions={[
+                  { label: 'Delete project', icon: <MdDelete size={16} />, onClick: onDelete, danger: true },
+                ]}
+              />
+            )}
+            <button type="button" className="it-updates-modal-close" onClick={onClose}>
+              <MdClose size={22} />
+            </button>
+          </div>
         </div>
         <form onSubmit={handleSubmit} onKeyDown={escapeCloses(onClose)} className="it-updates-modal-form">
           <label>
@@ -1930,34 +2089,23 @@ function ProjectModal({ project, teammatesOptions, currentUser, defaultProjectTy
             </div>
           )}
           <div className="it-updates-modal-actions">
-            {project && canDelete && onDelete && (
+            {project?.id ? (
+              <span className="it-updates-autosave-status">
+                {saveState.saving
+                  ? 'Saving…'
+                  : saveState.saved
+                    ? 'All changes saved'
+                    : 'Changes save automatically'}
+              </span>
+            ) : (
               <button
-                type="button"
-                className="it-updates-btn it-updates-btn-secondary"
-                onClick={onDelete}
-                style={{ marginRight: 'auto', border: '1px solid #ef4444', color: '#ef4444' }}
+                type="submit"
+                className="it-updates-btn it-updates-btn-primary"
+                disabled={saveState.saving}
               >
-                <MdDelete size={16} /> Delete
+                {saveState.saving ? 'Creating…' : 'Create project'}
               </button>
             )}
-            <button type="button" className="it-updates-btn it-updates-btn-secondary" onClick={onClose}>
-              Cancel
-            </button>
-            <button
-              type="submit"
-              className="it-updates-btn it-updates-btn-primary"
-              disabled={saveState.saving || saveState.saved}
-              style={
-                saveState.saved
-                  ? {
-                      background: 'var(--clr-success)',
-                      boxShadow: '0 6px 20px rgba(16, 185, 129, 0.35)',
-                    }
-                  : undefined
-              }
-            >
-              {saveState.saved ? 'Saved' : saveState.saving ? 'Saving...' : 'Save'}
-            </button>
           </div>
         </form>
       </div>
@@ -2212,8 +2360,6 @@ export function TaskModal({ task, currentUser, projects, developers, managers, o
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (saveState.saving) return;
-
     if (!form.task_title.trim()) {
       toastError('Task title is required.');
       return;
@@ -2222,6 +2368,8 @@ export function TaskModal({ task, currentUser, projects, developers, managers, o
       toastError('Please assign this task to a staff member.');
       return;
     }
+    // Existing tasks auto-save each edit; explicit submit only creates new ones.
+    if (isExistingTask || saveState.saving) return;
 
     setSaveState({ saving: true, saved: false });
     let ok = false;
@@ -2244,14 +2392,49 @@ export function TaskModal({ task, currentUser, projects, developers, managers, o
     }
   };
 
+  // Auto-save every edit of an existing task (debounced, silent, stays open).
+  const taskAutoSaveSkip = useRef(true);
+  useEffect(() => {
+    if (!isExistingTask) return;
+    if (taskAutoSaveSkip.current) {
+      taskAutoSaveSkip.current = false;
+      return;
+    }
+    if (!form.task_title.trim() || !String(form.assigned_to ?? '').trim()) return;
+    const h = setTimeout(async () => {
+      setSaveState({ saving: true, saved: false });
+      let ok = false;
+      try {
+        ok = await onSave(
+          { ...form, projectId: form.project_id || undefined, due_date: form.due_date || undefined },
+          { silent: true }
+        );
+      } catch {
+        ok = false;
+      }
+      setSaveState({ saving: false, saved: ok });
+    }, 700);
+    return () => clearTimeout(h);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form]);
+
   return (
     <div className="it-updates-modal-backdrop">
       <div className="it-updates-modal it-updates-modal-wide" onClick={(e) => e.stopPropagation()}>
         <div className="it-updates-modal-header">
           <h2>{task ? 'Edit task' : 'New task'}</h2>
-          <button type="button" className="it-updates-modal-close" onClick={onClose}>
-            <MdClose size={22} />
-          </button>
+          <div className="it-updates-modal-header-actions">
+            {isExistingTask && canDelete && onDelete && (
+              <ModalKebabMenu
+                actions={[
+                  { label: 'Delete task', icon: <MdDelete size={16} />, onClick: onDelete, danger: true },
+                ]}
+              />
+            )}
+            <button type="button" className="it-updates-modal-close" onClick={onClose}>
+              <MdClose size={22} />
+            </button>
+          </div>
         </div>
         <form onSubmit={handleSubmit} onKeyDown={escapeCloses(onClose)} className="it-updates-modal-form">
           <label>
@@ -2293,6 +2476,17 @@ export function TaskModal({ task, currentUser, projects, developers, managers, o
                 ) : null}
               </div>
             )}
+
+          <label>
+            Description
+            <textarea
+              value={form.task_description}
+              onChange={(e) => setForm((f) => ({ ...f, task_description: e.target.value }))}
+              onKeyDown={textareaSubmit}
+              rows={3}
+              placeholder="Describe the task…"
+            />
+          </label>
 
           {/* ═══ Requirements Section ═══ */}
           <div className="req-section">
@@ -2533,7 +2727,7 @@ export function TaskModal({ task, currentUser, projects, developers, managers, o
                   onClick={handleManualRework}
                   style={{ border: '1px solid #ef4444', color: '#ef4444' }}
                 >
-                  ↩ Send for rework
+                  <MdReplay size={16} /> Send for rework
                 </button>
               </div>
             </div>
@@ -2549,34 +2743,23 @@ export function TaskModal({ task, currentUser, projects, developers, managers, o
           )}
 
           <div className="it-updates-modal-actions">
-            {isExistingTask && canDelete && onDelete && (
+            {isExistingTask ? (
+              <span className="it-updates-autosave-status">
+                {saveState.saving
+                  ? 'Saving…'
+                  : saveState.saved
+                    ? 'All changes saved'
+                    : 'Changes save automatically'}
+              </span>
+            ) : (
               <button
-                type="button"
-                className="it-updates-btn it-updates-btn-secondary"
-                onClick={onDelete}
-                style={{ marginRight: 'auto', border: '1px solid #ef4444', color: '#ef4444' }}
+                type="submit"
+                className="it-updates-btn it-updates-btn-primary"
+                disabled={saveState.saving}
               >
-                <MdDelete size={16} /> Delete
+                {saveState.saving ? 'Creating…' : 'Create task'}
               </button>
             )}
-            <button type="button" className="it-updates-btn it-updates-btn-secondary" onClick={onClose}>
-              Cancel
-            </button>
-            <button
-              type="submit"
-              className="it-updates-btn it-updates-btn-primary"
-              disabled={saveState.saving || saveState.saved}
-              style={
-                saveState.saved
-                  ? {
-                      background: 'var(--clr-success)',
-                      boxShadow: '0 6px 20px rgba(16, 185, 129, 0.35)',
-                    }
-                  : undefined
-              }
-            >
-              {saveState.saved ? 'Saved' : saveState.saving ? 'Saving...' : 'Save'}
-            </button>
           </div>
         </form>
       </div>

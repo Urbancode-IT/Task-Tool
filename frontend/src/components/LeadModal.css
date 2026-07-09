@@ -1,0 +1,90 @@
+/* Searchable service dropdown + char counter for the Lead form. */
+.lead-select {
+  position: relative;
+  width: 100%;
+}
+.lead-select-trigger {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.45rem 0.75rem;
+  border: 1px solid var(--clr-slate-200);
+  border-radius: var(--radius-md);
+  background: var(--surface-card, #fff);
+  color: var(--clr-slate-800, #1e293b);
+  font: inherit;
+  font-size: 0.85rem;
+  cursor: pointer;
+  text-transform: none;
+  letter-spacing: 0;
+}
+.lead-select-trigger:hover {
+  border-color: var(--clr-primary-300);
+}
+.lead-select-placeholder {
+  color: var(--clr-slate-400, #94a3b8);
+}
+.lead-select-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  z-index: 20;
+  background: #fff;
+  border: 1px solid var(--clr-slate-200);
+  border-radius: var(--radius-md);
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.16);
+  overflow: hidden;
+}
+.lead-select-search {
+  width: 100%;
+  border: none;
+  border-bottom: 1px solid var(--clr-slate-200);
+  padding: 0.55rem 0.75rem;
+  font: inherit;
+  font-size: 0.85rem;
+  outline: none;
+}
+.lead-select-list {
+  max-height: 220px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+.lead-select-option {
+  text-align: left;
+  border: none;
+  background: none;
+  padding: 0.5rem 0.75rem;
+  font: inherit;
+  font-size: 0.85rem;
+  color: var(--clr-slate-700, #334155);
+  cursor: pointer;
+}
+.lead-select-option:hover {
+  background: var(--clr-primary-50, #e8f0fb);
+}
+.lead-select-option.selected {
+  background: var(--clr-primary-50, #e8f0fb);
+  color: var(--clr-primary-700, #00429b);
+  font-weight: 600;
+}
+.lead-select-empty {
+  padding: 0.6rem 0.75rem;
+  font-size: 0.82rem;
+  color: var(--clr-slate-400, #94a3b8);
+}
+.lead-char-counter {
+  align-self: flex-end;
+  margin-top: 0.25rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+.lead-char-counter.short {
+  color: #dc2626;
+}
+.lead-char-counter.ok {
+  color: #16a34a;
+}

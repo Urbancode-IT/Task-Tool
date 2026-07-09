@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { MdClose, MdDelete, MdEdit } from 'react-icons/md';
 import { formatUserRowRole } from '../../utils/displayRole';
 import { escapeCloses } from '../../utils/formKeys';
+import ModalKebabMenu from '../../components/ModalKebabMenu';
 
 export const BRANCHES = ['Tirunelveli', 'Velachery', 'Pallikaranai'];
 
@@ -26,9 +27,18 @@ export function AdminUserDetailModal({ user, mode, onClose, onEdit, onSave, onDe
         <div className="admin-modal" onClick={(e) => e.stopPropagation()}>
           <div className="admin-modal-header">
             <h3>User details</h3>
-            <button type="button" className="admin-modal-close" onClick={onClose}>
-              <MdClose size={22} />
-            </button>
+            <div className="it-updates-modal-header-actions">
+              {onDelete && (
+                <ModalKebabMenu
+                  actions={[
+                    { label: 'Delete user', icon: <MdDelete size={16} />, onClick: onDelete, danger: true },
+                  ]}
+                />
+              )}
+              <button type="button" className="admin-modal-close" onClick={onClose}>
+                <MdClose size={22} />
+              </button>
+            </div>
           </div>
           <div className="admin-user-detail-body">
             <div className="admin-user-detail-row">
@@ -49,9 +59,6 @@ export function AdminUserDetailModal({ user, mode, onClose, onEdit, onSave, onDe
             </div>
           </div>
           <div className="admin-modal-actions">
-            <button type="button" className="admin-btn admin-btn-danger-outline" onClick={onDelete}>
-              <MdDelete size={18} /> Delete
-            </button>
             <div style={{ marginLeft: 'auto', display: 'flex', gap: '0.5rem' }}>
               <button type="button" className="admin-btn admin-btn-secondary" onClick={onClose}>
                 Close

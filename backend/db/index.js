@@ -401,8 +401,11 @@ export async function dbEnsureTables() {
   // ordinary tasks, so moving a project between sectors never mixes them.
   try {
     await p.query('ALTER TABLE it_tasks ADD COLUMN IF NOT EXISTS is_crm BOOLEAN DEFAULT false;');
+    // Lead details (Client CRM) stored as a JSON string: business/client/contact
+    // info, requested service, lead source, industry, client type, etc.
+    await p.query('ALTER TABLE it_tasks ADD COLUMN IF NOT EXISTS lead_details TEXT;');
   } catch (err) {
-    console.warn('dbEnsureTables: it_tasks.is_crm check failed:', err.message);
+    console.warn('dbEnsureTables: it_tasks.is_crm / lead_details check failed:', err.message);
   }
 
   // Profile pictures are stored inline as data URLs, so the column must be TEXT
@@ -1620,6 +1623,14 @@ export async function dbGetTasksSimple(filters = {}) {
       target_date: r.target_date ?? null,
       publish_date: r.publish_date ?? null,
       is_crm: Boolean(r.is_crm),
+      lead_details: (() => {
+        if (!r.lead_details) return null;
+        try {
+          return typeof r.lead_details === 'string' ? JSON.parse(r.lead_details) : r.lead_details;
+        } catch {
+          return null;
+        }
+      })(),
       team: normalizedTeam,
     }));
   } catch (err) {
@@ -1817,10 +1828,14 @@ export async function dbCreateTask(data) {
       toNullableDate(data.publish_date)
     );
   }
-  // it_tasks carries the CRM flag (Client CRM cards vs ordinary tasks).
+  // it_tasks carries the CRM flag (Client CRM cards vs ordinary tasks) and,
+  // for leads, a JSON blob of the lead-specific fields.
   if (team === 'it') {
-    insertColumns.push('is_crm');
-    insertValues.push(Boolean(data.is_crm));
+    insertColumns.push('is_crm', 'lead_details');
+    insertValues.push(
+      Boolean(data.is_crm),
+      data.lead_details != null ? JSON.stringify(data.lead_details) : null
+    );
   }
   const placeholders = insertValues.map((_, idx) => `$${idx + 1}`).join(', ');
   const {
@@ -1879,6 +1894,9 @@ export async function dbUpdateTask(taskId, data) {
       'publish_date'
     );
   }
+  if (team === 'it') {
+    allowed.push('lead_details');
+  }
   const updates = [];
   const values = [];
   let i = 1;
@@ -1906,6 +1924,8 @@ export async function dbUpdateTask(taskId, data) {
         val = v === '' ? null : v;
       } else if (col === 'review_comment') {
         val = v === '' || v == null ? null : String(v);
+      } else if (col === 'lead_details') {
+        val = v == null ? null : typeof v === 'string' ? v : JSON.stringify(v);
       } else {
         val = v;
       }
@@ -2773,7 +2793,8 @@ export async function dbCreateEodReport(data) {
       ]
     );
     return row ? { id: row.report_id, ...row } : null;
-  } catch {
+  } catch (err) {
+    console.error('dbCreateEodReport:', err.message);
     return null;
   }
 }
