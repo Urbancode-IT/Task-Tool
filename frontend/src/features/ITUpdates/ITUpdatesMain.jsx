@@ -310,12 +310,13 @@ export function TaskBoard({ tasks = [], onDragEnd, onCardClick, projectById, sta
 }
 
 // Keep only the tasks that belong to this sector's projects, so Internal and
-// External never show each other's cards. Tasks with no project are Internal.
+// External never show each other's cards. Project-less tasks are Internal,
+// except Client CRM leads (is_crm) which live only on the External CRM board.
 function scopeTasksToProjects(taskList, projList, scope) {
   const idSet = new Set((projList || []).map((p) => String(p.project_id ?? p.id)));
   return (taskList || []).filter(Boolean).filter((t) => {
     const pv = t.projectId ?? t.project_id;
-    if (pv == null || pv === '') return scope === 'internal';
+    if (pv == null || pv === '') return t.is_crm ? scope === 'external' : scope === 'internal';
     return idSet.has(String(pv));
   });
 }
@@ -2089,15 +2090,7 @@ function ProjectModal({ project, teammatesOptions, currentUser, defaultProjectTy
             </div>
           )}
           <div className="it-updates-modal-actions">
-            {project?.id ? (
-              <span className="it-updates-autosave-status">
-                {saveState.saving
-                  ? 'Saving…'
-                  : saveState.saved
-                    ? 'All ved'
-                    : 've automatically'}
-              </span>
-            ) : (
+            {project?.id ? null : (
               <button
                 type="submit"
                 className="it-updates-btn it-updates-btn-primary"
@@ -2743,15 +2736,7 @@ export function TaskModal({ task, currentUser, projects, developers, managers, o
           )}
 
           <div className="it-updates-modal-actions">
-            {isExistingTask ? (
-              <span className="it-updates-autosave-status">
-                {saveState.saving
-                  ? 'Saving…'
-                  : saveState.saved
-                    ? 'All ved'
-                    : 've automatically'}
-              </span>
-            ) : (
+            {isExistingTask ? null : (
               <button
                 type="submit"
                 className="it-updates-btn it-updates-btn-primary"
