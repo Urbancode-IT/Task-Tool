@@ -288,6 +288,10 @@
 /* ─── Main Content ─── */
 .it-updates-content-area {
   flex: 1;
+  /* Allow this flex item to shrink below its content's intrinsic width so a wide
+     kanban (e.g. Social Media's 9 columns) scrolls inside its own wrapper instead
+     of stretching the page and sliding content under the fixed sidebar. */
+  min-width: 0;
   margin-left: var(--sidebar-width);
   display: flex;
   flex-direction: column;
@@ -423,8 +427,19 @@
   gap: 1.5rem;
   max-width: 1400px;
   width: 100%;
+  /* Keep children (panels, kanban wrappers) from expanding this column past the
+     viewport; a wide board must scroll inside its own overflow-x wrapper. */
+  min-width: 0;
   position: relative;
   margin: 0 auto;
+}
+
+/* Flex/block children of the main column must be allowed to shrink so their
+   inner overflow-x wrappers (e.g. the Social Media kanban) actually scroll
+   instead of pushing the layout wider than the screen. */
+.it-updates-main > * {
+  min-width: 0;
+  max-width: 100%;
 }
 
 /* ─── Error Banner ─── */
@@ -1025,6 +1040,25 @@
   grid-template-columns: repeat(5, minmax(200px, 1fr));
   gap: 0.5rem;
   min-width: 0;
+  /* Fill the board wrapper's height so the columns stretch to the full page. */
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+/* The Social Media board carries both `.it-updates-columns` and
+   `.social-media-columns`. This combined selector wins on specificity so the
+   layout is not clobbered by the 5-column defaults above (which appear later in
+   this file). Each column is one-fifth of the visible width so exactly 5 topics
+   show at once — like the other sections — while the remaining topics
+   (Youtube, Google Ads, GMB, Completed) are reached by scrolling horizontally. */
+.it-updates-columns.social-media-columns {
+  grid-template-columns: none;
+  grid-auto-flow: column;
+  /* Match the other sections' spacing: 5 columns fill the width with the same
+     0.5rem gap. 4 gaps between the 5 visible columns => subtract 2rem. */
+  grid-auto-columns: calc((100% - 2rem) / 5);
+  gap: 0.5rem;
+  min-width: 0;
 }
 
 .it-updates-kanban-wrap {
@@ -1033,6 +1067,20 @@
   overflow-y: hidden;
   padding-bottom: 0.25rem;
   -webkit-overflow-scrolling: touch;
+  /* Fill the remaining vertical space of the page so the board stretches to the
+     full height instead of stopping partway down. */
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* The Social Media board carries both `.it-updates-kanban-wrap` and
+   `.social-media-kanban-wrap`. This combined selector wins on specificity so the
+   9-column board scrolls horizontally instead of being clipped by the
+   `overflow-x: hidden` default above (which appears later in this file). */
+.it-updates-kanban-wrap.social-media-kanban-wrap {
+  overflow-x: auto;
 }
 
 .it-updates-column {
@@ -1042,7 +1090,10 @@
   border: 1px solid var(--clr-slate-100);
   border-top: 3px solid var(--clr-slate-300);
   min-height: 320px;
-  max-height: clamp(320px, calc(100vh - 260px), 720px);
+  /* Stretch to fill the board's height (set by the grid row) instead of being
+     capped, so the columns run the full length of the page. */
+  max-height: 100%;
+  height: 100%;
   display: flex;
   flex-direction: column;
   transition: border-color var(--transition-base);
@@ -1071,7 +1122,9 @@
 
 .it-updates-column-body {
   min-height: 120px;
-  max-height: clamp(200px, calc(100vh - 340px), 640px);
+  /* Grow to fill the column and scroll internally when there are many tasks, so
+     the column itself always spans the full page height. */
+  flex: 1 1 auto;
   border-radius: var(--radius-md);
   padding: 4px;
   transition: background var(--transition-base), border-color var(--transition-base);

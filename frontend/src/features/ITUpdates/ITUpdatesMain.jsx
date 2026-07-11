@@ -87,9 +87,9 @@ const EXTERNAL_STATUS_LABELS = {
   todo: 'Incoming Leads',
   prospect: 'Prospect',
   in_progress: 'Converted Clients',
-  review: 'Projects in Progress',
-  rework: 'Dropped / Lost Clients',
-  completed: 'Successfully Delivered',
+  review: 'In Progress',
+  rework: 'Dropped Clients',
+  completed: 'Delivered projects',
 };
 
 // Column order per sector. External inserts 'prospect' after 'todo'.

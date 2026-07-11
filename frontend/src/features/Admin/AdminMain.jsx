@@ -27,6 +27,7 @@ import SidebarUser from '../../components/SidebarUser';
 import { AdminAddUserModal, AdminUserDetailModal } from './AdminUserModals';
 import { formatUserRowRole } from '../../utils/displayRole';
 import { escapeCloses } from '../../utils/formKeys';
+import Preloader from '../../components/Preloader';
 import '../ITUpdates/ITUpdatesMain.css';
 import './AdminMain.css';
 
@@ -127,6 +128,7 @@ export default function AdminMain({ currentUser, onLogout }) {
   const [lockedUsers, setLockedUsers] = useState([]);
   const [lockedLoading, setLockedLoading] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [booted, setBooted] = useState(false);
   const [reviewLoading, setReviewLoading] = useState(false);
   const [overdueLoading, setOverdueLoading] = useState(false);
   const [error, setError] = useState('');
@@ -203,7 +205,7 @@ export default function AdminMain({ currentUser, onLogout }) {
 
   const loadDirectorTasks = () => {
     setDirectorTasksLoading(true);
-    itUpdatesApi
+    return itUpdatesApi
       .getTasks({ team: 'director' })
       .then((res) => setDirectorTasks(Array.isArray(res.data) ? res.data : []))
       .catch(() => setDirectorTasks([]))
@@ -313,7 +315,7 @@ export default function AdminMain({ currentUser, onLogout }) {
   const loadUsers = () => {
     setLoading(true);
     setError('');
-    adminApi
+    return adminApi
       .getUsers()
       .then((res) => setUsers(Array.isArray(res.data) ? res.data : []))
       .catch((e) => setError(e?.response?.data?.message || 'Failed to load users'))
@@ -362,7 +364,7 @@ export default function AdminMain({ currentUser, onLogout }) {
 
   const loadReviewTasks = () => {
     setReviewLoading(true);
-    adminApi
+    return adminApi
       .getTasks({
         status: 'review',
         team:
@@ -420,19 +422,21 @@ export default function AdminMain({ currentUser, onLogout }) {
   };
 
   useEffect(() => {
+    const jobs = [];
     if (isAdmin) {
-      loadUsers();
+      jobs.push(loadUsers());
       loadRoles();
       loadDepartments();
       loadDashboardStats();
-      loadReviewTasks();
+      jobs.push(loadReviewTasks());
       loadPendingSummary();
       loadOverdueTasks();
     }
     if (canViewDirectorTasks) {
       loadDirectors();
-      loadDirectorTasks();
+      jobs.push(loadDirectorTasks());
     }
+    Promise.allSettled(jobs).finally(() => setBooted(true));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -759,6 +763,7 @@ export default function AdminMain({ currentUser, onLogout }) {
         )}
 
         <main className="it-updates-main">
+          {!booted && <Preloader label="Loading your workspace…" />}
           {activeTab === 'dashboard' && (
             <>
               <section className="it-updates-stats-row">

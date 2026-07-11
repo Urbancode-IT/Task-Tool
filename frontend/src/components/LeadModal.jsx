@@ -25,7 +25,7 @@ const SERVICES = [
 ];
 const LEAD_SOURCES = [
   'Website', 'Instagram', 'Facebook', 'LinkedIn', 'WhatsApp',
-  'Google Ads', 'Reference', 'Cold Call', 'Walk-In', 'Email', 'Others',
+  'Google Ads', 'Meta Ads', 'Reference', 'Cold Call', 'Walk-In', 'Email', 'Others',
 ];
 const INDUSTRIES = [
   'Education', 'Healthcare', 'Finance', 'Retail', 'Manufacturing',

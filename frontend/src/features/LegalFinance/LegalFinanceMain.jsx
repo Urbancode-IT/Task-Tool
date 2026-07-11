@@ -32,6 +32,7 @@ import RequirementTimer from '../../components/RequirementTimer';
 import RequirementManualTime from '../../components/RequirementManualTime';
 import { BRANCHES } from '../Admin/AdminUserModals';
 import MemberDashboard from '../ITUpdates/MemberDashboard';
+import Preloader from '../../components/Preloader';
 import '../ITUpdates/ITUpdatesMain.css';
 
 const TABS = [
@@ -105,6 +106,7 @@ function Avatar({ user }) {
 export default function LegalFinanceMain({ currentUser, onLogout }) {
   const [activeTab, setActiveTab] = useState('Dashboard');
   const [loading, setLoading] = useState(false);
+  const [booted, setBooted] = useState(false);
   const [error, setError] = useState('');
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
@@ -173,6 +175,7 @@ export default function LegalFinanceMain({ currentUser, onLogout }) {
       );
     } finally {
       setLoading(false);
+      setBooted(true);
     }
   }, [userId]);
 
@@ -602,6 +605,7 @@ export default function LegalFinanceMain({ currentUser, onLogout }) {
         )}
 
         <main className="it-updates-main">
+          {!booted && <Preloader label="Loading your workspace…" />}
           {activeTab === 'My Dashboard' && (
             <MemberDashboard currentUser={user} members={teamOverview} isAdmin={isAdmin} team={MODULE_TEAM} />
           )}
