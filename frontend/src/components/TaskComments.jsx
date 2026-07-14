@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { MdFavorite, MdFavoriteBorder, MdReply, MdEdit, MdDelete } from 'react-icons/md';
 import itUpdatesApi from '../api/itUpdatesApi';
 import { toastError } from '../utils/toast';
+import { confirmDialog } from '../utils/confirm';
 import { sanitizeCommentHtml } from '../utils/sanitizeHtml';
 import CommentEditor from './CommentEditor';
 import './TaskComments.css';
@@ -246,7 +247,15 @@ export default function TaskComments({ taskId, team, currentUser, canComment, ap
   };
 
   const handleDelete = async (comment) => {
-    if (!window.confirm('Delete this comment?')) return;
+    if (
+      !(await confirmDialog({
+        title: 'Delete comment?',
+        message: 'This comment will be permanently removed.',
+        confirmLabel: 'Delete',
+        danger: true,
+      }))
+    )
+      return;
     try {
       await api.deleteComment(taskId, comment.id, currentUserId);
       setComments((prev) => prev.filter((c) => c.id !== comment.id && c.parentId !== comment.id));

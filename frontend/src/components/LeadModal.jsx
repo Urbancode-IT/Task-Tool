@@ -1,8 +1,13 @@
-import React, { useRef, useState, useEffect } from 'react';
+import React, { useRef, useState, useEffect, useMemo } from 'react';
 import { MdClose, MdDelete, MdExpandMore } from 'react-icons/md';
 import { escapeCloses } from '../utils/formKeys';
 import { toastError } from '../utils/toast';
+import useDebouncedValue from '../utils/useDebouncedValue';
 import ModalKebabMenu from './ModalKebabMenu';
+import TaskComments from './TaskComments';
+import CommentEditor from './CommentEditor';
+import { sanitizeCommentHtml } from '../utils/sanitizeHtml';
+import itUpdatesApi from '../api/itUpdatesApi';
 import './LeadModal.css';
 
 const SERVICES = [
@@ -60,6 +65,7 @@ function emptyLead() {
 function ServiceSelect({ value, onChange }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
+  const debouncedQuery = useDebouncedValue(query, 200);
   const wrapRef = useRef(null);
 
   useEffect(() => {
@@ -70,7 +76,10 @@ function ServiceSelect({ value, onChange }) {
     return () => document.removeEventListener('mousedown', onDoc);
   }, []);
 
-  const filtered = SERVICES.filter((s) => s.toLowerCase().includes(query.trim().toLowerCase()));
+  const filtered = useMemo(
+    () => SERVICES.filter((s) => s.toLowerCase().includes(debouncedQuery.trim().toLowerCase())),
+    [debouncedQuery]
+  );
 
   return (
     <div className="lead-select" ref={wrapRef}>
@@ -112,7 +121,7 @@ function ServiceSelect({ value, onChange }) {
   );
 }
 
-export default function LeadModal({ lead, statusLabels = {}, statuses = [], onClose, onSave, onDelete, canDelete = false }) {
+export default function LeadModal({ lead, statusLabels = {}, statuses = [], onClose, onSave, onDelete, canDelete = false, currentUser = null, team = 'it' }) {
   const isEdit = Boolean(lead?.id);
   const [form, setForm] = useState(() => {
     if (!lead?.id) return emptyLead();
@@ -126,8 +135,45 @@ export default function LeadModal({ lead, statusLabels = {}, statuses = [], onCl
     };
   });
   const [saving, setSaving] = useState(false);
-  const [saveState, setSaveState] = useState({ saving: false, saved: false });
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
+
+  const currentUserId = currentUser?.id ?? currentUser?.user_id ?? null;
+  const authorName = currentUser?.name || currentUser?.username || currentUser?.email || 'You';
+  const canComment = Boolean(currentUserId);
+
+  // While adding a new lead there is no lead id yet, so comments are buffered
+  // locally and posted once the lead is created. Editing uses the live thread.
+  const [pendingComments, setPendingComments] = useState([]);
+  const [members, setMembers] = useState([]);
+  const tmpId = useRef(0);
+
+  const addPending = (html, mentions) => {
+    tmpId.current += 1;
+    setPendingComments((prev) => [...prev, { id: `tmp-${tmpId.current}`, html, mentions }]);
+  };
+  const removePending = (id) => setPendingComments((prev) => prev.filter((c) => c.id !== id));
+
+  // Fetch team members for @mentions in the add-mode editor (edit mode's
+  // TaskComments loads its own).
+  useEffect(() => {
+    if (isEdit) return undefined;
+    let cancelled = false;
+    itUpdatesApi
+      .getTeamOverview(team ? { team } : {})
+      .then((res) => {
+        if (cancelled) return;
+        const list = (Array.isArray(res.data) ? res.data : [])
+          .map((u) => ({ id: u.user_id, name: u.username, image: u.profile_image }))
+          .filter((u) => u.id != null && u.name);
+        setMembers(list);
+      })
+      .catch(() => {
+        if (!cancelled) setMembers([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isEdit, team]);
 
   const descLen = form.description.trim().length;
 
@@ -153,9 +199,31 @@ export default function LeadModal({ lead, statusLabels = {}, statuses = [], onCl
       return;
     }
     setSaving(true);
-    const ok = await onSave(form, { isEdit });
+    const result = await onSave(form, { isEdit });
+    if (result) {
+      // onSave returns the new lead id on create; post any buffered comments to it.
+      const newLeadId = typeof result === 'object' ? result.id : result;
+      if (pendingComments.length && Number.isFinite(Number(newLeadId))) {
+        const failed = await Promise.all(
+          pendingComments.map((c) =>
+            itUpdatesApi
+              .addTaskComment(newLeadId, {
+                user_id: currentUserId,
+                author: authorName,
+                team,
+                message: c.html,
+                mentions: c.mentions,
+                parent_id: null,
+              })
+              .then(() => false)
+              .catch(() => true)
+          )
+        );
+        if (failed.some(Boolean)) toastError('The lead was saved, but some comments failed to post.');
+      }
+      onClose();
+    }
     setSaving(false);
-    if (ok) onClose();
   };
 
   // Auto-save every edit of an existing lead (debounced, silent, stays open).
@@ -167,15 +235,8 @@ export default function LeadModal({ lead, statusLabels = {}, statuses = [], onCl
       return;
     }
     if (validate()) return; // skip while the form is invalid
-    const h = setTimeout(async () => {
-      setSaveState({ saving: true, saved: false });
-      let ok = false;
-      try {
-        ok = await onSave(form, { isEdit, silent: true });
-      } catch {
-        ok = false;
-      }
-      setSaveState({ saving: false, saved: ok });
+    const h = setTimeout(() => {
+      onSave(form, { isEdit, silent: true }).catch(() => {});
     }, 700);
     return () => clearTimeout(h);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -299,6 +360,65 @@ export default function LeadModal({ lead, statusLabels = {}, statuses = [], onCl
               {descLen}/{MIN_DESC} min
             </span>
           </label>
+
+          {isEdit ? (
+            <div className="it-updates-form-row-full">
+              <TaskComments
+                taskId={lead.id}
+                team={team}
+                currentUser={currentUser}
+                canComment={canComment}
+              />
+            </div>
+          ) : (
+            <div className="it-updates-form-row-full">
+              <div className="task-comments">
+                <div className="task-comments-header">
+                  <h3 className="task-comments-title">Comments</h3>
+                  {pendingComments.length > 0 && (
+                    <span className="task-comments-count">{pendingComments.length}</span>
+                  )}
+                </div>
+                {canComment ? (
+                  <CommentEditor members={members} onSubmit={(html, ids) => addPending(html, ids)} />
+                ) : (
+                  <p className="task-comments-note">Sign in to add comments.</p>
+                )}
+                {pendingComments.length === 0 ? (
+                  <p className="task-comments-empty"></p>
+                ) : (
+                  <ul className="task-comments-list">
+                    {pendingComments.map((c) => (
+                      <li key={c.id} className="tc-comment">
+                        <span className="tc-avatar tc-avatar-fallback">
+                          {(authorName || 'U')[0].toUpperCase()}
+                        </span>
+                        <div className="tc-comment-main">
+                          <div className="tc-comment-head">
+                            <span className="tc-comment-author">{authorName}</span>
+                          </div>
+                          <div
+                            className="tc-comment-body"
+                            dangerouslySetInnerHTML={{ __html: sanitizeCommentHtml(c.html) }}
+                          />
+                          <div className="tc-comment-actions">
+                            <button
+                              type="button"
+                              className="tc-action tc-action-danger"
+                              onClick={() => removePending(c.id)}
+                            >
+                              <MdDelete size={14} />
+                              Remove
+                            </button>
+                          </div>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </div>
+          )}
 
           <div className="it-updates-modal-actions">
             {isEdit ? null : (

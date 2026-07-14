@@ -23,14 +23,15 @@ import itUpdatesApi from '../../api/itUpdatesApi';
 import { getDisplayRole } from '../../utils/displayRole';
 import { isTaskOverdue } from '../../utils/taskDue';
 import { toastSuccess, toastError } from '../../utils/toast';
+import { confirmDialog } from '../../utils/confirm';
 import { taskInPeriod, EMPTY_PERIOD } from '../../utils/taskPeriod';
 import { controlKeys, textareaSubmit, escapeCloses } from '../../utils/formKeys';
 import PeriodFilter from '../../components/PeriodFilter';
 import TaskComments from '../../components/TaskComments';
 import ModalKebabMenu from '../../components/ModalKebabMenu';
-const logoSrc = '/logo-icon.png';
 import ProjectLogo from '../../components/ProjectLogo';
 import SidebarUser from '../../components/SidebarUser';
+import useSidebarCollapsed from '../../utils/useSidebarCollapsed';
 import RequirementTimer from '../../components/RequirementTimer';
 import RequirementManualTime from '../../components/RequirementManualTime';
 import { BRANCHES } from '../Admin/AdminUserModals';
@@ -170,6 +171,7 @@ export default function SocialMediaMain({ currentUser, onLogout }) {
   const [booted, setBooted] = useState(false);
   const [error, setError] = useState('');
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const { collapsed } = useSidebarCollapsed();
 
   const [tasks, setTasks] = useState([]);
   const [eodReports, setEodReports] = useState([]);
@@ -209,7 +211,15 @@ export default function SocialMediaMain({ currentUser, onLogout }) {
   const handleDeleteTask = async (task) => {
     if (!task) return false;
     const label = task.title || task.task_title || 'this task';
-    if (!window.confirm(`Delete "${label}"? This also removes its requirements and cannot be undone.`)) return false;
+    if (
+      !(await confirmDialog({
+        title: 'Delete task?',
+        message: `"${label}" and its requirements will be permanently removed. This cannot be undone.`,
+        confirmLabel: 'Delete',
+        danger: true,
+      }))
+    )
+      return false;
     try {
       await itUpdatesApi.deleteTask(task.id, { team: MODULE_TEAM });
       setTasks((prev) => prev.filter((t) => String(t.id) !== String(task.id)));
@@ -617,7 +627,7 @@ export default function SocialMediaMain({ currentUser, onLogout }) {
   const tabConfig = TABS.find((t) => t.key === activeTab);
 
   return (
-    <div className="it-updates-shell">
+    <div className={`it-updates-shell ${collapsed ? 'sidebar-collapsed' : ''}`}>
       {sidebarOpen && (
         <div
           className="it-updates-sidebar-overlay visible"
@@ -628,14 +638,13 @@ export default function SocialMediaMain({ currentUser, onLogout }) {
       {/* ─── Sidebar ─── */}
       <aside className={`it-updates-sidebar ${sidebarOpen ? 'open' : ''}`}>
         <div className="it-updates-sidebar-brand">
-          <img src={logoSrc} alt="Seyal" className="it-updates-sidebar-logo" />
           <div className="it-updates-sidebar-brand-text">
             <span className="it-updates-sidebar-title">Seyal</span>
             <span className="it-updates-sidebar-subtitle">Social Media Management</span>
           </div>
         </div>
         <nav className="it-updates-sidebar-nav">
-          <div className="it-updates-sidebar-nav-label">Navigation</div>
+          <div className="it-updates-sidebar-nav-label"></div>
           {TABS.map((tab) => {
             const Icon = tab.icon;
             return (

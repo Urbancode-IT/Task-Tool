@@ -50,8 +50,12 @@
 
   /* Sidebar — white with dark text and blue accents (light theme). */
   --sidebar-bg: #ffffff;
-  --sidebar-width: 260px;
+  --sidebar-expanded: 220px;
+  --sidebar-width: var(--sidebar-expanded);
   --sidebar-collapsed: 72px;
+  /* Height of the global top bar (logo + module tabs); the module sidebar sits
+     directly below it. */
+  --app-header-height: 60px;
 
   /* Radius */
   --radius-sm: 6px;

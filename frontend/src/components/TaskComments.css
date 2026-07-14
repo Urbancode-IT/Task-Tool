@@ -190,6 +190,43 @@
   font-family: inherit;
 }
 
+.tc-link-menu {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  min-width: 260px;
+}
+
+.tc-link-input {
+  flex: 1;
+  padding: 0.4rem 0.5rem;
+  border: 1px solid var(--clr-slate-200);
+  border-radius: 6px;
+  font-size: 0.82rem;
+  font-family: inherit;
+  color: var(--clr-slate-700);
+  outline: none;
+}
+
+.tc-link-input:focus {
+  border-color: #0054c4;
+}
+
+.tc-link-add {
+  padding: 0.4rem 0.7rem;
+  border: none;
+  border-radius: 6px;
+  background: #0054c4;
+  color: #fff;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.tc-link-add:hover {
+  background: #00429b;
+}
+
 .tc-color-menu {
   display: grid;
   grid-template-columns: repeat(4, 1fr);

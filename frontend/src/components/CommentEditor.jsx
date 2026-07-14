@@ -18,6 +18,7 @@ import {
   MdSend,
 } from 'react-icons/md';
 import { extractMentionIds } from '../utils/sanitizeHtml';
+import { toastError } from '../utils/toast';
 
 const EMOJIS = ['👍', '🎉', '✅', '🔥', '🙌', '😀', '😅', '🙏', '👀', '💡', '❤️', '🚀', '⚠️', '📌', '✨', '😎'];
 const COLORS = ['#111827', '#ef4444', '#f59e0b', '#10b981', '#3b82f6', '#8b5cf6', '#ec4899', '#64748b'];
@@ -50,6 +51,7 @@ export default function CommentEditor({
   const [mention, setMention] = useState({ open: false, query: '' });
   const [isEmpty, setIsEmpty] = useState(!initialHtml);
   const [blockLabel, setBlockLabel] = useState('Normal text');
+  const [linkUrl, setLinkUrl] = useState('');
 
   useEffect(() => {
     if (editorRef.current) {
@@ -139,15 +141,27 @@ export default function CommentEditor({
     syncEmpty();
   };
 
-  const addLink = () => {
-    const url = window.prompt('Enter the URL');
-    if (!url) return;
+  // Open the inline URL input (replaces the old window.prompt). The current
+  // selection is saved so applyLink can restore it after the input steals focus.
+  const openLink = () => {
+    saveSelection();
+    setLinkUrl('');
+    setMenu('link');
+  };
+
+  const applyLink = () => {
+    const url = linkUrl.trim();
+    if (!url) {
+      setMenu(null);
+      return;
+    }
     const href = /^https?:\/\//i.test(url) ? url : `https://${url}`;
     editorRef.current?.focus();
     restoreSelection();
     const sel = window.getSelection();
     if (sel && sel.toString()) document.execCommand('createLink', false, href);
     else insertHtml(`<a href="${href}">${href}</a>&nbsp;`);
+    setLinkUrl('');
     setMenu(null);
   };
 
@@ -162,11 +176,11 @@ export default function CommentEditor({
     e.target.value = '';
     if (!file) return;
     if (!file.type.startsWith('image/')) {
-      window.alert('Please choose an image file.');
+      toastError('Please choose an image file.');
       return;
     }
     if (file.size > 1024 * 1024) {
-      window.alert('Image is too large. Please choose one under 1 MB.');
+      toastError('Image is too large. Please choose one under 1 MB.');
       return;
     }
     const reader = new FileReader();
@@ -406,9 +420,34 @@ export default function CommentEditor({
 
         <span className="tc-tool-divider" />
 
-        <Tool title="Link" onClick={addLink}>
-          <MdLink size={18} />
-        </Tool>
+        <div className="tc-tool-wrap">
+          <Tool title="Link" onClick={() => (menu === 'link' ? setMenu(null) : openLink())}>
+            <MdLink size={18} />
+          </Tool>
+          {menu === 'link' && (
+            <div className="tc-menu tc-link-menu" onMouseDown={(e) => e.stopPropagation()}>
+              <input
+                className="tc-link-input"
+                autoFocus
+                placeholder="https://example.com"
+                value={linkUrl}
+                onChange={(e) => setLinkUrl(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    applyLink();
+                  } else if (e.key === 'Escape') {
+                    e.preventDefault();
+                    setMenu(null);
+                  }
+                }}
+              />
+              <button type="button" className="tc-link-add" onClick={applyLink}>
+                Add
+              </button>
+            </div>
+          )}
+        </div>
         <Tool title="Image (URL)" onClick={addImage}>
           <MdImage size={18} />
         </Tool>
@@ -446,7 +485,7 @@ export default function CommentEditor({
           </Tool>
           {menu === 'insert' && (
             <div className="tc-menu">
-              <button type="button" className="tc-menu-item" onClick={addLink}><span>Link</span></button>
+              <button type="button" className="tc-menu-item" onClick={openLink}><span>Link</span></button>
               <button type="button" className="tc-menu-item" onClick={addImage}><span>Image</span></button>
               <button type="button" className="tc-menu-item" onClick={addTable}><span>Table</span></button>
               <button type="button" className="tc-menu-item" onClick={() => { exec('formatBlock', 'PRE'); setMenu(null); }}><span>Code block</span></button>

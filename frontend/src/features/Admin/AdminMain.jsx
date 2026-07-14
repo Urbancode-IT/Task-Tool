@@ -21,9 +21,10 @@ import itUpdatesApi from '../../api/itUpdatesApi';
 import { TaskModal, TaskBoard } from '../ITUpdates/ITUpdatesMain';
 import { getDisplayRole } from '../../utils/displayRole';
 import { toastSuccess, toastError } from '../../utils/toast';
+import { confirmDialog } from '../../utils/confirm';
 import ProjectSearchSelect from '../../components/ProjectSearchSelect';
-const logoSrc = '/logo-icon.png';
 import SidebarUser from '../../components/SidebarUser';
+import useSidebarCollapsed from '../../utils/useSidebarCollapsed';
 import { AdminAddUserModal, AdminUserDetailModal } from './AdminUserModals';
 import { formatUserRowRole } from '../../utils/displayRole';
 import { escapeCloses } from '../../utils/formKeys';
@@ -113,6 +114,7 @@ const EMPTY_PROJECT_MAP = new Map();
 export default function AdminMain({ currentUser, onLogout }) {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const { collapsed } = useSidebarCollapsed();
   const [users, setUsers] = useState([]);
   const [roles, setRoles] = useState([]);
   const [departments, setDepartments] = useState([]);
@@ -300,7 +302,15 @@ export default function AdminMain({ currentUser, onLogout }) {
     const id = task?.task_id ?? task?.id;
     if (id == null) return false;
     const label = task.task_title || task.title || 'this task';
-    if (!window.confirm(`Delete "${label}"? This cannot be undone.`)) return false;
+    if (
+      !(await confirmDialog({
+        title: 'Delete director task?',
+        message: `"${label}" will be permanently removed. This cannot be undone.`,
+        confirmLabel: 'Delete',
+        danger: true,
+      }))
+    )
+      return false;
     try {
       await itUpdatesApi.deleteTask(id, { team: 'director' });
       setDirectorTasks((prev) => prev.filter((t) => String(t.task_id ?? t.id) !== String(id)));
@@ -689,7 +699,7 @@ export default function AdminMain({ currentUser, onLogout }) {
   };
 
   return (
-    <div className="it-updates-shell">
+    <div className={`it-updates-shell ${collapsed ? 'sidebar-collapsed' : ''}`}>
       {sidebarOpen && (
         <div
           className="it-updates-sidebar-overlay visible"
@@ -699,14 +709,13 @@ export default function AdminMain({ currentUser, onLogout }) {
 
       <aside className={`it-updates-sidebar ${sidebarOpen ? 'open' : ''}`}>
         <div className="it-updates-sidebar-brand">
-          <img src={logoSrc} alt="Seyal" className="it-updates-sidebar-logo" />
           <div className="it-updates-sidebar-brand-text">
             <span className="it-updates-sidebar-title">Seyal</span>
             <span className="it-updates-sidebar-subtitle">Management</span>
           </div>
         </div>
         <nav className="it-updates-sidebar-nav">
-          <div className="it-updates-sidebar-nav-label">Navigation</div>
+          <div className="it-updates-sidebar-nav-label"></div>
           {visibleTabs.map((tab) => {
             const Icon = tab.icon;
             return (
@@ -1097,8 +1106,16 @@ export default function AdminMain({ currentUser, onLogout }) {
                               <button
                                 type="button"
                                 className="admin-btn-sm admin-btn-sm-danger"
-                                onClick={() => {
-                                  if (!window.confirm(`Delete user ${u.username}?`)) return;
+                                onClick={async () => {
+                                  if (
+                                    !(await confirmDialog({
+                                      title: 'Delete user?',
+                                      message: `User "${u.username}" will be permanently removed. This cannot be undone.`,
+                                      confirmLabel: 'Delete',
+                                      danger: true,
+                                    }))
+                                  )
+                                    return;
                                   adminApi
                                     .deleteUser(u.user_id)
                                     .then(() => {

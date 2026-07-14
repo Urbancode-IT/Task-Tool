@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { MdSearch, MdClose, MdExpandMore, MdCheck } from 'react-icons/md';
+import useDebouncedValue from '../utils/useDebouncedValue';
 import './MemberPicker.css';
 
 function MpAvatar({ member, size = 22 }) {
@@ -31,6 +32,7 @@ export default function MemberPicker({
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
+  const debouncedQuery = useDebouncedValue(query, 200);
   const ref = useRef(null);
 
   useEffect(() => {
@@ -45,7 +47,7 @@ export default function MemberPicker({
   const isSelected = (name) => selected.includes(name);
 
   const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
+    const q = debouncedQuery.trim().toLowerCase();
     const seen = new Set();
     return members.filter((m) => {
       const name = (m.username || m.name || '').trim();
@@ -53,7 +55,7 @@ export default function MemberPicker({
       seen.add(name);
       return !q || name.toLowerCase().includes(q);
     });
-  }, [members, query]);
+  }, [members, debouncedQuery]);
 
   const toggle = (name) => {
     if (multiple) {

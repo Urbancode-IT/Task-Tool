@@ -29,7 +29,6 @@ import { controlKeys, textareaSubmit, escapeCloses } from '../../utils/formKeys'
 import ProjectSearchSelect from '../../components/ProjectSearchSelect';
 import PeriodFilter from '../../components/PeriodFilter';
 import TaskComments from '../../components/TaskComments';
-const logoSrc = '/logo-icon.png';
 import ProjectLogo from '../../components/ProjectLogo';
 import ProjectDocuments from '../../components/ProjectDocuments';
 import ProjectRequirements from '../../components/ProjectRequirements';
@@ -38,6 +37,9 @@ import Preloader from '../../components/Preloader';
 import LeadModal from '../../components/LeadModal';
 import ModalKebabMenu from '../../components/ModalKebabMenu';
 import SidebarUser from '../../components/SidebarUser';
+import useSidebarCollapsed from '../../utils/useSidebarCollapsed';
+import usePersistedState from '../../utils/usePersistedState';
+import { confirmDialog } from '../../utils/confirm';
 import RequirementTimer from '../../components/RequirementTimer';
 import RequirementManualTime from '../../components/RequirementManualTime';
 import CommentEditor from '../../components/CommentEditor';
@@ -64,11 +66,11 @@ const TABS = [
   { key: 'All Tasks', label: 'All Tasks', icon: MdViewKanban },
   { key: 'Projects', label: 'Projects', icon: MdFolder },
   { key: 'Overview', label: 'Overview', icon: MdTableChart },
-  { key: 'Backlogs', label: 'Backlogs', icon: MdWarningAmber },
   { key: 'EOD Updates', label: 'EOD Updates', icon: MdOutlineAssignment },
 ];
 const MODULE_TEAM = 'it';
 
+const OVERVIEW_PAGE_SIZE = 20;
 const EMPTY_ALL_TASKS_FILTERS = { project_id: '', status: '', priority: '', assignee: '', branch: '', period: EMPTY_PERIOD };
 const EMPTY_OVERVIEW_FILTERS = { from_date: '', to_date: '', assigned_to: '', project_id: '' };
 
@@ -323,12 +325,24 @@ function scopeTasksToProjects(taskList, projList, scope) {
 
 const ITUpdatesMain = ({ currentUser, onLogout, scope = 'internal' }) => {
   const isExternalScope = scope === 'external';
-  const [activeTab, setActiveTab] = useState('Dashboard');
+  // Persisted per scope so a reload restores the same section. A stored tab that
+  // no longer belongs to this scope falls back to Dashboard.
+  const [activeTab, setActiveTab] = usePersistedState(
+    `itUpdates.activeTab.${scope}`,
+    'Dashboard',
+    (v) => {
+      const keys = isExternalScope
+        ? ['Dashboard', 'My Dashboard', 'Tasks', 'My Tasks', 'All Tasks', 'Projects', 'Overview', 'EOD Updates']
+        : ['Dashboard', 'My Dashboard', 'My Tasks', 'All Tasks', 'Projects', 'Overview', 'EOD Updates'];
+      return keys.includes(v) ? v : 'Dashboard';
+    }
+  );
   const [loading, setLoading] = useState(false);
   // Tracks the first data fetch so the full preloader shows only on initial load.
   const [booted, setBooted] = useState(false);
   const [error, setError] = useState('');
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const { collapsed } = useSidebarCollapsed();
 
   const [dashboardData, setDashboardData] = useState(null);
   const [teamOverview, setTeamOverview] = useState([]);
@@ -340,6 +354,8 @@ const ITUpdatesMain = ({ currentUser, onLogout, scope = 'internal' }) => {
   const [eodModal, setEodModal] = useState(false);
 
   const [allTasksFiltersApplied, setAllTasksFiltersApplied] = useState(EMPTY_ALL_TASKS_FILTERS);
+  // Backlogs toggle on the task board: when on, the board shows only overdue cards.
+  const [showBacklogsOnly, setShowBacklogsOnly] = useState(false);
   const [overviewFiltersApplied, setOverviewFiltersApplied] = useState(EMPTY_OVERVIEW_FILTERS);
   const [eodReports, setEodReports] = useState([]);
 
@@ -498,10 +514,23 @@ const ITUpdatesMain = ({ currentUser, onLogout, scope = 'internal' }) => {
     if (f.assignee) result = result.filter((t) => String(t.assigned_to) === String(f.assignee));
     if (f.branch) result = result.filter((t) => t.assignee_branch === f.branch);
     if (f.period) result = result.filter((t) => taskInPeriod(t, f.period));
+    if (showBacklogsOnly) result = result.filter((t) => isTaskOverdue(t));
     return result;
-  }, [tasks, allTasksFiltersApplied]);
+  }, [tasks, allTasksFiltersApplied, showBacklogsOnly]);
 
   const overviewTasks = useMemo(() => tasks, [tasks]);
+
+  // Overview pagination: show 20 rows at a time, page through the rest.
+  const [overviewPage, setOverviewPage] = useState(0);
+  const overviewPageCount = Math.max(1, Math.ceil(overviewTasks.length / OVERVIEW_PAGE_SIZE));
+  // Reset to the first page whenever the underlying list changes (new data / filters).
+  useEffect(() => {
+    setOverviewPage(0);
+  }, [overviewTasks]);
+  const pagedOverviewTasks = useMemo(() => {
+    const start = overviewPage * OVERVIEW_PAGE_SIZE;
+    return overviewTasks.slice(start, start + OVERVIEW_PAGE_SIZE);
+  }, [overviewTasks, overviewPage]);
 
   // Backlogs: overdue, not-completed tasks — most overdue first.
   const overdueTasks = useMemo(
@@ -636,15 +665,13 @@ const ITUpdatesMain = ({ currentUser, onLogout, scope = 'internal' }) => {
 
   useEffect(() => {
     if (activeTab === 'EOD Updates') {
-      const params = {};
-      if (currentUser?.branch) {
-        params.branch = currentUser.branch;
-      }
-      itUpdatesApi.getEodReports(params)
+      // Team-wide feed: show every teammate's report without waiting for the
+      // current user to submit their own (matches the post-submit refetch).
+      itUpdatesApi.getEodReports()
         .then((res) => setEodReports(Array.isArray(res.data) ? res.data : []))
         .catch(() => setEodReports([]));
     }
-  }, [activeTab, currentUser?.branch]);
+  }, [activeTab]);
 
   const stats = useMemo(() => {
     // External dashboard is derived from that sector's own projects.
@@ -766,15 +793,18 @@ const ITUpdatesMain = ({ currentUser, onLogout, scope = 'internal' }) => {
         },
         team: MODULE_TEAM,
       };
+      let newLeadId = null;
       if (isEdit && leadModal.lead?.id) {
         await itUpdatesApi.updateTask(leadModal.lead.id, body);
       } else {
-        await itUpdatesApi.createTask(body);
+        const res = await itUpdatesApi.createTask(body);
+        newLeadId = res.data?.id || res.data?.task_id || null;
       }
       const tasksRes = await itUpdatesApi.getTasks({ team: MODULE_TEAM });
       setTasks(scopeTasksToProjects(tasksRes?.data, projects, scope));
       if (!silent) toastSuccess(isEdit ? 'Lead updated' : 'Lead added');
-      return true;
+      // On create, return the new id so the modal can post its buffered comments.
+      return isEdit ? true : newLeadId || true;
     } catch (e) {
       if (!silent) toastError(e?.response?.data?.message || 'Failed to save lead');
       return false;
@@ -794,7 +824,15 @@ const ITUpdatesMain = ({ currentUser, onLogout, scope = 'internal' }) => {
   const handleDeleteTask = async (task) => {
     if (!task) return false;
     const label = task.title || task.task_title || 'this task';
-    if (!window.confirm(`Delete "${label}"? This also removes its requirements and cannot be undone.`)) return false;
+    if (
+      !(await confirmDialog({
+        title: 'Delete task?',
+        message: `"${label}" and its requirements will be permanently removed. This cannot be undone.`,
+        confirmLabel: 'Delete',
+        danger: true,
+      }))
+    )
+      return false;
     try {
       await itUpdatesApi.deleteTask(task.id, { team: MODULE_TEAM });
       setTasks((prev) => prev.filter((t) => String(t.id) !== String(task.id)));
@@ -858,9 +896,12 @@ const ITUpdatesMain = ({ currentUser, onLogout, scope = 'internal' }) => {
     if (!project?.id) return false;
     const label = project.name || project.project_name || 'this project';
     if (
-      !window.confirm(
-        `Delete "${label}"? Tasks linked to it will be unlinked. This cannot be undone.`
-      )
+      !(await confirmDialog({
+        title: 'Delete project?',
+        message: `"${label}" will be deleted and its linked tasks unlinked. This cannot be undone.`,
+        confirmLabel: 'Delete',
+        danger: true,
+      }))
     )
       return false;
     try {
@@ -960,7 +1001,7 @@ const ITUpdatesMain = ({ currentUser, onLogout, scope = 'internal' }) => {
   const tabConfig = visibleTabs.find((t) => t.key === activeTab);
 
   return (
-    <div className="it-updates-shell">
+    <div className={`it-updates-shell ${collapsed ? 'sidebar-collapsed' : ''}`}>
       {/* ─── Sidebar ─── */}
       {sidebarOpen && (
         <div
@@ -969,18 +1010,8 @@ const ITUpdatesMain = ({ currentUser, onLogout, scope = 'internal' }) => {
         />
       )}
       <aside className={`it-updates-sidebar ${sidebarOpen ? 'open' : ''}`}>
-        <div className="it-updates-sidebar-brand">
-          <img src={logoSrc} alt="Seyal" className="it-updates-sidebar-logo" />
-          <div className="it-updates-sidebar-brand-text">
-            <span className="it-updates-sidebar-title">Seyal</span>
-            <span className="it-updates-sidebar-subtitle">
-              {isExternalScope ? 'External Projects' : 'Internal Projects'}
-            </span>
-          </div>
-        </div>
-
         <nav className="it-updates-sidebar-nav">
-          <div className="it-updates-sidebar-nav-label">Navigation</div>
+          <div className="it-updates-sidebar-nav-label"></div>
           {visibleTabs.map((tab) => {
             const Icon = tab.icon;
             return (
@@ -1026,7 +1057,6 @@ const ITUpdatesMain = ({ currentUser, onLogout, scope = 'internal' }) => {
                 {activeTab === 'Tasks' && 'Client pipeline across external projects'}
                 {activeTab === 'Projects' && 'Manage your projects'}
                 {activeTab === 'Overview' && 'Detailed task overview and filters'}
-                {activeTab === 'Backlogs' && 'Overdue work that needs attention'}
                 {activeTab === 'EOD Updates' && 'End-of-day reports from the team'}
               </p>
             </div>
@@ -1040,6 +1070,16 @@ const ITUpdatesMain = ({ currentUser, onLogout, scope = 'internal' }) => {
               >
                 <MdAdd size={18} />
                 {activeTab === 'Tasks' ? 'Add lead' : 'Add task'}
+              </button>
+            )}
+            {activeTab === 'Projects' && (
+              <button
+                type="button"
+                className="it-updates-btn it-updates-btn-primary"
+                onClick={() => openProjectModal(null)}
+              >
+                <MdAdd size={18} />
+                Add project
               </button>
             )}
             {activeTab !== 'Tasks' && (
@@ -1288,6 +1328,19 @@ const ITUpdatesMain = ({ currentUser, onLogout, scope = 'internal' }) => {
                     setAllTasksFiltersApplied((f) => ({ ...f, period }))
                   }
                 />
+                <button
+                  type="button"
+                  className={`it-updates-backlog-toggle${showBacklogsOnly ? ' active' : ''}`}
+                  onClick={() => setShowBacklogsOnly((v) => !v)}
+                  aria-pressed={showBacklogsOnly}
+                  title={showBacklogsOnly ? 'Show all cards' : 'Show only overdue cards'}
+                >
+                  <MdWarningAmber size={16} />
+                  Backlogs
+                  {overdueTasks.length > 0 && (
+                    <span className="it-updates-backlog-toggle-count">{overdueTasks.length}</span>
+                  )}
+                </button>
               </div>
               <TaskBoard
                 tasks={allTasksFiltered.filter((t) =>
@@ -1304,16 +1357,6 @@ const ITUpdatesMain = ({ currentUser, onLogout, scope = 'internal' }) => {
 
           {activeTab === 'Projects' && (
             <section className="it-updates-panel">
-              <div className="it-updates-panel-header">
-                <button
-                  type="button"
-                  className="it-updates-btn it-updates-btn-primary"
-                  onClick={() => openProjectModal(null)}
-                >
-                  <MdAdd size={18} />
-                  Add project
-                </button>
-              </div>
               <div className="it-updates-projects-grid-cards">
                 {projects.map((project) => (
                   <div
@@ -1450,7 +1493,7 @@ const ITUpdatesMain = ({ currentUser, onLogout, scope = 'internal' }) => {
                     </tr>
                   </thead>
                   <tbody>
-                    {overviewTasks.map((task) => (
+                    {pagedOverviewTasks.map((task) => (
                       <tr
                         key={task.id}
                         onClick={() => {
@@ -1638,65 +1681,34 @@ const ITUpdatesMain = ({ currentUser, onLogout, scope = 'internal' }) => {
               {!overviewTasks.length && (
                 <div className="it-updates-empty">No tasks match the filters.</div>
               )}
-            </section>
-          )}
-
-          {activeTab === 'Backlogs' && (
-            <section className="it-updates-panel it-updates-panel-full">
-              <div className="it-updates-panel-header">
-                <h2>Backlogs — overdue work</h2>
-                <span className="it-updates-backlog-count">{overdueTasks.length}</span>
-              </div>
-              {overdueTasks.length === 0 ? (
-                <div className="it-updates-empty">
-                  No overdue work — everything is on track.
-                </div>
-              ) : (
-                <div className="it-updates-backlog-list">
-                  {overdueTasks.map((t) => {
-                    const proj = projectById.get(String(t.projectId));
-                    const due = t.dueDate ? new Date(t.dueDate) : null;
-                    const days =
-                      due != null
-                        ? Math.max(
-                            0,
-                            Math.floor((Date.now() - due.getTime()) / 86400000)
-                          )
-                        : null;
-                    return (
-                      <button
-                        type="button"
-                        key={t.id}
-                        className="it-updates-backlog-row"
-                        onClick={() => openTaskModal(t)}
-                      >
-                        <span
-                          className="it-updates-priority-dot"
-                          style={{
-                            backgroundColor:
-                              PRIORITY_COLORS[t.priority] || PRIORITY_COLORS.medium,
-                          }}
-                        />
-                        <div className="it-updates-backlog-main">
-                          <span className="it-updates-backlog-title">
-                            {t.title || t.task_title}
-                          </span>
-                          <span className="it-updates-backlog-sub">
-                            {proj ? (proj.name ?? proj.project_name) + ' · ' : ''}
-                            {t.assignee || 'Unassigned'} · {STATUS_LABELS[t.status] ?? t.status}
-                          </span>
-                        </div>
-                        <span className="it-updates-backlog-due">
-                          Due {due ? due.toLocaleDateString() : '—'}
-                          {days != null && (
-                            <span className="it-updates-backlog-late">
-                              {days === 0 ? 'today' : `${days}d overdue`}
-                            </span>
-                          )}
-                        </span>
-                      </button>
-                    );
-                  })}
+              {overviewTasks.length > OVERVIEW_PAGE_SIZE && (
+                <div className="it-updates-pagination">
+                  <span className="it-updates-pagination-info">
+                    {overviewPage * OVERVIEW_PAGE_SIZE + 1}–
+                    {Math.min((overviewPage + 1) * OVERVIEW_PAGE_SIZE, overviewTasks.length)} of{' '}
+                    {overviewTasks.length}
+                  </span>
+                  <div className="it-updates-pagination-actions">
+                    <button
+                      type="button"
+                      className="it-updates-btn it-updates-btn-secondary"
+                      onClick={() => setOverviewPage((p) => Math.max(0, p - 1))}
+                      disabled={overviewPage === 0}
+                    >
+                      Previous
+                    </button>
+                    <span className="it-updates-pagination-page">
+                      Page {overviewPage + 1} of {overviewPageCount}
+                    </span>
+                    <button
+                      type="button"
+                      className="it-updates-btn it-updates-btn-secondary"
+                      onClick={() => setOverviewPage((p) => Math.min(overviewPageCount - 1, p + 1))}
+                      disabled={overviewPage >= overviewPageCount - 1}
+                    >
+                      Next
+                    </button>
+                  </div>
                 </div>
               )}
             </section>
@@ -1781,6 +1793,8 @@ const ITUpdatesMain = ({ currentUser, onLogout, scope = 'internal' }) => {
           statuses={boardStatuses}
           statusLabels={boardStatusLabels}
           canDelete={canDeleteTask(leadModal.lead)}
+          currentUser={user}
+          team={MODULE_TEAM}
           onClose={closeLeadModal}
           onSave={handleSaveLead}
           onDelete={async () => {

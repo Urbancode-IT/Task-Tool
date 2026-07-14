@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useMemo } from 'react';
 import { MdFolderSpecial, MdPublic, MdPeople, MdCampaign, MdShare, MdAdminPanelSettings, MdGavel } from 'react-icons/md';
 import ITUpdatesMain from '../features/ITUpdates/ITUpdatesMain';
 import ConsultantsMain from '../features/Consultants/ConsultantsMain';
@@ -7,7 +7,11 @@ import SocialMediaMain from '../features/SocialMedia/SocialMediaMain';
 import LegalFinanceMain from '../features/LegalFinance/LegalFinanceMain';
 import AdminMain from '../features/Admin/AdminMain';
 import ToastContainer from './Toast';
+import ConfirmDialog from './ConfirmDialog';
+import usePersistedState from '../utils/usePersistedState';
 import './MainLayout.css';
+
+const LOGO_SRC = '/logo-icon.png';
 
 const MODULES = [
   // "IT Updates" is now the Internal Projects sector. External Projects sits beside
@@ -32,7 +36,9 @@ const MODULES = [
 ];
 
 export default function MainLayout({ currentUser, onLogout }) {
-  const [activeModule, setActiveModule] = useState('it_updates');
+  // Persisted so a page reload lands back on the same module.
+  // Invalid/unpermitted values fall back via `safeActiveModule` below.
+  const [activeModule, setActiveModule] = usePersistedState('activeModule', 'it_updates');
 
   const user = currentUser;
 
@@ -90,6 +96,10 @@ export default function MainLayout({ currentUser, onLogout }) {
     <div className={`main-layout ${hasSidebar ? 'main-layout-with-sidebar' : ''}`}>
       <header className="main-layout-header">
         <div className="main-layout-header-left">
+          <div className="main-layout-brand">
+            <img src={LOGO_SRC} alt="Seyal" className="main-layout-logo" />
+            <span className="main-layout-brand-name">Seyal</span>
+          </div>
           <nav className="main-layout-module-nav">
             {modulesToShow.map((mod) => {
               const Icon = mod.icon;
@@ -112,6 +122,7 @@ export default function MainLayout({ currentUser, onLogout }) {
       </header>
       <main className="main-layout-content">{renderContent()}</main>
       <ToastContainer />
+      <ConfirmDialog />
     </div>
   );
 }

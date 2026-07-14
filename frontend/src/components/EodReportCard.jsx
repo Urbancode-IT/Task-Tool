@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { MdFavorite, MdFavoriteBorder, MdReply, MdEdit, MdDelete } from 'react-icons/md';
 import itUpdatesApi from '../api/itUpdatesApi';
 import { toastError } from '../utils/toast';
+import { confirmDialog } from '../utils/confirm';
 import { sanitizeCommentHtml } from '../utils/sanitizeHtml';
 import CommentEditor from './CommentEditor';
 import TaskComments from './TaskComments';
@@ -58,7 +59,15 @@ export default function EodReportCard({ report, currentUser, isAdmin, members, c
   };
 
   const del = async () => {
-    if (!window.confirm('Delete this EOD report?')) return;
+    if (
+      !(await confirmDialog({
+        title: 'Delete EOD report?',
+        message: 'This report will be permanently removed. This cannot be undone.',
+        confirmLabel: 'Delete',
+        danger: true,
+      }))
+    )
+      return;
     try {
       await itUpdatesApi.deleteEodReport(report.report_id, userId);
       onDelete(report.report_id);

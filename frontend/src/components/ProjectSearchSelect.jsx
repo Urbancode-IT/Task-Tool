@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { MdSearch, MdClose } from 'react-icons/md';
+import useDebouncedValue from '../utils/useDebouncedValue';
 import './ProjectSearchSelect.css';
 
 /**
@@ -19,6 +20,7 @@ export default function ProjectSearchSelect({
   placeholder = 'Search projects...',
 }) {
   const [query, setQuery] = useState('');
+  const debouncedQuery = useDebouncedValue(query, 200);
   const [open, setOpen] = useState(false);
   const wrapRef = useRef(null);
 
@@ -45,10 +47,10 @@ export default function ProjectSearchSelect({
   }, [selectedName]);
 
   const matches = useMemo(() => {
-    const q = query.trim().toLowerCase();
+    const q = debouncedQuery.trim().toLowerCase();
     if (!q || q === selectedName.toLowerCase()) return options;
     return options.filter((o) => o.name.toLowerCase().includes(q));
-  }, [options, query, selectedName]);
+  }, [options, debouncedQuery, selectedName]);
 
   useEffect(() => {
     const onClickOutside = (e) => {

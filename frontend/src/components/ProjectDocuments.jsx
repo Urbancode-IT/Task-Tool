@@ -11,6 +11,7 @@ import {
 } from 'react-icons/md';
 import itUpdatesApi from '../api/itUpdatesApi';
 import { toastSuccess, toastError } from '../utils/toast';
+import { confirmDialog } from '../utils/confirm';
 import './ProjectDocuments.css';
 
 // The three document slots every project carries. Order is intentional.
@@ -167,7 +168,15 @@ export default function ProjectDocuments({ projectId, className = '' }) {
   };
 
   const removeDoc = async (docType) => {
-    if (!window.confirm('Remove this document?')) return;
+    if (
+      !(await confirmDialog({
+        title: 'Remove document?',
+        message: 'This document will be removed from the project. This cannot be undone.',
+        confirmLabel: 'Remove',
+        danger: true,
+      }))
+    )
+      return;
     setBusyType(docType);
     try {
       await itUpdatesApi.deleteProjectDocument(projectId, docType);
