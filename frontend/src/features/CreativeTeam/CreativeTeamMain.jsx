@@ -689,6 +689,7 @@ export default function CreativeTeamMain({ currentUser, onLogout }) {
 
         <main className="it-updates-main">
           {!booted && <Preloader label="Loading your workspace…" />}
+          {booted && loading && <Preloader label="Loading…" />}
           {activeTab === 'My Dashboard' && (
             <MemberDashboard currentUser={user} members={teamOverview} isAdmin={isAdmin} team={MODULE_TEAM} />
           )}

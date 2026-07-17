@@ -2804,7 +2804,8 @@ export async function dbGetEodReports(filters = {}) {
   if (!p) return [];
   try {
     let query = `
-      SELECT e.*, u.username, u.profile_image AS author_profile_image, u.branch,
+      SELECT e.*, e.report_date::text AS report_date_text,
+             u.username, u.profile_image AS author_profile_image, u.branch,
              (SELECT COUNT(*) FROM eod_report_likes l WHERE l.report_id = e.report_id) AS like_count,
              (SELECT COALESCE(ARRAY_AGG(l.user_id), '{}') FROM eod_report_likes l WHERE l.report_id = e.report_id) AS liked_user_ids,
              (SELECT COUNT(*) FROM eod_report_comments c WHERE c.report_id = e.report_id) AS comment_count
@@ -2825,7 +2826,7 @@ export async function dbGetEodReports(filters = {}) {
       username: r.username,
       author_profile_image: r.author_profile_image ?? null,
       branch: r.branch ?? null,
-      report_date: r.report_date,
+      report_date: r.report_date_text ?? r.report_date,
       achievements: r.achievements,
       blockers: r.blockers,
       tomorrow_plan: r.tomorrow_plan,
@@ -3004,6 +3005,48 @@ export async function dbGetUserEodLockState(userId, isAdmin) {
   }
 }
 
+/**
+ * IT-team members (Internal + External Projects, gated by it_updates.view) who have
+ * NOT submitted an EOD report for the given working day. Admins are excluded (they are
+ * never required to file), and members on approved leave that day are excluded too.
+ * Used by the 8pm daily reminder that reports absentees to the directors.
+ */
+export async function dbGetItMembersMissingEod(dateStr) {
+  const p = getPool();
+  if (!p) return [];
+  try {
+    const { rows } = await p.query(
+      `SELECT DISTINCT u.user_id, u.username, u.email
+         FROM users u
+         JOIN user_roles ur       ON ur.user_id = u.user_id
+         JOIN role_permissions rp ON rp.role_id = ur.role_id
+         JOIN permissions pm      ON pm.permission_id = rp.permission_id
+        WHERE pm.code = 'it_updates.view'
+          AND u.user_id NOT IN (
+                SELECT ur2.user_id
+                  FROM user_roles ur2
+                  JOIN role_permissions rp2 ON rp2.role_id = ur2.role_id
+                  JOIN permissions pm2      ON pm2.permission_id = rp2.permission_id
+                 WHERE pm2.code = 'admin.access'
+              )
+          AND NOT EXISTS (
+                SELECT 1 FROM eod_reports e
+                 WHERE e.user_id = u.user_id AND e.report_date = $1
+              )
+          AND NOT EXISTS (
+                SELECT 1 FROM member_leaves ml
+                 WHERE ml.user_id = u.user_id AND ml.leave_date = $1
+              )
+        ORDER BY u.username`,
+      [dateStr]
+    );
+    return rows;
+  } catch (err) {
+    console.error('dbGetItMembersMissingEod:', err.message);
+    return [];
+  }
+}
+
 /** Users currently locked for a missing EOD report. */
 export async function dbGetLockedEodUsers() {
   const p = getPool();
@@ -3025,16 +3068,29 @@ export async function dbUnlockUserEod(userId) {
   const p = getPool();
   if (!p) return false;
   try {
+    // Excuse the user through the CURRENT due day, not just the day they happened to be
+    // locked for. If days passed between the lock and the admin's unlock, the current due
+    // day (prevWorkingDay of today) is newer than eod_lock_date; excusing only up to the
+    // old date would let the next session-restore immediately re-lock them for the newer
+    // missed day — which is why an unlocked user kept reappearing in the locked list.
+    const { rows: leaveRows } = await p.query(
+      'SELECT leave_date::text AS d FROM member_leaves WHERE user_id = $1',
+      [userId]
+    );
+    const leaveSet = new Set(leaveRows.map((r) => r.d));
+    const dueDay = prevWorkingDay(todayInEodTz(), leaveSet) || todayInEodTz();
+
     const { rowCount } = await p.query(
       `UPDATE users
           SET eod_excused_through = GREATEST(
                 COALESCE(eod_excused_through, DATE '1970-01-01'),
-                COALESCE(eod_lock_date, CURRENT_DATE)
+                COALESCE(eod_lock_date, DATE '1970-01-01'),
+                $2::date
               ),
               eod_locked = false,
               eod_lock_date = NULL
         WHERE user_id = $1`,
-      [userId]
+      [userId, dueDay]
     );
     return rowCount > 0;
   } catch (err) {

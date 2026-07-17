@@ -126,7 +126,12 @@ const itUpdatesApi = {
   },
 
   getEodReports: (params = {}) => {
-    return apiClient.get(`${BASE_PATH}/eod-reports`, { params });
+    // Cache-bust so an edited/deleted report is never served stale from a
+    // browser/proxy cache when the EOD tab is re-opened.
+    return apiClient.get(`${BASE_PATH}/eod-reports`, {
+      params: { ...params, _ts: Date.now() },
+      headers: { 'Cache-Control': 'no-cache' },
+    });
   },
 
   createEodReport: (data) => {

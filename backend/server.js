@@ -9,6 +9,7 @@ import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import * as db from './db/index.js';
 import { sendMail, isMailConfigured, renderEmail } from './mailer.js';
+import { startEodDirectorReport } from './eodReminder.js';
 import { requireAuth, attachUserPermissions, requirePermission, signAccessToken, signRefreshToken, verifyRefreshToken } from './middlewares/authMiddleware.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -2147,6 +2148,8 @@ async function start() {
     } else {
       console.log('Email not configured (GMAIL_* env missing). Mentions/deadline emails disabled.');
     }
+    // Daily 8pm report of IT members who missed their EOD, sent to the directors.
+    startEodDirectorReport(db);
   });
 }
 start();

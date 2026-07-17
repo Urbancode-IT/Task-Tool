@@ -1602,6 +1602,29 @@
   gap: 0.3rem;
 }
 
+/* ─── EOD date filter (panel header) ─── */
+.it-updates-eod-filter {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.it-updates-eod-filter input[type='date'] {
+  padding: 0.5rem 0.75rem;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--clr-slate-200);
+  font-size: 0.82rem;
+  background: var(--surface-card);
+  color: var(--clr-slate-700);
+  cursor: pointer;
+}
+
+.it-updates-eod-filter input[type='date']:focus {
+  border-color: var(--clr-primary-400);
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(0, 84, 196, 0.1);
+}
+
 /* ─── Overview pagination ─── */
 .it-updates-pagination {
   display: flex;
@@ -2607,6 +2630,7 @@
     background-position: -200% 0;
   }
 }
+
 
 /* ─── Animations (global) ─── */
 @keyframes spin {

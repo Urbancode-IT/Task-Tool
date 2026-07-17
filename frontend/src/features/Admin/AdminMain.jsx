@@ -708,12 +708,6 @@ export default function AdminMain({ currentUser, onLogout }) {
       )}
 
       <aside className={`it-updates-sidebar ${sidebarOpen ? 'open' : ''}`}>
-        <div className="it-updates-sidebar-brand">
-          <div className="it-updates-sidebar-brand-text">
-            <span className="it-updates-sidebar-title">Seyal</span>
-            <span className="it-updates-sidebar-subtitle">Management</span>
-          </div>
-        </div>
         <nav className="it-updates-sidebar-nav">
           <div className="it-updates-sidebar-nav-label"></div>
           {visibleTabs.map((tab) => {
@@ -773,6 +767,7 @@ export default function AdminMain({ currentUser, onLogout }) {
 
         <main className="it-updates-main">
           {!booted && <Preloader label="Loading your workspace…" />}
+          {booted && loading && <Preloader label="Loading…" />}
           {activeTab === 'dashboard' && (
             <>
               <section className="it-updates-stats-row">

@@ -520,12 +520,6 @@ export default function LegalFinanceMain({ currentUser, onLogout }) {
 
       {/* ─── Sidebar ─── */}
       <aside className={`it-updates-sidebar ${sidebarOpen ? 'open' : ''}`}>
-        <div className="it-updates-sidebar-brand">
-          <div className="it-updates-sidebar-brand-text">
-            <span className="it-updates-sidebar-title">Seyal</span>
-            <span className="it-updates-sidebar-subtitle">Legal &amp; Finance</span>
-          </div>
-        </div>
         <nav className="it-updates-sidebar-nav">
           <div className="it-updates-sidebar-nav-label"></div>
           {TABS.map((tab) => {
@@ -615,6 +609,7 @@ export default function LegalFinanceMain({ currentUser, onLogout }) {
 
         <main className="it-updates-main">
           {!booted && <Preloader label="Loading your workspace…" />}
+          {booted && loading && <Preloader label="Loading…" />}
           {activeTab === 'My Dashboard' && (
             <MemberDashboard currentUser={user} members={teamOverview} isAdmin={isAdmin} team={MODULE_TEAM} />
           )}

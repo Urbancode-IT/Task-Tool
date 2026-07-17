@@ -71,6 +71,7 @@ const TABS = [
 const MODULE_TEAM = 'it';
 
 const OVERVIEW_PAGE_SIZE = 20;
+const EOD_PAGE_SIZE = 20;
 const EMPTY_ALL_TASKS_FILTERS = { project_id: '', status: '', priority: '', assignee: '', branch: '', period: EMPTY_PERIOD };
 const EMPTY_OVERVIEW_FILTERS = { from_date: '', to_date: '', assigned_to: '', project_id: '' };
 
@@ -358,6 +359,24 @@ const ITUpdatesMain = ({ currentUser, onLogout, scope = 'internal' }) => {
   const [showBacklogsOnly, setShowBacklogsOnly] = useState(false);
   const [overviewFiltersApplied, setOverviewFiltersApplied] = useState(EMPTY_OVERVIEW_FILTERS);
   const [eodReports, setEodReports] = useState([]);
+  // EOD tab: optional date filter + pagination (20 per page).
+  const [eodDateFilter, setEodDateFilter] = useState('');
+  const [eodPage, setEodPage] = useState(0);
+  const filteredEodReports = useMemo(
+    () =>
+      eodDateFilter
+        ? eodReports.filter((r) => String(r.report_date ?? '').slice(0, 10) === eodDateFilter)
+        : eodReports,
+    [eodReports, eodDateFilter]
+  );
+  const eodPageCount = Math.max(1, Math.ceil(filteredEodReports.length / EOD_PAGE_SIZE));
+  useEffect(() => {
+    setEodPage(0);
+  }, [eodDateFilter, eodReports]);
+  const pagedEodReports = useMemo(() => {
+    const start = eodPage * EOD_PAGE_SIZE;
+    return filteredEodReports.slice(start, start + EOD_PAGE_SIZE);
+  }, [filteredEodReports, eodPage]);
 
   const user =
     currentUser ||
@@ -491,11 +510,14 @@ const ITUpdatesMain = ({ currentUser, onLogout, scope = 'internal' }) => {
   }, [loadAllData]);
 
   const fetchTasksWithFilters = useCallback(async (filters) => {
+    setLoading(true);
     try {
       const res = await itUpdatesApi.getTasks({ ...filters, team: 'it' });
       setTasks(scopeTasksToProjects(res.data, projects, scope));
     } catch {
       setError('Failed to load tasks');
+    } finally {
+      setLoading(false);
     }
   }, [projects, scope]);
 
@@ -1112,6 +1134,7 @@ const ITUpdatesMain = ({ currentUser, onLogout, scope = 'internal' }) => {
 
         <main className="it-updates-main">
           {!booted && <Preloader label="Loading your workspace…" />}
+          {booted && loading && <Preloader label="Loading…" />}
           {activeTab === 'My Dashboard' && (
             <MemberDashboard
               currentUser={user}
@@ -1228,6 +1251,19 @@ const ITUpdatesMain = ({ currentUser, onLogout, scope = 'internal' }) => {
                     <h2>Project Links</h2>
                   </div>
                   <div className="it-updates-project-links-list">
+                    {!isExternalScope && (
+                      <div className="it-updates-project-link-row">
+                        <span className="it-updates-project-link-name">Inout</span>
+                        <a
+                          className="it-updates-project-link-url"
+                          href="https://inout.urbancode.tech/attendance"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                        >
+                          https://inout.urbancode.tech/attendance
+                        </a>
+                      </div>
+                    )}
                     {projectLinks.map((project) => (
                       <div key={`link-${project.id ?? project.project_id}`} className="it-updates-project-link-row">
                         <span className="it-updates-project-link-name">
@@ -1243,7 +1279,7 @@ const ITUpdatesMain = ({ currentUser, onLogout, scope = 'internal' }) => {
                         </a>
                       </div>
                     ))}
-                    {!projectLinks.length && (
+                    {!projectLinks.length && isExternalScope && (
                       <div className="it-updates-empty">No project URLs added yet.</div>
                     )}
                   </div>
@@ -1725,15 +1761,36 @@ const ITUpdatesMain = ({ currentUser, onLogout, scope = 'internal' }) => {
                   <MdAdd size={18} />
                   Submit EOD
                 </button>
+                <div className="it-updates-eod-filter">
+                  <input
+                    type="date"
+                    value={eodDateFilter}
+                    onChange={(e) => setEodDateFilter(e.target.value)}
+                    title="Filter reports by date"
+                  />
+                  {eodDateFilter && (
+                    <button
+                      type="button"
+                      className="it-updates-btn it-updates-btn-secondary"
+                      onClick={() => setEodDateFilter('')}
+                    >
+                      Clear
+                    </button>
+                  )}
+                </div>
               </div>
               <p className="it-updates-eod-intro">
                 View end-of-day reports submitted by the team. Use the <strong>EOD</strong> button in the header to submit your own report.
               </p>
               <div className="it-updates-eod-list">
-                {eodReports.length === 0 ? (
-                  <div className="it-updates-empty">No EOD reports yet. Click &quot;Submit EOD&quot; or the EOD button in the header to add one.</div>
+                {filteredEodReports.length === 0 ? (
+                  <div className="it-updates-empty">
+                    {eodDateFilter
+                      ? 'No EOD reports for the selected date.'
+                      : 'No EOD reports yet. Click "Submit EOD" or the EOD button in the header to add one.'}
+                  </div>
                 ) : (
-                  eodReports.map((report) => (
+                  pagedEodReports.map((report) => (
                     <EodReportCard
                       key={report.report_id ?? report.id}
                       report={report}
@@ -1749,6 +1806,36 @@ const ITUpdatesMain = ({ currentUser, onLogout, scope = 'internal' }) => {
                   ))
                 )}
               </div>
+              {filteredEodReports.length > EOD_PAGE_SIZE && (
+                <div className="it-updates-pagination">
+                  <span className="it-updates-pagination-info">
+                    {eodPage * EOD_PAGE_SIZE + 1}–
+                    {Math.min((eodPage + 1) * EOD_PAGE_SIZE, filteredEodReports.length)} of{' '}
+                    {filteredEodReports.length}
+                  </span>
+                  <div className="it-updates-pagination-actions">
+                    <button
+                      type="button"
+                      className="it-updates-btn it-updates-btn-secondary"
+                      onClick={() => setEodPage((p) => Math.max(0, p - 1))}
+                      disabled={eodPage === 0}
+                    >
+                      Previous
+                    </button>
+                    <span className="it-updates-pagination-page">
+                      Page {eodPage + 1} of {eodPageCount}
+                    </span>
+                    <button
+                      type="button"
+                      className="it-updates-btn it-updates-btn-secondary"
+                      onClick={() => setEodPage((p) => Math.min(eodPageCount - 1, p + 1))}
+                      disabled={eodPage >= eodPageCount - 1}
+                    >
+                      Next
+                    </button>
+                  </div>
+                </div>
+              )}
             </section>
           )}
         </main>
@@ -1954,17 +2041,15 @@ function ProjectModal({ project, teammatesOptions, currentUser, defaultProjectTy
               />
             </label>
           )}
-          {!isExternalSector && (
-            <label>
-              Project URL
-              <input
-                type="url"
-                placeholder="https://example.com"
-                value={form.project_url}
-                onChange={(e) => setForm((f) => ({ ...f, project_url: e.target.value }))}
-              />
-            </label>
-          )}
+          <label>
+            Project URL
+            <input
+              type="url"
+              placeholder="https://example.com"
+              value={form.project_url}
+              onChange={(e) => setForm((f) => ({ ...f, project_url: e.target.value }))}
+            />
+          </label>
           <label>
             Logo
             <span className="it-updates-file-input">
