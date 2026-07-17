@@ -434,6 +434,27 @@ export async function dbEnsureTables() {
       ADD COLUMN IF NOT EXISTS team VARCHAR(40) DEFAULT 'it';
     `);
     await p.query("UPDATE task_comments SET team = 'it' WHERE team IS NULL OR team = '';");
+    // Comments are shared across every team's task table (consultant/creative/social/
+    // legal_finance/director/it), namespaced by the `team` column. Any leftover foreign
+    // key from task_comments.task_id to it_tasks is wrong for that design and blocks
+    // comments on non-IT tasks (e.g. director tasks). Drop it if present.
+    await p.query(`
+      DO $$
+      DECLARE r record;
+      BEGIN
+        FOR r IN
+          SELECT con.conname
+            FROM pg_constraint con
+            JOIN pg_class rel  ON rel.oid  = con.conrelid
+            JOIN pg_class fref ON fref.oid = con.confrelid
+           WHERE rel.relname = 'task_comments'
+             AND con.contype = 'f'
+             AND fref.relname = 'it_tasks'
+        LOOP
+          EXECUTE format('ALTER TABLE task_comments DROP CONSTRAINT %I', r.conname);
+        END LOOP;
+      END $$;
+    `);
     await p.query(`
       CREATE TABLE IF NOT EXISTS comment_likes (
         comment_id INT NOT NULL REFERENCES task_comments(comment_id) ON DELETE CASCADE,
@@ -1997,6 +2018,14 @@ export async function dbDeleteTask(taskId, teamInput = null) {
   if (!p) return false;
   const team = resolveTeamFromInput(teamInput || await detectTaskTeamById(taskId));
   const taskTable = taskTableForTeam(team);
+  // Remove this task's comments (namespaced by team). comment_likes cascade via their
+  // FK to task_comments. Done explicitly because task_comments no longer has an FK to
+  // the task tables to cascade on delete.
+  try {
+    await p.query(`DELETE FROM task_comments WHERE task_id = $1 AND COALESCE(team, 'it') = $2`, [taskId, team]);
+  } catch (err) {
+    console.warn('dbDeleteTask: comment cleanup failed:', err.message);
+  }
   const { rowCount } = await p.query(`DELETE FROM ${taskTable} WHERE task_id = $1`, [
     taskId,
   ]);
