@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { MdLogout, MdPhotoCamera } from 'react-icons/md';
 import authApi from '../api/authApi';
 import { getDisplayRole } from '../utils/displayRole';
@@ -14,6 +14,13 @@ export default function SidebarUser({ user, onLogout }) {
   const [image, setImage] = useState(user?.profile_image || user?.profileImage || '');
   const [uploading, setUploading] = useState(false);
   const fileRef = useRef(null);
+
+  // On first paint the app renders from the cached localStorage user, whose avatar
+  // URL may be stale. Once the session is restored (or the user prop otherwise
+  // updates) with the corrected URL, sync it so the avatar actually loads.
+  useEffect(() => {
+    setImage(user?.profile_image || user?.profileImage || '');
+  }, [user?.profile_image, user?.profileImage]);
 
   const handleFile = async (e) => {
     const file = e.target.files?.[0];
