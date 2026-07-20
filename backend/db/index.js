@@ -1,10 +1,42 @@
 import pg from 'pg';
 import dotenv from 'dotenv';
 import path from 'path';
+import crypto from 'node:crypto';
 import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.join(__dirname, '..', '.env') });
+
+/**
+ * Images (avatars, project logos) are stored as base64 `data:` URLs. Inlining that
+ * blob into every task/comment/team/project row bloats each API response and
+ * defeats browser caching (the same image is re-sent on every fetch). Instead we
+ * return a short, cacheable URL that points at a media-serving endpoint. The `?v=`
+ * hash changes whenever the underlying image changes, so a new image busts the
+ * cache while an unchanged one is served from disk cache across every request.
+ *
+ * Base is read lazily (per call) so it works whether the value comes from .env or
+ * the platform (Render sets RENDER_EXTERNAL_URL). Empty base -> root-relative URL,
+ * which is correct when frontend and API share an origin (e.g. local dev proxy).
+ */
+function publicApiBase() {
+  return (process.env.PUBLIC_API_URL || process.env.RENDER_EXTERNAL_URL || '').replace(/\/+$/, '');
+}
+export function mediaHash(image) {
+  return crypto.createHash('sha1').update(image).digest('hex').slice(0, 12);
+}
+export function avatarUrlFor(userId, image) {
+  if (!image || userId == null) return null;
+  // Non-data strings are already URLs (e.g. externally hosted) — pass through.
+  if (typeof image !== 'string' || !image.startsWith('data:')) return image;
+  return `${publicApiBase()}/api/it-updates/users/${userId}/avatar?v=${mediaHash(image)}`;
+}
+export function projectLogoUrlFor(projectId, logo) {
+  if (!logo || projectId == null) return null;
+  // Non-data strings are already URLs (e.g. /urban-code-logo.svg) — pass through.
+  if (typeof logo !== 'string' || !logo.startsWith('data:')) return logo;
+  return `${publicApiBase()}/api/it-updates/projects/${projectId}/logo?v=${mediaHash(logo)}`;
+}
 
 const toNullableDate = (val) => (val === '' || val === undefined ? null : val);
 const toNullableInt = (val) => {
@@ -1069,7 +1101,10 @@ export async function dbGetUsersByRoleCode(code) {
        ORDER BY u.username`,
       [code]
     );
-    return rows;
+    return rows.map((r) => ({
+      ...r,
+      profile_image: avatarUrlFor(r.user_id, r.profile_image),
+    }));
   } catch (err) {
     console.error('dbGetUsersByRoleCode:', err.message);
     return [];
@@ -1153,7 +1188,7 @@ export async function dbGetProjects(status = null, projectType = null) {
         project_name: r.project_name,
         project_code: r.project_code,
         project_url: r.project_url || '',
-        logo: r.logo || null,
+        logo: projectLogoUrlFor(r.project_id, r.logo),
         description: r.description,
         status: r.status,
         priority: r.priority,
@@ -1214,7 +1249,7 @@ export async function dbCreateProject(data) {
     name: row.project_name,
     project_code: row.project_code,
     project_url: row.project_url || '',
-    logo: row.logo || null,
+    logo: projectLogoUrlFor(row.project_id, row.logo),
     description: row.description,
     status: row.status,
     priority: row.priority,
@@ -1259,6 +1294,12 @@ export async function dbUpdateProject(projectId, data) {
     let col = k === 'name' ? 'project_name' : k;
     if (col === 'owner') col = 'owner_name';
     if (col === 'teammates_text') col = 'teammates';
+    // Never overwrite the stored logo with its own serving URL (a client that
+    // round-trips the value we handed it). Only real images (data: URLs) or an
+    // explicit clear (null) should change the column.
+    if (col === 'logo' && typeof v === 'string' && v.includes('/api/it-updates/projects/')) {
+      continue;
+    }
     if (allowed.includes(col) && v !== undefined) {
       updates.push(`${col} = $${i}`);
       const val =
@@ -1289,7 +1330,7 @@ export async function dbUpdateProject(projectId, data) {
     name: row.project_name,
     project_code: row.project_code,
     project_url: row.project_url || '',
-    logo: row.logo || null,
+    logo: projectLogoUrlFor(row.project_id, row.logo),
     description: row.description,
     status: row.status,
     priority: row.priority,
@@ -1307,6 +1348,19 @@ export async function dbUpdateProject(projectId, data) {
   };
 }
 
+/** Raw stored logo (base64 data URL or plain URL) for the logo-serving endpoint. */
+export async function dbGetProjectLogoRaw(projectId) {
+  const p = getPool();
+  if (!p) return null;
+  try {
+    const { rows } = await p.query('SELECT logo FROM it_projects WHERE project_id = $1', [projectId]);
+    return rows[0]?.logo ?? null;
+  } catch (err) {
+    console.error('dbGetProjectLogoRaw:', err.message);
+    return null;
+  }
+}
+
 export async function dbGetProjectById(projectId) {
   const p = getPool();
   if (!p) return null;
@@ -1320,7 +1374,7 @@ export async function dbGetProjectById(projectId) {
     name: row.project_name,
     project_code: row.project_code,
     project_url: row.project_url || '',
-    logo: row.logo || null,
+    logo: projectLogoUrlFor(row.project_id, row.logo),
     description: row.description,
     status: row.status,
     priority: row.priority,
@@ -1619,12 +1673,12 @@ export async function dbGetTasksSimple(filters = {}) {
       assignee_branch: r.assignee_branch ?? null,
       assigned_by: r.assigned_by,
       assigned_by_name: r.assigned_by_username,
-      assignee_profile_image: r.assignee_profile_image,
-      assigned_by_profile_image: r.assigned_by_profile_image ?? null,
+      assignee_profile_image: avatarUrlFor(r.assigned_to, r.assignee_profile_image),
+      assigned_by_profile_image: avatarUrlFor(r.assigned_by, r.assigned_by_profile_image),
       projectId: r.project_id ? String(r.project_id) : null,
       project_id: r.project_id,
       project_name: r.project_name ?? null,
-      project_logo: r.project_logo ?? null,
+      project_logo: projectLogoUrlFor(r.project_id, r.project_logo),
       dueDate: r.due_date,
       task_date: r.task_date,
       created_at: r.created_at,
@@ -2041,7 +2095,7 @@ function mapCommentRow(r) {
     taskId: String(r.task_id),
     userId: r.user_id != null ? String(r.user_id) : null,
     author: r.author_username || 'User',
-    authorImage: r.author_profile_image ?? null,
+    authorImage: avatarUrlFor(r.user_id, r.author_profile_image),
     message: r.comment_text,
     createdAt: r.created_at,
     editedAt: r.edited_at ?? null,
@@ -2674,7 +2728,7 @@ export async function dbGetDashboardStatsFull() {
       project_id: r.project_id,
       project_name: r.project_name,
       priority: r.priority,
-      logo: r.logo || null,
+      logo: projectLogoUrlFor(r.project_id, r.logo),
       total_tasks: Number(r.total_tasks ?? 0),
       completed_tasks: Number(r.completed_tasks ?? 0),
       completion_percentage: r.total_tasks > 0
@@ -2684,7 +2738,7 @@ export async function dbGetDashboardStatsFull() {
     const teamActivity = (teamRows.rows || []).map((r) => ({
       user_id: r.user_id,
       username: r.username,
-      profile_image: r.profile_image,
+      profile_image: avatarUrlFor(r.user_id, r.profile_image),
       in_progress_count: Number(r.in_progress_count ?? 0),
       completed_today: Number(r.completed_today ?? 0),
       total_assigned: Number(r.total_assigned ?? 0),
@@ -2768,7 +2822,7 @@ export async function dbGetTeamOverview(team = null) {
     return rows.map((r) => ({
       user_id: r.user_id,
       username: r.username,
-      profile_image: r.profile_image,
+      profile_image: avatarUrlFor(r.user_id, r.profile_image),
       // IT dashboard "Assign to" / developers list uses is_it_developer; RBAC-only IT Developer
       // must count too (admin "Assign roles" does not always set users.is_it_developer).
       is_it_developer: Boolean(r.is_it_developer) || Boolean(r.rbac_it_developer),
@@ -2853,7 +2907,7 @@ export async function dbGetEodReports(filters = {}) {
       report_id: r.report_id,
       user_id: r.user_id,
       username: r.username,
-      author_profile_image: r.author_profile_image ?? null,
+      author_profile_image: avatarUrlFor(r.user_id, r.author_profile_image),
       branch: r.branch ?? null,
       report_date: r.report_date_text ?? r.report_date,
       achievements: r.achievements,
@@ -3312,7 +3366,7 @@ export async function dbGetMemberDashboard(userId, from, to, team = 'it', projec
          ORDER BY pr.project_name`,
         [uid]
       );
-      projects = pj.map((r) => ({ id: String(r.id), name: r.name, status: r.status, logo: r.logo }));
+      projects = pj.map((r) => ({ id: String(r.id), name: r.name, status: r.status, logo: projectLogoUrlFor(r.id, r.logo) }));
     }
     const { rows: leaveRows } = await p.query(
       `SELECT to_char(leave_date, 'YYYY-MM-DD') AS d FROM member_leaves

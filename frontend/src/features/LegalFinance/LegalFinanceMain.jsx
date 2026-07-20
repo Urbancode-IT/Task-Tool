@@ -4,7 +4,7 @@ import {
   MdChecklist,
   MdClose,
   MdAdd,
-  MdDashboard,
+  MdInsights,
   MdLogout,
   MdMenu,
   MdOutlineAssignment,
@@ -34,11 +34,12 @@ import RequirementManualTime from '../../components/RequirementManualTime';
 import { BRANCHES } from '../Admin/AdminUserModals';
 import MemberDashboard from '../ITUpdates/MemberDashboard';
 import Preloader from '../../components/Preloader';
+import { sanitizeCommentHtml } from '../../utils/sanitizeHtml';
 import '../ITUpdates/ITUpdatesMain.css';
 
 const TABS = [
   { key: 'Dashboard', label: 'Home', icon: MdHome },
-  { key: 'My Dashboard', label: 'Dashboard', icon: MdDashboard },
+  { key: 'My Dashboard', label: 'Dashboard', icon: MdInsights },
   { key: 'My Tasks', label: 'My Tasks', icon: MdChecklist },
   { key: 'All Tasks', label: 'All Tasks', icon: MdViewKanban },
   { key: 'Overview', label: 'Overview', icon: MdTableChart },
@@ -896,7 +897,13 @@ export default function LegalFinanceMain({ currentUser, onLogout }) {
                       {report.achievements && (
                         <div className="it-updates-eod-block">
                           <strong>Work Summary</strong>
-                          <p>{report.achievements}</p>
+                          {/* Achievements may be rich-text HTML (submitted from a
+                              module with the rich editor) or plain text — render it
+                              safely so HTML never shows up as raw tags. */}
+                          <div
+                            className="it-updates-eod-richtext tc-rendered"
+                            dangerouslySetInnerHTML={{ __html: sanitizeCommentHtml(report.achievements) }}
+                          />
                         </div>
                       )}
                     </div>

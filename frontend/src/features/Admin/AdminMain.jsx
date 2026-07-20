@@ -2,6 +2,8 @@ import React, { useEffect, useMemo, useState } from 'react';
 import {
   MdPeople,
   MdDashboard,
+  MdFactCheck,
+  MdPendingActions,
   MdBusiness,
   MdTableChart,
   MdEdit,
@@ -34,8 +36,8 @@ import './AdminMain.css';
 
 const ADMIN_TABS = [
   { key: 'dashboard', label: 'Dashboard', icon: MdDashboard },
-  { key: 'review_tasks', label: 'Review Tasks', icon: MdDashboard },
-  { key: 'overdue_tasks', label: 'Overdue Tasks', icon: MdDashboard },
+  { key: 'review_tasks', label: 'Review Tasks', icon: MdFactCheck },
+  { key: 'overdue_tasks', label: 'Overdue Tasks', icon: MdPendingActions },
   { key: 'overview', label: 'Overview', icon: MdTableChart },
   { key: 'users', label: 'Users', icon: MdPeople },
   { key: 'departments', label: 'Departments', icon: MdBusiness },

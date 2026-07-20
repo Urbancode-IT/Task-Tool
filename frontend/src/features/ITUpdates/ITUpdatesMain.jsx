@@ -7,7 +7,9 @@ import {
   MdClose,
   MdCheck,
   MdOutlineAssignment,
-  MdDashboard,
+  MdInsights,
+  MdSpaceDashboard,
+  MdHandshake,
   MdChecklist,
   MdViewKanban,
   MdFolder,
@@ -61,7 +63,7 @@ const projectCommentApi = {
 
 const TABS = [
   { key: 'Dashboard', label: 'Home', icon: MdHome },
-  { key: 'My Dashboard', label: 'Dashboard', icon: MdDashboard },
+  { key: 'My Dashboard', label: 'Dashboard', icon: MdInsights },
   { key: 'My Tasks', label: 'My Tasks', icon: MdChecklist },
   { key: 'All Tasks', label: 'All Tasks', icon: MdViewKanban },
   { key: 'Projects', label: 'Projects', icon: MdFolder },
@@ -394,9 +396,9 @@ const ITUpdatesMain = ({ currentUser, onLogout, scope = 'internal' }) => {
     // External: the projects dashboard is the default "Dashboard" tab; the personal
     // member dashboard becomes "My Dashboard". Tasks is a single merged tab.
     return [
-      { key: 'Dashboard', label: 'Dashboard', icon: MdDashboard },
-      { key: 'My Dashboard', label: 'My Dashboard', icon: MdHome },
-      { key: 'Tasks', label: 'Client CRM', icon: MdViewKanban },
+      { key: 'Dashboard', label: 'Dashboard', icon: MdSpaceDashboard },
+      { key: 'My Dashboard', label: 'My Dashboard', icon: MdInsights },
+      { key: 'Tasks', label: 'Client CRM', icon: MdHandshake },
       { key: 'My Tasks', label: 'My Tasks', icon: MdChecklist },
       { key: 'All Tasks', label: 'All Tasks', icon: MdViewKanban },
       { key: 'Projects', label: 'Projects', icon: MdFolder },
@@ -469,6 +471,14 @@ const ITUpdatesMain = ({ currentUser, onLogout, scope = 'internal' }) => {
     );
   }, [tasks, user]);
 
+  // Timestamp of the last full load, so the various triggers below can skip a
+  // redundant 4-endpoint reload when the data on screen is already fresh.
+  const lastLoadedAtRef = useRef(0);
+  // Tracks whether `tasks` currently holds the full list ('full') or a server-side
+  // filtered subset ('filtered'). Lets tab switches skip a reload when the full list
+  // is already loaded, while still restoring it after a filtered Overview view.
+  const tasksScopeRef = useRef('full');
+
   const loadAllData = useCallback(async () => {
     setLoading(true);
     setError('');
@@ -485,6 +495,8 @@ const ITUpdatesMain = ({ currentUser, onLogout, scope = 'internal' }) => {
       setProjects(projList);
       // Scope tasks to this sector's projects so Internal/External don't mix cards.
       setTasks(scopeTasksToProjects(tasksRes.data, projList, scope));
+      lastLoadedAtRef.current = Date.now();
+      tasksScopeRef.current = 'full';
     } catch (err) {
       setError(
         err?.response?.data?.message ||
@@ -500,10 +512,14 @@ const ITUpdatesMain = ({ currentUser, onLogout, scope = 'internal' }) => {
     loadAllData();
   }, [loadAllData]);
 
-  // Refetch when user returns to this browser tab so DB updates are reflected in the UI
+  // Refetch when the user returns to this tab so DB updates show up — but throttle
+  // it. Previously every alt-tab back fired the full 4-endpoint reload; now it only
+  // reloads if the data is stale (older than 2 minutes).
   useEffect(() => {
+    const STALE_MS = 2 * 60 * 1000;
     const onVisible = () => {
-      if (document.visibilityState === 'visible') loadAllData();
+      if (document.visibilityState !== 'visible') return;
+      if (Date.now() - lastLoadedAtRef.current >= STALE_MS) loadAllData();
     };
     document.addEventListener('visibilitychange', onVisible);
     return () => document.removeEventListener('visibilitychange', onVisible);
@@ -514,6 +530,7 @@ const ITUpdatesMain = ({ currentUser, onLogout, scope = 'internal' }) => {
     try {
       const res = await itUpdatesApi.getTasks({ ...filters, team: 'it' });
       setTasks(scopeTasksToProjects(res.data, projects, scope));
+      tasksScopeRef.current = 'filtered';
     } catch {
       setError('Failed to load tasks');
     } finally {
@@ -521,10 +538,14 @@ const ITUpdatesMain = ({ currentUser, onLogout, scope = 'internal' }) => {
     }
   }, [projects, scope]);
 
-  // All Tasks filters client-side; ensure we hold the full task list (the Overview
-  // tab can narrow `tasks` server-side, so reload when entering All Tasks).
+  // All Tasks filters client-side, so it needs the full task list. The Overview tab
+  // can narrow `tasks` server-side, so only reload when the current list is a
+  // filtered subset — if it is already the full set, don't refetch all four
+  // endpoints just because the user clicked the tab.
   useEffect(() => {
-    if (activeTab === 'All Tasks' || activeTab === 'Tasks') loadAllData();
+    if ((activeTab === 'All Tasks' || activeTab === 'Tasks') && tasksScopeRef.current !== 'full') {
+      loadAllData();
+    }
   }, [activeTab, loadAllData]);
 
   const allTasksFiltered = useMemo(() => {
@@ -680,7 +701,9 @@ const ITUpdatesMain = ({ currentUser, onLogout, scope = 'internal' }) => {
         assigned_to: overviewFiltersApplied.assigned_to || undefined,
         project_id: overviewFiltersApplied.project_id || undefined,
       });
-    } else if (activeTab === 'Overview') {
+    } else if (activeTab === 'Overview' && tasksScopeRef.current !== 'full') {
+      // No filters: show the full list, but only refetch if it isn't already loaded
+      // (e.g. restoring after a filtered view). Avoids a reload on every tab click.
       loadAllData();
     }
   }, [activeTab, overviewFiltersApplied.from_date, overviewFiltersApplied.to_date, overviewFiltersApplied.assigned_to, overviewFiltersApplied.project_id]);
@@ -876,7 +899,6 @@ const ITUpdatesMain = ({ currentUser, onLogout, scope = 'internal' }) => {
         name: payload.project_name ?? payload.name,
         project_code: normalizedProjectCode,
         project_url: payload.project_url,
-        logo: payload.logo ?? null,
         description: payload.description,
         status: payload.status,
         priority: payload.priority,
@@ -888,6 +910,16 @@ const ITUpdatesMain = ({ currentUser, onLogout, scope = 'internal' }) => {
         client_name: payload.client_name ?? null,
         project_type: payload.project_type === 'external' ? 'external' : 'internal',
       };
+      // Only send `logo` when it actually changed. A freshly chosen file is a
+      // `data:` URL; an empty value means "remove". If it's still the short
+      // serving URL the form was pre-filled with, omit it so the backend keeps
+      // the stored image instead of overwriting the base64 with its own URL.
+      const logoVal = payload.logo;
+      if (typeof logoVal === 'string' && logoVal.startsWith('data:')) {
+        body.logo = logoVal;
+      } else if (logoVal === '' || logoVal == null) {
+        body.logo = null;
+      }
       const isEdit = Boolean(projectModal.project?.id);
       if (isEdit) {
         await itUpdatesApi.updateProject(projectModal.project.id, body);

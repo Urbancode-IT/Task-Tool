@@ -6,6 +6,7 @@ import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import bcrypt from 'bcrypt';
+import crypto from 'node:crypto';
 import jwt from 'jsonwebtoken';
 import * as db from './db/index.js';
 import { sendMail, isMailConfigured, renderEmail } from './mailer.js';
@@ -208,7 +209,8 @@ async function buildUserFromDbUser(dbUser) {
     name: dbUser.username,
     username: dbUser.username,
     email: dbUser.email,
-    profile_image: dbUser.profile_image ?? null,
+    // Return a short, cacheable avatar URL instead of the raw base64 blob.
+    profile_image: db.avatarUrlFor(dbUser.user_id, dbUser.profile_image),
     is_it_developer: Boolean(dbUser.is_it_developer),
     is_it_manager: Boolean(dbUser.is_it_manager),
     branch: dbUser.branch ?? null,
@@ -437,6 +439,58 @@ app.post('/auth/refresh-token', (req, res) => {
 // ---- IT Updates API (JWT auth; any authenticated user can access — attach permissions for UI) ----
 const BASE_PATH = '/api/it-updates';
 app.use(BASE_PATH, requireAuth, asyncMw(attachUserPermissions));
+
+// Serve a user's avatar as a real, cacheable image. List/detail endpoints now
+// return a short `/users/:id/avatar` URL instead of inlining the base64 blob, so
+// each avatar is fetched once and reused from browser cache. Any authenticated
+// user may fetch any avatar (they were already visible embedded in team/task data).
+app.get(`${BASE_PATH}/users/:userId/avatar`, asyncMw(async (req, res) => {
+  if (!db.useDb()) return res.status(404).end();
+  const dbUser = await db.dbGetUserById(req.params.userId);
+  const image = dbUser?.profile_image;
+  if (!image || typeof image !== 'string' || !image.startsWith('data:')) {
+    return res.status(404).end();
+  }
+  const match = /^data:([^;,]+)?(;base64)?,(.*)$/s.exec(image);
+  if (!match) return res.status(404).end();
+  const mime = match[1] || 'image/jpeg';
+  const isBase64 = Boolean(match[2]);
+  const buf = isBase64
+    ? Buffer.from(match[3], 'base64')
+    : Buffer.from(decodeURIComponent(match[3]));
+  const etag = '"' + crypto.createHash('sha1').update(image).digest('hex').slice(0, 16) + '"';
+  if (req.headers['if-none-match'] === etag) return res.status(304).end();
+  res.setHeader('Content-Type', mime);
+  // The `?v=` hash in the URL changes when the image changes, so it is safe to
+  // cache aggressively and immutably.
+  res.setHeader('Cache-Control', 'private, max-age=31536000, immutable');
+  res.setHeader('ETag', etag);
+  return res.end(buf);
+}));
+
+// Serve a project's logo as a real, cacheable image (same rationale as avatars:
+// list/detail endpoints return a short `/projects/:id/logo` URL instead of the
+// base64 blob).
+app.get(`${BASE_PATH}/projects/:projectId/logo`, asyncMw(async (req, res) => {
+  if (!db.useDb()) return res.status(404).end();
+  const image = await db.dbGetProjectLogoRaw(req.params.projectId);
+  if (!image || typeof image !== 'string' || !image.startsWith('data:')) {
+    return res.status(404).end();
+  }
+  const match = /^data:([^;,]+)?(;base64)?,(.*)$/s.exec(image);
+  if (!match) return res.status(404).end();
+  const mime = match[1] || 'image/png';
+  const isBase64 = Boolean(match[2]);
+  const buf = isBase64
+    ? Buffer.from(match[3], 'base64')
+    : Buffer.from(decodeURIComponent(match[3]));
+  const etag = '"' + crypto.createHash('sha1').update(image).digest('hex').slice(0, 16) + '"';
+  if (req.headers['if-none-match'] === etag) return res.status(304).end();
+  res.setHeader('Content-Type', mime);
+  res.setHeader('Cache-Control', 'private, max-age=31536000, immutable');
+  res.setHeader('ETag', etag);
+  return res.end(buf);
+}));
 
 // Projects (must be in table it_projects — run db/schema.sql if missing)
 app.get(`${BASE_PATH}/projects`, async (req, res) => {
