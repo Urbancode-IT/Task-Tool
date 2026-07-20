@@ -15,12 +15,31 @@ dotenv.config({ path: path.join(__dirname, '..', '.env') });
  * hash changes whenever the underlying image changes, so a new image busts the
  * cache while an unchanged one is served from disk cache across every request.
  *
- * Base is read lazily (per call) so it works whether the value comes from .env or
- * the platform (Render sets RENDER_EXTERNAL_URL). Empty base -> root-relative URL,
- * which is correct when frontend and API share an origin (e.g. local dev proxy).
+ * The URL must be ABSOLUTE and point at the API origin — the frontend usually runs
+ * on a different origin, so a root-relative `/api/...` would resolve against the
+ * frontend host and 404. The origin is resolved in this order:
+ *   1. PUBLIC_API_URL / RENDER_EXTERNAL_URL env (explicit override), else
+ *   2. the origin captured from the incoming request (host + proto headers).
+ * (2) makes it work with zero configuration in dev and on any host.
  */
+let capturedApiBase = '';
+export function setApiBaseFromRequest(req) {
+  try {
+    const proto = String(req.headers['x-forwarded-proto'] || req.protocol || 'http')
+      .split(',')[0]
+      .trim();
+    const host = String(req.headers['x-forwarded-host'] || req.headers.host || '')
+      .split(',')[0]
+      .trim();
+    if (host) capturedApiBase = `${proto}://${host}`;
+  } catch {
+    /* ignore — fall back to env/empty base */
+  }
+}
 function publicApiBase() {
-  return (process.env.PUBLIC_API_URL || process.env.RENDER_EXTERNAL_URL || '').replace(/\/+$/, '');
+  const env = (process.env.PUBLIC_API_URL || process.env.RENDER_EXTERNAL_URL || '').replace(/\/+$/, '');
+  if (env) return env;
+  return capturedApiBase.replace(/\/+$/, '');
 }
 export function mediaHash(image) {
   return crypto.createHash('sha1').update(image).digest('hex').slice(0, 12);

@@ -82,6 +82,14 @@ app.use(
 app.use(express.json({ limit: '25mb' }));
 app.use(cookieParser());
 
+// Capture this API's public origin from each request so avatar/logo URLs built in
+// the DB layer are absolute and point back here (the frontend runs on a different
+// origin). PUBLIC_API_URL/RENDER_EXTERNAL_URL, if set, still take precedence.
+app.use((req, _res, next) => {
+  db.setApiBaseFromRequest(req);
+  next();
+});
+
 // In-memory demo users (used for login when no DB or for dev)
 const users = [
   {
