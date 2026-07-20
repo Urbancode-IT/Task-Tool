@@ -37,8 +37,8 @@ function escapeHtml(s) {
 async function runReport(db) {
   const now = eodNow();
   const dow = now.getUTCDay(); // 0 Sun … 6 Sat
-  // No EOD is expected on weekends, so there is nothing to report.
-  if (dow === 0 || dow === 6) return;
+  // Saturday is a working day; only Sunday is off, so skip the report only on Sunday.
+  if (dow === 0) return;
 
   const dateStr = now.toISOString().slice(0, 10);
 

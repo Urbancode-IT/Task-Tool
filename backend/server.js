@@ -268,6 +268,18 @@ async function buildUserFromDbUser(dbUser) {
 
 const asyncMw = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 
+// Reject assigning a task/project to a KNOWN inactive user (only active users are
+// assignable). Returns true when it is OK to proceed. No-ops for empty/unknown ids.
+async function assigneeActiveOrReject(res, assignedTo) {
+  if (assignedTo == null || assignedTo === '') return true;
+  const active = await db.dbIsUserActive(assignedTo);
+  if (!active) {
+    res.status(400).json({ message: 'That user is inactive and cannot be assigned tasks or projects.' });
+    return false;
+  }
+  return true;
+}
+
 // ---- Auth: login + refresh (JWT cookie-based). DB users only when DB connected. ----
 app.post('/auth/login', async (req, res) => {
   const { email, password } = req.body || {};
@@ -526,6 +538,7 @@ app.get(`${BASE_PATH}/projects`, async (req, res) => {
 app.post(`${BASE_PATH}/projects`, async (req, res) => {
   try {
     if (db.useDb()) {
+      if (!(await assigneeActiveOrReject(res, req.body?.owner_user_id))) return;
       const body = { ...req.body, name: req.body.name ?? req.body.project_name };
       const project = await db.dbCreateProject(body);
       if (!project) return res.status(500).json({ message: 'Failed to create project' });
@@ -553,6 +566,7 @@ app.post(`${BASE_PATH}/projects`, async (req, res) => {
 app.put(`${BASE_PATH}/projects/:projectId`, async (req, res) => {
   try {
     if (db.useDb()) {
+      if (req.body?.owner_user_id !== undefined && !(await assigneeActiveOrReject(res, req.body.owner_user_id))) return;
       const project = await db.dbUpdateProject(req.params.projectId, req.body);
       if (!project) return res.status(404).json({ message: 'Project not found' });
       return res.json(project);
@@ -782,6 +796,7 @@ app.get(`${BASE_PATH}/users`, requirePermission('admin.access'), async (req, res
           is_it_developer: row.is_it_developer,
           is_it_manager: row.is_it_manager,
           branch: row.branch ?? null,
+          is_active: row.is_active !== false,
           created_at: row.created_at,
           role_names: row.role_names || [],
           role_codes: row.role_codes || [],
@@ -819,7 +834,7 @@ app.get(`${BASE_PATH}/users`, requirePermission('admin.access'), async (req, res
 
 app.post(`${BASE_PATH}/users`, requirePermission('admin.access'), async (req, res) => {
   try {
-    const { username, email, password, is_it_developer, is_it_manager, branch } = req.body || {};
+    const { username, email, password, is_it_developer, is_it_manager, branch, is_active } = req.body || {};
     const name = (username || '').trim();
     if (!name) return res.status(400).json({ message: 'Username is required' });
     const pwd = (password || '').trim();
@@ -834,6 +849,7 @@ app.post(`${BASE_PATH}/users`, requirePermission('admin.access'), async (req, re
         is_it_developer: Boolean(is_it_developer),
         is_it_manager: Boolean(is_it_manager),
         branch: branch ?? null,
+        is_active: is_active === undefined ? true : Boolean(is_active),
       });
       if (!created) return res.status(500).json({ message: 'Failed to create user (maybe username already exists)' });
       return res.status(201).json(created);
@@ -862,7 +878,7 @@ app.post(`${BASE_PATH}/users`, requirePermission('admin.access'), async (req, re
 app.put(`${BASE_PATH}/users/:userId`, requirePermission('admin.access'), async (req, res) => {
   try {
     const { userId } = req.params;
-    const { username, email, password, is_it_developer, is_it_manager, branch } = req.body || {};
+    const { username, email, password, is_it_developer, is_it_manager, branch, is_active } = req.body || {};
 
     if (db.useDb()) {
       const payload = {};
@@ -871,6 +887,7 @@ app.put(`${BASE_PATH}/users/:userId`, requirePermission('admin.access'), async (
       if (is_it_developer !== undefined) payload.is_it_developer = Boolean(is_it_developer);
       if (is_it_manager !== undefined) payload.is_it_manager = Boolean(is_it_manager);
       if (branch !== undefined) payload.branch = branch && String(branch).trim() ? String(branch).trim() : null;
+      if (is_active !== undefined) payload.is_active = Boolean(is_active);
       if (password && String(password).trim()) {
         payload.password_hash = await bcrypt.hash(String(password).trim(), 10);
       }
@@ -973,6 +990,7 @@ app.post(`${BASE_PATH}/tasks`, async (req, res) => {
       const teamForCreate = req.body?.team || req.query?.team;
       if (isLegalFinanceTeamString(teamForCreate) && !requireLegalFinanceAccess(req, res)) return;
       if (isDirectorTeamString(teamForCreate) && !requireDirectorManage(req, res)) return;
+      if (!(await assigneeActiveOrReject(res, req.body?.assigned_to))) return;
       const task = await db.dbCreateTask({ ...req.body, team: teamForCreate });
       if (!task) return res.status(500).json({ message: 'Failed to create task' });
       // Notify the assignee that a card was added to them (skip self-assignment).
@@ -1015,6 +1033,7 @@ app.put(`${BASE_PATH}/tasks/:taskId`, async (req, res) => {
       if (existing?.team === 'legal_finance' && !requireLegalFinanceAccess(req, res)) return;
       if (isLegalFinanceTeamString(team) && !requireLegalFinanceAccess(req, res)) return;
       if ((existing?.team === 'director' || isDirectorTeamString(team)) && !requireDirectorManage(req, res)) return;
+      if (req.body?.assigned_to !== undefined && !(await assigneeActiveOrReject(res, req.body.assigned_to))) return;
       const body = mergeTaskReviewTransition(existing, { ...req.body, team }, req.user);
       const task = await db.dbUpdateTask(taskId, body);
       if (!task) return res.status(404).json({ message: 'Task not found' });
@@ -1248,7 +1267,7 @@ app.get(`${BASE_PATH}/team-overview`, async (req, res) => {
 app.get(`${BASE_PATH}/eod-reports`, async (req, res) => {
   try {
     if (db.useDb()) {
-      const list = await db.dbGetEodReports({ user_id: req.query.user_id, report_date: req.query.report_date, branch: req.query.branch });
+      const list = await db.dbGetEodReports({ user_id: req.query.user_id, report_date: req.query.report_date, branch: req.query.branch, team: req.query.team });
       return res.json(list);
     }
     res.json([]);
@@ -1807,7 +1826,7 @@ app.get(`${ADMIN_PATH}/users`, async (req, res) => {
 
 app.post(`${ADMIN_PATH}/users`, async (req, res) => {
   try {
-    const { username, email, password, is_it_developer, is_it_manager, branch } = req.body || {};
+    const { username, email, password, is_it_developer, is_it_manager, branch, is_active } = req.body || {};
     const name = (username || '').trim();
     if (!name) return res.status(400).json({ message: 'Username is required' });
     const pwd = (password || '').trim();
@@ -1822,6 +1841,7 @@ app.post(`${ADMIN_PATH}/users`, async (req, res) => {
         is_it_developer: Boolean(is_it_developer),
         is_it_manager: Boolean(is_it_manager),
         branch: branch ?? null,
+        is_active: is_active === undefined ? true : Boolean(is_active),
       });
       if (!created) return res.status(500).json({ message: 'Failed to create user (maybe username already exists)' });
       const list = await db.dbGetUsersWithRoles();
@@ -1854,7 +1874,7 @@ app.post(`${ADMIN_PATH}/users`, async (req, res) => {
 app.put(`${ADMIN_PATH}/users/:userId`, async (req, res) => {
   try {
     const { userId } = req.params;
-    const { username, email, password, is_it_developer, is_it_manager, branch } = req.body || {};
+    const { username, email, password, is_it_developer, is_it_manager, branch, is_active } = req.body || {};
 
     if (db.useDb()) {
       const payload = {};
@@ -1863,6 +1883,7 @@ app.put(`${ADMIN_PATH}/users/:userId`, async (req, res) => {
       if (is_it_developer !== undefined) payload.is_it_developer = Boolean(is_it_developer);
       if (is_it_manager !== undefined) payload.is_it_manager = Boolean(is_it_manager);
       if (branch !== undefined) payload.branch = branch && String(branch).trim() ? String(branch).trim() : null;
+      if (is_active !== undefined) payload.is_active = Boolean(is_active);
       if (password && String(password).trim()) {
         payload.password_hash = await bcrypt.hash(String(password).trim(), 10);
       }

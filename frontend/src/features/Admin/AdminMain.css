@@ -518,6 +518,36 @@
   background: var(--clr-slate-50);
 }
 
+/* Active/inactive pill toggle in the users table. */
+.admin-status-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.25rem 0.6rem;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.admin-status-toggle.is-active {
+  background: #dcfce7;
+  color: #166534;
+  border-color: #bbf7d0;
+}
+
+.admin-status-toggle.is-inactive {
+  background: #fee2e2;
+  color: #991b1b;
+  border-color: #fecaca;
+}
+
+.admin-status-toggle:hover {
+  filter: brightness(0.97);
+}
+
 .admin-btn-view-task {
   border-color: #cfe0f6;
   color: #00429b;

@@ -438,8 +438,10 @@ const ITUpdatesMain = ({ currentUser, onLogout, scope = 'internal' }) => {
     [user]
   );
 
+  // Only active developers are assignable (inactive users stay visible in dashboards
+  // but can't be given new tasks/projects).
   const developers = useMemo(
-    () => teamOverview.filter((u) => Boolean(u.is_it_developer)),
+    () => teamOverview.filter((u) => Boolean(u.is_it_developer) && u.is_active !== false),
     [teamOverview]
   );
 
@@ -712,7 +714,7 @@ const ITUpdatesMain = ({ currentUser, onLogout, scope = 'internal' }) => {
     if (activeTab === 'EOD Updates') {
       // Team-wide feed: show every teammate's report without waiting for the
       // current user to submit their own (matches the post-submit refetch).
-      itUpdatesApi.getEodReports()
+      itUpdatesApi.getEodReports({ team: MODULE_TEAM })
         .then((res) => setEodReports(Array.isArray(res.data) ? res.data : []))
         .catch(() => setEodReports([]));
     }
@@ -1033,9 +1035,10 @@ const ITUpdatesMain = ({ currentUser, onLogout, scope = 'internal' }) => {
       await itUpdatesApi.createEodReport({
         ...payload,
         user_id: user?.id ?? user?.user_id,
+        team: MODULE_TEAM,
       });
       setEodModal(false);
-      const eodRes = await itUpdatesApi.getEodReports();
+      const eodRes = await itUpdatesApi.getEodReports({ team: MODULE_TEAM });
       setEodReports(Array.isArray(eodRes?.data) ? eodRes.data : []);
       toastSuccess('EOD report submitted');
     } catch (e) {
@@ -1876,7 +1879,7 @@ const ITUpdatesMain = ({ currentUser, onLogout, scope = 'internal' }) => {
       {projectModal.open && (
         <ProjectModal
           project={projectModal.project}
-          teammatesOptions={teamOverview}
+          teammatesOptions={teamOverview.filter((u) => u.is_active !== false)}
           currentUser={user}
           defaultProjectType={scope}
           onClose={closeProjectModal}

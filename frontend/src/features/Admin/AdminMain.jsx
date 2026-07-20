@@ -1062,6 +1062,7 @@ export default function AdminMain({ currentUser, onLogout }) {
                           <th>Email</th>
                           <th>Branch</th>
                           <th>Roles</th>
+                          <th>Status</th>
                           <th className="admin-th-actions">Actions</th>
                         </tr>
                       </thead>
@@ -1083,6 +1084,47 @@ export default function AdminMain({ currentUser, onLogout }) {
                             <td>{u.email || '—'}</td>
                             <td>{u.branch || '—'}</td>
                             <td>{formatUserRowRole(u)}</td>
+                            <td>
+                              <button
+                                type="button"
+                                className={
+                                  'admin-status-toggle ' +
+                                  (u.is_active !== false ? 'is-active' : 'is-inactive')
+                                }
+                                title={
+                                  u.is_active !== false
+                                    ? 'Active — click to deactivate'
+                                    : 'Inactive — click to activate'
+                                }
+                                onClick={() => {
+                                  const next = u.is_active === false; // toggling to this value
+                                  // Update just this row in place so the table doesn't reload.
+                                  setUsers((prev) =>
+                                    prev.map((x) =>
+                                      x.user_id === u.user_id ? { ...x, is_active: next } : x
+                                    )
+                                  );
+                                  adminApi
+                                    .updateUser(u.user_id, { is_active: next })
+                                    .then(() => {
+                                      toastSuccess(next ? 'User marked active' : 'User marked inactive');
+                                    })
+                                    .catch((e) => {
+                                      // Revert the optimistic change on failure.
+                                      setUsers((prev) =>
+                                        prev.map((x) =>
+                                          x.user_id === u.user_id ? { ...x, is_active: !next } : x
+                                        )
+                                      );
+                                      const msg = e?.response?.data?.message || 'Failed to update status';
+                                      setError(msg);
+                                      toastError(msg);
+                                    });
+                                }}
+                              >
+                                {u.is_active !== false ? 'Active' : 'Inactive'}
+                              </button>
+                            </td>
                             <td className="admin-td-actions">
                               <button
                                 type="button"
@@ -1490,6 +1532,7 @@ export default function AdminMain({ currentUser, onLogout }) {
                 is_it_developer: payload.is_it_developer ?? false,
                 is_it_manager: payload.is_it_manager ?? false,
                 branch: payload.branch || null,
+                is_active: payload.is_active !== false,
               };
               if (payload.password?.trim()) body.password = payload.password.trim();
               await adminApi.updateUser(userDetailModal.user.user_id, body);

@@ -205,7 +205,7 @@ export default function LegalFinanceMain({ currentUser, onLogout }) {
     if (!userId) return;
     setError('');
     try {
-      const res = await itUpdatesApi.getEodReports({ user_id: userId });
+      const res = await itUpdatesApi.getEodReports({ user_id: userId, team: MODULE_TEAM });
       setEodReports(Array.isArray(res?.data) ? res.data : []);
     } catch {
       setError('Failed to load EOD reports');
@@ -220,7 +220,7 @@ export default function LegalFinanceMain({ currentUser, onLogout }) {
     if (!userId) return;
     if (activeTab === 'EOD Updates') {
       itUpdatesApi
-        .getEodReports({ user_id: userId })
+        .getEodReports({ user_id: userId, team: MODULE_TEAM })
         .then((res) => setEodReports(Array.isArray(res.data) ? res.data : []))
         .catch(() => setEodReports([]));
     }
@@ -354,6 +354,7 @@ export default function LegalFinanceMain({ currentUser, onLogout }) {
       await itUpdatesApi.createEodReport({
         ...payload,
         user_id: userId,
+        team: MODULE_TEAM,
       });
       setEodModal(false);
       await refreshEodReportsOnly();
@@ -924,7 +925,7 @@ export default function LegalFinanceMain({ currentUser, onLogout }) {
           onClose={closeTaskModal}
           onSave={handleSaveTask}
           onRefresh={loadMyTasks}
-          teamMembers={teamOverview}
+          teamMembers={teamOverview.filter((u) => u.is_active !== false)}
           assignedByOptions={teamOverview}
           canDelete={canDeleteTask(taskModal.task)}
           onDelete={async () => {

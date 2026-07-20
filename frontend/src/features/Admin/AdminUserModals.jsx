@@ -14,6 +14,7 @@ export function AdminUserDetailModal({ user, mode, onClose, onEdit, onSave, onDe
     is_it_developer: user?.is_it_developer ?? false,
     is_it_manager: user?.is_it_manager ?? false,
     branch: user?.branch ?? '',
+    is_active: user?.is_active !== false,
   });
 
   const handleSubmit = (e) => {
@@ -56,6 +57,10 @@ export function AdminUserDetailModal({ user, mode, onClose, onEdit, onSave, onDe
             <div className="admin-user-detail-row">
               <span className="admin-user-detail-label">Roles</span>
               <span>{formatUserRowRole(user)}</span>
+            </div>
+            <div className="admin-user-detail-row">
+              <span className="admin-user-detail-label">Status</span>
+              <span>{user?.is_active === false ? 'Inactive' : 'Active'}</span>
             </div>
           </div>
           <div className="admin-modal-actions">
@@ -136,6 +141,14 @@ export function AdminUserDetailModal({ user, mode, onClose, onEdit, onSave, onDe
               onChange={(e) => setForm((f) => ({ ...f, is_it_manager: e.target.checked }))}
             />
             IT Manager (legacy)
+          </label>
+          <label className="admin-check-label">
+            <input
+              type="checkbox"
+              checked={form.is_active}
+              onChange={(e) => setForm((f) => ({ ...f, is_active: e.target.checked }))}
+            />
+            Active (only active users can be assigned tasks/projects and are required to submit EOD)
           </label>
           <p className="admin-form-hint">
             Use &quot;Assign roles&quot; in the table for Consultant, Creative Team, Social Media Management, Legal &amp; Finance, and Admin

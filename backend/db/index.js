@@ -199,6 +199,26 @@ export async function dbGetUserById(userId) {
   }
 }
 
+/**
+ * Whether a user is active (assignable). Fails open (returns true) when there is no
+ * DB, no id, an unknown user, or on error — so it only ever blocks a KNOWN inactive
+ * user and never breaks legitimate operations.
+ */
+export async function dbIsUserActive(userId) {
+  const p = getPool();
+  if (!p || userId == null || userId === '') return true;
+  const id = parseInt(String(userId), 10);
+  if (!Number.isFinite(id)) return true;
+  try {
+    const { rows } = await p.query('SELECT is_active FROM users WHERE user_id = $1', [id]);
+    if (!rows.length) return true;
+    return rows[0].is_active !== false;
+  } catch (err) {
+    console.error('dbIsUserActive:', err.message);
+    return true;
+  }
+}
+
 /** Get permissions for a user. Uses RBAC tables if present; merges with legacy is_it_developer/is_it_manager so IT staff always have it_updates access. */
 export async function dbGetUserPermissionsOrLegacy(userId) {
   let perms = [];
@@ -232,16 +252,16 @@ export async function dbGetUsers() {
 }
 
 /** Create a user. Returns created row (without password_hash) or null. */
-export async function dbCreateUser({ username, email, password_hash, is_it_developer, is_it_manager, branch }) {
+export async function dbCreateUser({ username, email, password_hash, is_it_developer, is_it_manager, branch, is_active }) {
   const p = getPool();
   if (!p) return null;
   const emailVal = email && String(email).trim() ? String(email).trim() : null;
   const branchVal = branch && String(branch).trim() ? String(branch).trim() : null;
   try {
     const { rows } = await p.query(
-      `INSERT INTO users (username, email, password_hash, is_it_developer, is_it_manager, branch)
-       VALUES ($1, $2, $3, $4, $5, $6)
-       RETURNING user_id, username, email, is_it_developer, is_it_manager, branch, created_at`,
+      `INSERT INTO users (username, email, password_hash, is_it_developer, is_it_manager, branch, is_active)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       RETURNING user_id, username, email, is_it_developer, is_it_manager, branch, is_active, created_at`,
       [
         String(username || '').trim(),
         emailVal,
@@ -249,6 +269,8 @@ export async function dbCreateUser({ username, email, password_hash, is_it_devel
         Boolean(is_it_developer),
         Boolean(is_it_manager),
         branchVal,
+        // New users are active unless explicitly created inactive.
+        is_active === undefined ? true : Boolean(is_active),
       ]
     );
     return rows[0] || null;
@@ -259,7 +281,7 @@ export async function dbCreateUser({ username, email, password_hash, is_it_devel
 }
 
 /** Update a user. password_hash optional. Returns updated row or null. */
-export async function dbUpdateUser(userId, { username, email, password_hash, is_it_developer, is_it_manager, branch }) {
+export async function dbUpdateUser(userId, { username, email, password_hash, is_it_developer, is_it_manager, branch, is_active }) {
   const p = getPool();
   if (!p) return null;
   const id = parseInt(userId, 10);
@@ -292,16 +314,20 @@ export async function dbUpdateUser(userId, { username, email, password_hash, is_
       updates.push(`branch = $${i++}`);
       values.push(branch && String(branch).trim() ? String(branch).trim() : null);
     }
+    if (is_active !== undefined) {
+      updates.push(`is_active = $${i++}`);
+      values.push(Boolean(is_active));
+    }
     if (updates.length === 0) {
       const { rows } = await p.query(
-        `SELECT user_id, username, email, is_it_developer, is_it_manager, branch, created_at FROM users WHERE user_id = $1`,
+        `SELECT user_id, username, email, is_it_developer, is_it_manager, branch, is_active, created_at FROM users WHERE user_id = $1`,
         [id]
       );
       return rows[0] || null;
     }
     values.push(id);
     const { rows } = await p.query(
-      `UPDATE users SET ${updates.join(', ')} WHERE user_id = $${i} RETURNING user_id, username, email, is_it_developer, is_it_manager, branch, created_at`,
+      `UPDATE users SET ${updates.join(', ')} WHERE user_id = $${i} RETURNING user_id, username, email, is_it_developer, is_it_manager, branch, is_active, created_at`,
       values
     );
     return rows[0] || null;
@@ -471,6 +497,10 @@ export async function dbEnsureTables() {
       ADD COLUMN IF NOT EXISTS eod_excused_through DATE;`);
     // Branch the user belongs to (Tirunelveli / Velachery / Pallikaranai).
     await p.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS branch TEXT;`);
+    // Active/inactive: only active users can be assigned tasks/projects and are subject
+    // to (and reported for) the EOD requirement. Existing users default to active.
+    await p.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT true;`);
+    await p.query(`UPDATE users SET is_active = true WHERE is_active IS NULL;`);
   } catch (err) {
     console.warn('dbEnsureTables: users.profile_image check failed:', err.message);
   }
@@ -543,6 +573,11 @@ export async function dbEnsureTables() {
     `);
     // The EOD report itself can be liked and edited (acts like a post).
     await p.query('ALTER TABLE eod_reports ADD COLUMN IF NOT EXISTS edited_at TIMESTAMPTZ;');
+    // Scope each report to the module it was submitted from so a member's EOD only
+    // shows in that sector. Existing rows predate the split and belong to the IT
+    // module (the only one with an EOD flow originally), so default them to 'it'.
+    await p.query("ALTER TABLE eod_reports ADD COLUMN IF NOT EXISTS team TEXT DEFAULT 'it';");
+    await p.query("UPDATE eod_reports SET team = 'it' WHERE team IS NULL;");
     await p.query(`
       CREATE TABLE IF NOT EXISTS eod_report_likes (
         report_id INT NOT NULL,
@@ -2814,7 +2849,7 @@ export async function dbGetTeamOverview(team = null) {
     const { rows } = await p.query(
       `
         SELECT u.user_id, COALESCE(u.username, u.email) AS username, u.profile_image,
-               u.is_it_developer, u.is_it_manager,
+               u.is_it_developer, u.is_it_manager, u.is_active,
                EXISTS (
                  SELECT 1
                  FROM user_roles ur_dev
@@ -2833,7 +2868,7 @@ export async function dbGetTeamOverview(team = null) {
         FROM users u
         LEFT JOIN ${taskJoinTable} t ON t.assigned_to = u.user_id
         ${teamWhereClause}
-        GROUP BY u.user_id, u.username, u.email, u.profile_image, u.is_it_developer, u.is_it_manager
+        GROUP BY u.user_id, u.username, u.email, u.profile_image, u.is_it_developer, u.is_it_manager, u.is_active
         ORDER BY total_tasks DESC
       `,
       params
@@ -2846,6 +2881,8 @@ export async function dbGetTeamOverview(team = null) {
       // must count too (admin "Assign roles" does not always set users.is_it_developer).
       is_it_developer: Boolean(r.is_it_developer) || Boolean(r.rbac_it_developer),
       is_it_manager: Boolean(r.is_it_manager) || Boolean(r.rbac_it_manager),
+      // Default to active when the column is null (older rows) so nobody is hidden by accident.
+      is_active: r.is_active !== false,
       total_tasks: Number(r.total_tasks ?? 0),
       completed_tasks: Number(r.completed_tasks ?? 0),
       in_progress_tasks: Number(r.in_progress_tasks ?? 0),
@@ -2879,8 +2916,8 @@ export async function dbCreateEodReport(data) {
   if (!p) return null;
   try {
     const { rows: [row] } = await p.query(
-      `INSERT INTO eod_reports (user_id, report_date, achievements, blockers, tomorrow_plan, hours_worked, mood)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)
+      `INSERT INTO eod_reports (user_id, report_date, achievements, blockers, tomorrow_plan, hours_worked, mood, team)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
        RETURNING *`,
       [
         data.user_id ?? null,
@@ -2892,6 +2929,8 @@ export async function dbCreateEodReport(data) {
         data.tomorrow_plan ?? null,
         data.hours_worked ?? null,
         data.mood ?? null,
+        // Module the report was submitted from; defaults to 'it' for backward compat.
+        data.team ?? 'it',
       ]
     );
     return row ? { id: row.report_id, ...row } : null;
@@ -2920,6 +2959,8 @@ export async function dbGetEodReports(filters = {}) {
     if (filters.user_id != null) { query += ` AND e.user_id = $${i}`; params.push(filters.user_id); i++; }
     if (filters.report_date) { query += ` AND e.report_date = $${i}`; params.push(filters.report_date); i++; }
     if (filters.branch) { query += ` AND u.branch = $${i}`; params.push(filters.branch); i++; }
+    // Scope to the module the report was submitted from (nulls treated as 'it').
+    if (filters.team) { query += ` AND COALESCE(e.team, 'it') = $${i}`; params.push(filters.team); i++; }
     query += ' ORDER BY e.report_date DESC, e.report_id DESC';
     const { rows } = await p.query(query, params);
     return rows.map((r) => ({
@@ -3026,7 +3067,8 @@ function prevWorkingDay(todayStr, leaveSet) {
   for (let i = 0; i < 21; i++) {
     d.setUTCDate(d.getUTCDate() - 1);
     const dow = d.getUTCDay(); // 0 Sun … 6 Sat
-    if (dow === 0 || dow === 6) continue;
+    // Saturday is a working day; only Sunday is off.
+    if (dow === 0) continue;
     const s = d.toISOString().slice(0, 10);
     if (leaveSet.has(s)) continue;
     return s;
@@ -3061,12 +3103,22 @@ export async function dbGetUserEodLockState(userId, isAdmin) {
       `SELECT eod_locked,
               eod_lock_date::text       AS eod_lock_date,
               eod_excused_through::text AS eod_excused_through,
-              created_at::date::text    AS created_date
+              created_at::date::text    AS created_date,
+              is_active
          FROM users WHERE user_id = $1`,
       [userId]
     );
     const u = rows[0];
     if (!u) return { locked: false };
+
+    // Inactive users are exempt from the EOD requirement — never lock them, and clear
+    // any stale lock so they are not stuck behind the lock screen.
+    if (u.is_active === false) {
+      if (u.eod_locked) {
+        await p.query('UPDATE users SET eod_locked = false, eod_lock_date = NULL WHERE user_id = $1', [userId]);
+      }
+      return { locked: false };
+    }
 
     // Already locked → stays locked until an admin unlock clears it.
     if (u.eod_locked) return { locked: true, date: u.eod_lock_date };
@@ -3124,6 +3176,7 @@ export async function dbGetItMembersMissingEod(dateStr) {
          JOIN role_permissions rp ON rp.role_id = ur.role_id
          JOIN permissions pm      ON pm.permission_id = rp.permission_id
         WHERE pm.code = 'it_updates.view'
+          AND COALESCE(u.is_active, true) = true
           AND u.user_id NOT IN (
                 SELECT ur2.user_id
                   FROM user_roles ur2
@@ -3869,7 +3922,7 @@ export async function dbGetUsersWithRoles() {
   if (!p) return [];
   try {
     const { rows } = await p.query(
-      `SELECT u.user_id, u.username, u.email, u.profile_image, u.is_it_developer, u.is_it_manager, u.branch, u.created_at,
+      `SELECT u.user_id, u.username, u.email, u.profile_image, u.is_it_developer, u.is_it_manager, u.branch, u.is_active, u.created_at,
               COALESCE(array_agg(r.name) FILTER (WHERE r.role_id IS NOT NULL), '{}') AS role_names,
               COALESCE(array_agg(r.code) FILTER (WHERE r.role_id IS NOT NULL), '{}') AS role_codes
        FROM users u

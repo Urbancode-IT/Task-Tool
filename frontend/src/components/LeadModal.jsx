@@ -163,6 +163,8 @@ export default function LeadModal({ lead, statusLabels = {}, statuses = [], onCl
       .then((res) => {
         if (cancelled) return;
         const list = (Array.isArray(res.data) ? res.data : [])
+          // Only active members are assignable.
+          .filter((u) => u.is_active !== false)
           .map((u) => ({ id: u.user_id, name: u.username, image: u.profile_image }))
           .filter((u) => u.id != null && u.name);
         setMembers(list);
