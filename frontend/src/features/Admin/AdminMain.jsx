@@ -17,6 +17,9 @@ import {
   MdLock,
   MdLockOpen,
   MdSupervisorAccount,
+  MdCorporateFare,
+  MdReceiptLong,
+  MdVpnKey,
 } from 'react-icons/md';
 import adminApi from '../../api/adminApi';
 import itUpdatesApi from '../../api/itUpdatesApi';
@@ -28,6 +31,8 @@ import ProjectSearchSelect from '../../components/ProjectSearchSelect';
 import SidebarUser from '../../components/SidebarUser';
 import useSidebarCollapsed from '../../utils/useSidebarCollapsed';
 import { AdminAddUserModal, AdminUserDetailModal } from './AdminUserModals';
+import CompanyBranding from './CompanyBranding';
+import Invoices from './Invoices';
 import { formatUserRowRole } from '../../utils/displayRole';
 import { escapeCloses } from '../../utils/formKeys';
 import Preloader from '../../components/Preloader';
@@ -42,6 +47,9 @@ const ADMIN_TABS = [
   { key: 'users', label: 'Users', icon: MdPeople },
   { key: 'departments', label: 'Departments', icon: MdBusiness },
   { key: 'locked_users', label: 'Locked Users', icon: MdLock },
+  { key: 'company', label: 'Company & Branding', icon: MdCorporateFare },
+  { key: 'invoices', label: 'Invoices', icon: MdReceiptLong },
+  { key: 'credentials', label: 'UC Credentials', icon: MdVpnKey },
 ];
 
 const IT_TEAM_ROLE_CODES = new Set(['it_developer', 'it_manager', 'admin']);
@@ -106,6 +114,7 @@ const TAB_SUBTITLES = {
   locked_users: 'Users locked out for a missing EOD report. Approve to restore their access.',
   departments: 'Teams in the organisation. Users are assigned roles linked to these departments.',
   director_tasks: 'Tasks directors assign to one another. Only directors can create them.',
+  credentials: 'Internal project deployment and administrator credentials.',
 };
 
 const DIRECTOR_TASK_TAB = { key: 'director_tasks', label: 'Director Tasks', icon: MdSupervisorAccount };
@@ -159,6 +168,8 @@ export default function AdminMain({ currentUser, onLogout }) {
   const [overviewLoading, setOverviewLoading] = useState(false);
   const [overviewTeamMembers, setOverviewTeamMembers] = useState([]);
   const [projects, setProjects] = useState([]);
+  const [credentialProjects, setCredentialProjects] = useState([]);
+  const [credentialsLoading, setCredentialsLoading] = useState(false);
   const [addUserModal, setAddUserModal] = useState(false);
   const [userDetailModal, setUserDetailModal] = useState({
     open: false,
@@ -214,6 +225,49 @@ export default function AdminMain({ currentUser, onLogout }) {
       .then((res) => setDirectorTasks(Array.isArray(res.data) ? res.data : []))
       .catch(() => setDirectorTasks([]))
       .finally(() => setDirectorTasksLoading(false));
+  };
+
+  const loadCredentialProjects = () => {
+    setCredentialsLoading(true);
+    return itUpdatesApi
+      .getProjects(null, 'internal')
+      .then((res) => setCredentialProjects(Array.isArray(res.data) ? res.data : []))
+      .catch(() => {
+        setCredentialProjects([]);
+        toastError('Unable to load internal project credentials.');
+      })
+      .finally(() => setCredentialsLoading(false));
+  };
+
+  const exportCredentials = () => {
+    if (!credentialProjects.length) return toastError('There are no internal project credentials to export.');
+    const columns = [
+      ['Project', (p) => p.name ?? p.project_name],
+      ['Primary Owner', (p) => p.owner_name ?? p.owner],
+      ['Secondary Owner', (p) => p.secondary_owner_name],
+      ['Team Members', (p) => Array.isArray(p.teammates) ? p.teammates.join('; ') : p.teammates_text],
+      ['Frontend Deployed Link', (p) => p.frontend_url],
+      ['Backend Deployed Link', (p) => p.backend_url],
+      ['Deployment Platform', (p) => p.deploy_platform],
+      ['Hosted Platform', (p) => p.hosting_platform],
+      ['Admin Credentials', (p) => p.admin_credentials],
+    ];
+    const csvCell = (value) => {
+      const text = String(value ?? '');
+      return /[",\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+    };
+    const rows = [columns.map(([label]) => csvCell(label)).join(',')];
+    credentialProjects.forEach((project) => rows.push(columns.map(([, getValue]) => csvCell(getValue(project))).join(',')));
+    const blob = new Blob(['\ufeff' + rows.join('\r\n')], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = 'UC_credentials.csv';
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+    toastSuccess('UC_credentials.csv exported.');
   };
 
   // Create or update a director-to-director task (payload comes from the shared TaskModal).
@@ -465,6 +519,7 @@ export default function AdminMain({ currentUser, onLogout }) {
     if (activeTab === 'review_tasks') loadReviewTasks();
     if (activeTab === 'overdue_tasks') loadOverdueTasks();
     if (activeTab === 'locked_users') loadLockedUsers();
+    if (activeTab === 'credentials' && isAdmin) loadCredentialProjects();
     if (activeTab === 'director_tasks' && canViewDirectorTasks) {
       loadDirectors();
       loadDirectorTasks();
@@ -693,6 +748,7 @@ export default function AdminMain({ currentUser, onLogout }) {
       loadPendingSummary();
       loadOverdueTasks();
       if (activeTab === 'overview') loadOverviewData();
+      if (activeTab === 'credentials') loadCredentialProjects();
     }
     if (canViewDirectorTasks) {
       loadDirectors();
@@ -1342,8 +1398,7 @@ export default function AdminMain({ currentUser, onLogout }) {
           {activeTab === 'locked_users' && (
             <section className="admin-panel admin-panel-inline">
               <div className="admin-panel-header">
-                <h2 className="admin-panel-title">Locked Users</h2>
-                <button type="button" className="it-updates-btn it-updates-btn-secondary" onClick={loadLockedUsers}>
+                <button type="button" className="it-updates-btn it-updates-btn-secondary" style={{ marginLeft: 'auto' }} onClick={loadLockedUsers}>
                   <MdRefresh size={16} /> Refresh
                 </button>
               </div>
@@ -1425,7 +1480,6 @@ export default function AdminMain({ currentUser, onLogout }) {
             <section className="admin-section">
               <div className="admin-director-toolbar">
                 <div>
-                  <h3 className="admin-section-title">Director tasks</h3>
                   {canManageDirectorTasks && directors.length < 2 && (
                     <p className="admin-muted">
                       At least two users must hold the Director role before tasks can be
@@ -1455,6 +1509,46 @@ export default function AdminMain({ currentUser, onLogout }) {
                   onCardClick={canManageDirectorTasks ? openDirectorTask : undefined}
                   projectById={EMPTY_PROJECT_MAP}
                 />
+              )}
+            </section>
+          )}
+
+          {activeTab === 'company' && <CompanyBranding currentUser={user} />}
+
+          {activeTab === 'invoices' && <Invoices currentUser={user} />}
+
+          {activeTab === 'credentials' && isAdmin && (
+            <section className="admin-section">
+              <div className="admin-director-toolbar">
+                <div>
+                  <h2 className="admin-section-title">Internal project credentials</h2>
+                  <p className="admin-muted">Only internal projects are listed. Administrators alone can view and export these details.</p>
+                </div>
+                <button type="button" className="it-updates-btn it-updates-btn-primary" onClick={exportCredentials}>
+                  <MdVpnKey size={18} /> Export UC_credentials
+                </button>
+              </div>
+              {credentialsLoading ? (
+                <div className="admin-loading">Loading…</div>
+              ) : (
+                <div className="admin-table-wrap">
+                  <table className="admin-table">
+                    <thead><tr><th>Project</th><th>Owners &amp; team</th><th>Frontend</th><th>Backend</th><th>Hosted platform</th><th>Admin credentials</th></tr></thead>
+                    <tbody>
+                      {credentialProjects.map((project) => (
+                        <tr key={project.id ?? project.project_id}>
+                          <td><strong>{project.name ?? project.project_name}</strong></td>
+                          <td>{[project.owner_name ?? project.owner, project.secondary_owner_name, Array.isArray(project.teammates) ? project.teammates.join(', ') : project.teammates_text].filter(Boolean).join(' · ') || '—'}</td>
+                          <td>{project.frontend_url ? <a href={project.frontend_url} target="_blank" rel="noreferrer">Open</a> : '—'}</td>
+                          <td>{project.backend_url ? <a href={project.backend_url} target="_blank" rel="noreferrer">Open</a> : '—'}</td>
+                          <td>{project.hosting_platform || project.deploy_platform || '—'}</td>
+                          <td style={{ whiteSpace: 'pre-wrap', minWidth: '13rem' }}>{project.admin_credentials || '—'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  {!credentialProjects.length && <div className="admin-empty">No internal projects have credentials yet.</div>}
+                </div>
               )}
             </section>
           )}

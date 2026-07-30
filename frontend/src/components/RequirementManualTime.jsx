@@ -4,78 +4,113 @@ import { MdMoreTime } from 'react-icons/md';
 import itUpdatesApi from '../api/itUpdatesApi';
 
 const POP_WIDTH = 264;
-const HOURS = Array.from({ length: 12 }, (_, i) => i + 1);
-const MINUTES = Array.from({ length: 60 }, (_, i) => String(i).padStart(2, '0'));
-
-/** Parse a 24h 'HH:MM' string into { hour: '1'..'12', minute: '00'..'59', ampm }. */
-function parse24(value) {
-  if (!value || !/^\d{2}:\d{2}$/.test(value)) return { hour: '', minute: '', ampm: 'AM' };
-  const [H, M] = value.split(':').map(Number);
-  const ampm = H < 12 ? 'AM' : 'PM';
-  const h12 = H % 12 === 0 ? 12 : H % 12;
-  return { hour: String(h12), minute: String(M).padStart(2, '0'), ampm };
+/** Converts a user-entered time (e.g. 9:30 AM or 14:30) to 24-hour HH:MM. */
+function normaliseTypedTime(value) {
+  const match = String(value || '').trim().toUpperCase().match(/^(\d{1,2})(?::([0-5]\d))?\s*(AM|PM)?$/);
+  if (!match) return '';
+  const [, hourText, minuteText = '00', meridiem] = match;
+  let hour = Number(hourText);
+  if (meridiem) {
+    if (hour < 1 || hour > 12) return '';
+    hour %= 12;
+    if (meridiem === 'PM') hour += 12;
+  } else if (hour > 23) {
+    return '';
+  }
+  return `${String(hour).padStart(2, '0')}:${minuteText}`;
 }
 
-/** Clean 12-hour time entry using selects (no native spinner glitch). Emits 24h 'HH:MM' or ''. */
+function parse24(value) {
+  if (!/^\d{2}:\d{2}$/.test(String(value || ''))) return { hour: '', minute: '', meridiem: '' };
+  const [hours, minutes] = value.split(':').map(Number);
+  return {
+    hour: String(hours % 12 || 12).padStart(2, '0'),
+    minute: String(minutes).padStart(2, '0'),
+    meridiem: hours < 12 ? 'AM' : 'PM',
+  };
+}
+
+/** Three typed time boxes: HH → MM → AM/PM. Focus advances as each part is completed. */
 function TimeField({ value, onChange }) {
-  const init = parse24(value);
-  const [hour, setHour] = useState(init.hour);
-  const [minute, setMinute] = useState(init.minute);
-  const [ampm, setAmPm] = useState(init.ampm);
+  const initial = parse24(value);
+  const [hour, setHour] = useState(initial.hour);
+  const [minute, setMinute] = useState(initial.minute);
+  const [meridiem, setMeridiem] = useState(initial.meridiem || 'AM');
+  const hourRef = useRef(null);
+  const minuteRef = useRef(null);
+  const meridiemRef = useRef(null);
 
-  // Reset internal parts when the parent clears the value.
-  useEffect(() => {
-    if (!value) {
-      setHour('');
-      setMinute('');
-      setAmPm('AM');
-    }
-  }, [value]);
-
-  const emit = (h, m, ap) => {
-    if (h && m) {
-      let H = Number(h) % 12;
-      if (ap === 'PM') H += 12;
-      onChange(`${String(H).padStart(2, '0')}:${m}`);
-    } else {
+  const emit = (nextHour, nextMinute, nextMeridiem) => {
+    const h = Number(nextHour);
+    const m = Number(nextMinute);
+    if (!nextHour || !nextMinute || !nextMeridiem || h < 1 || h > 12 || m > 59) {
       onChange('');
+      return;
+    }
+    let hours24 = h % 12;
+    if (nextMeridiem === 'PM') hours24 += 12;
+    onChange(`${String(hours24).padStart(2, '0')}:${String(m).padStart(2, '0')}`);
+  };
+
+  const moveBack = (event, previousRef) => {
+    if (event.key === 'Backspace' && !event.currentTarget.value) {
+      previousRef?.current?.focus();
     }
   };
 
   return (
     <div className="req-manual-time">
-      <select
-        className="req-manual-select"
+      <input
+        ref={hourRef}
+        className="req-manual-input req-manual-hour"
+        type="text"
         value={hour}
-        onChange={(e) => { setHour(e.target.value); emit(e.target.value, minute, ampm); }}
+        onChange={(e) => {
+          const next = e.target.value.replace(/\D/g, '').slice(0, 2);
+          setHour(next);
+          emit(next, minute, meridiem);
+          if (next.length === 2) minuteRef.current?.focus();
+        }}
+        placeholder="HH"
+        inputMode="numeric"
+        maxLength={2}
+        autoComplete="off"
         aria-label="Hour"
-      >
-        <option value="">HH</option>
-        {HOURS.map((n) => (
-          <option key={n} value={String(n)}>{String(n).padStart(2, '0')}</option>
-        ))}
-      </select>
+      />
       <span className="req-manual-colon">:</span>
-      <select
-        className="req-manual-select"
+      <input
+        ref={minuteRef}
+        className="req-manual-input req-manual-minute"
+        type="text"
         value={minute}
-        onChange={(e) => { setMinute(e.target.value); emit(hour, e.target.value, ampm); }}
+        onChange={(e) => {
+          const next = e.target.value.replace(/\D/g, '').slice(0, 2);
+          setMinute(next);
+          emit(hour, next, meridiem);
+          if (next.length === 2) meridiemRef.current?.focus();
+        }}
+        onKeyDown={(e) => moveBack(e, hourRef)}
+        placeholder="MM"
+        inputMode="numeric"
+        maxLength={2}
+        autoComplete="off"
         aria-label="Minute"
-      >
-        <option value="">MM</option>
-        {MINUTES.map((m) => (
-          <option key={m} value={m}>{m}</option>
-        ))}
-      </select>
-      <select
-        className="req-manual-select req-manual-ampm"
-        value={ampm}
-        onChange={(e) => { setAmPm(e.target.value); emit(hour, minute, e.target.value); }}
+      />
+      <button
+        ref={meridiemRef}
+        className="req-manual-meridiem"
+        type="button"
+        onClick={() => {
+          const next = meridiem === 'AM' ? 'PM' : 'AM';
+          setMeridiem(next);
+          emit(hour, minute, next);
+        }}
+        onKeyDown={(e) => moveBack(e, minuteRef)}
         aria-label="AM or PM"
+        title="Click to switch between AM and PM"
       >
-        <option value="AM">AM</option>
-        <option value="PM">PM</option>
-      </select>
+        {meridiem}
+      </button>
     </div>
   );
 }
@@ -136,11 +171,14 @@ export default function RequirementManualTime({ req, taskId, team, disabled = fa
 
   const save = async () => {
     setError('');
-    if (!from || !to) { setError('Choose both From and To times.'); return; }
-    if (to <= from) { setError('To must be later than From.'); return; }
+    const fromTime = normaliseTypedTime(from);
+    const toTime = normaliseTypedTime(to);
+    if (!from.trim() || !to.trim()) { setError('Enter both From and To times.'); return; }
+    if (!fromTime || !toTime) { setError('Use a time such as 9:30 AM or 14:30.'); return; }
+    if (toTime <= fromTime) { setError('To must be later than From.'); return; }
     setBusy(true);
     try {
-      const res = await itUpdatesApi.requirementManualTime(taskId, req.id, { from, to, team });
+      const res = await itUpdatesApi.requirementManualTime(taskId, req.id, { from: fromTime, to: toTime, team });
       if (res?.data) onUpdate?.(res.data);
       close();
     } catch (e) {
@@ -186,6 +224,7 @@ export default function RequirementManualTime({ req, taskId, team, disabled = fa
               <MdMoreTime size={16} />
               <span>Set worked time</span>
             </div>
+            <p className="req-manual-help">Type <strong>HH</strong>, then <strong>MM</strong>. Click <strong>AM</strong> to switch it to <strong>PM</strong>.</p>
             <div className="req-manual-row">
               <span className="req-manual-label">From</span>
               <TimeField value={from} onChange={setFrom} />

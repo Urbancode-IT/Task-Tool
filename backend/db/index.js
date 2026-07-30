@@ -410,11 +410,20 @@ export async function dbEnsureTables() {
       ALTER TABLE it_projects
       ADD COLUMN IF NOT EXISTS owner_user_id INT,
       ADD COLUMN IF NOT EXISTS owner_name VARCHAR(200),
+      ADD COLUMN IF NOT EXISTS secondary_owner_user_id INT,
+      ADD COLUMN IF NOT EXISTS secondary_owner_name VARCHAR(200),
       ADD COLUMN IF NOT EXISTS teammates TEXT,
       ADD COLUMN IF NOT EXISTS project_url TEXT,
       ADD COLUMN IF NOT EXISTS logo TEXT,
       ADD COLUMN IF NOT EXISTS project_type VARCHAR(20) DEFAULT 'internal',
       ADD COLUMN IF NOT EXISTS client_name VARCHAR(200),
+      ADD COLUMN IF NOT EXISTS documents_url TEXT,
+      ADD COLUMN IF NOT EXISTS frontend_url TEXT,
+      ADD COLUMN IF NOT EXISTS backend_url TEXT,
+      ADD COLUMN IF NOT EXISTS stack TEXT,
+      ADD COLUMN IF NOT EXISTS deploy_platform TEXT,
+      ADD COLUMN IF NOT EXISTS hosting_platform TEXT,
+      ADD COLUMN IF NOT EXISTS admin_credentials TEXT,
       ADD COLUMN IF NOT EXISTS requirements TEXT;
     `);
     // Backfill any pre-existing rows so they show under Internal Projects.
@@ -588,6 +597,71 @@ export async function dbEnsureTables() {
     `);
   } catch (err) {
     console.warn('dbEnsureTables: eod_report_comments failed:', err.message);
+  }
+
+  // Company Profile & Brand Identity — a single-row (id = 1) config store. `data` is the
+  // published profile, `draft` the auto-saved unpublished edits. Everything (text,
+  // brand values, colours, social links, email signature, and base64 asset URLs) lives
+  // in the JSONB blobs so the shape can evolve without migrations. Each publish appends
+  // a snapshot to company_profile_versions for basic version history.
+  try {
+    await p.query(`
+      CREATE TABLE IF NOT EXISTS company_profile (
+        id INT PRIMARY KEY DEFAULT 1,
+        data JSONB NOT NULL DEFAULT '{}'::jsonb,
+        draft JSONB,
+        updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+        updated_by INT,
+        CONSTRAINT company_profile_singleton CHECK (id = 1)
+      );
+    `);
+    await p.query(`INSERT INTO company_profile (id, data) VALUES (1, '{}'::jsonb) ON CONFLICT (id) DO NOTHING;`);
+    await p.query(`
+      CREATE TABLE IF NOT EXISTS company_profile_versions (
+        version_id SERIAL PRIMARY KEY,
+        data JSONB NOT NULL,
+        published_by INT,
+        published_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+  } catch (err) {
+    console.warn('dbEnsureTables: company_profile failed:', err.message);
+  }
+
+  // Invoices — billing documents that reuse the company profile (logo, address,
+  // GST/PAN, bank details, signature/seal) for their header/footer. Line items and
+  // computed money fields are stored so a published invoice is an immutable record.
+  try {
+    await p.query(`
+      CREATE TABLE IF NOT EXISTS invoices (
+        invoice_id SERIAL PRIMARY KEY,
+        invoice_number TEXT UNIQUE NOT NULL,
+        invoice_date DATE,
+        due_date DATE,
+        client_name TEXT,
+        client_address TEXT,
+        client_email TEXT,
+        client_gst TEXT,
+        place_of_supply TEXT,
+        is_inter_state BOOLEAN DEFAULT false,
+        gst_rate NUMERIC DEFAULT 18,
+        currency TEXT DEFAULT 'INR',
+        items JSONB NOT NULL DEFAULT '[]'::jsonb,
+        discount NUMERIC DEFAULT 0,
+        subtotal NUMERIC DEFAULT 0,
+        tax_total NUMERIC DEFAULT 0,
+        total NUMERIC DEFAULT 0,
+        notes TEXT,
+        terms TEXT,
+        status VARCHAR(20) DEFAULT 'draft',
+        created_by INT,
+        created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+    await p.query('CREATE INDEX IF NOT EXISTS idx_invoices_created ON invoices(created_at DESC);');
+  } catch (err) {
+    console.warn('dbEnsureTables: invoices failed:', err.message);
   }
 
   // Dedupe table so each deadline alert (per task/team/kind) is emailed only once.
@@ -1251,10 +1325,19 @@ export async function dbGetProjects(status = null, projectType = null) {
         owner: r.owner_name || 'IT Team',
         owner_name: r.owner_name || 'IT Team',
         owner_user_id: r.owner_user_id ?? null,
+        secondary_owner_name: r.secondary_owner_name ?? null,
+        secondary_owner_user_id: r.secondary_owner_user_id ?? null,
         teammates: teammatesFromText(r.teammates),
         teammates_text: r.teammates || '',
         project_type: r.project_type || 'internal',
         client_name: r.client_name || '',
+        documents_url: r.documents_url || '',
+        frontend_url: r.frontend_url || '',
+        backend_url: r.backend_url || '',
+        stack: r.stack || '',
+        deploy_platform: r.deploy_platform || '',
+        hosting_platform: r.hosting_platform || '',
+        admin_credentials: r.admin_credentials || '',
         requirements: projectReqsFromText(r.requirements),
         progress: progressMap[r.project_id] ?? 0,
         total_tasks: counts.total,
@@ -1275,9 +1358,9 @@ export async function dbCreateProject(data) {
     rows: [row],
   } = await p.query(
     `INSERT INTO it_projects (
-      project_name, project_code, project_url, logo, description, status, priority, start_date, end_date, owner_user_id, owner_name, teammates, project_type, client_name, requirements
+      project_name, project_code, project_url, logo, description, status, priority, start_date, end_date, owner_user_id, owner_name, secondary_owner_user_id, secondary_owner_name, teammates, project_type, client_name, documents_url, frontend_url, backend_url, stack, deploy_platform, hosting_platform, admin_credentials, requirements
     )
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24)
      RETURNING *`,
     [
       data.name ?? data.project_name ?? 'Untitled Project',
@@ -1291,9 +1374,18 @@ export async function dbCreateProject(data) {
       toNullableDate(data.end_date),
       toNullableInt(data.owner_user_id),
       data.owner_name ?? data.owner ?? null,
+      toNullableInt(data.secondary_owner_user_id),
+      data.secondary_owner_name ?? null,
       teammatesToText(data.teammates ?? data.teammates_text),
       data.project_type === 'external' ? 'external' : 'internal',
       data.client_name ?? null,
+      data.documents_url ?? null,
+      data.frontend_url ?? null,
+      data.backend_url ?? null,
+      data.stack ?? null,
+      data.deploy_platform ?? null,
+      data.hosting_platform ?? null,
+      data.admin_credentials ?? null,
       projectReqsToText(data.requirements),
     ]
   );
@@ -1312,10 +1404,19 @@ export async function dbCreateProject(data) {
     owner: row.owner_name || 'IT Team',
     owner_name: row.owner_name || 'IT Team',
     owner_user_id: row.owner_user_id ?? null,
+    secondary_owner_name: row.secondary_owner_name ?? null,
+    secondary_owner_user_id: row.secondary_owner_user_id ?? null,
     teammates: teammatesFromText(row.teammates),
     teammates_text: row.teammates || '',
     project_type: row.project_type || 'internal',
     client_name: row.client_name || '',
+    documents_url: row.documents_url || '',
+    frontend_url: row.frontend_url || '',
+    backend_url: row.backend_url || '',
+    stack: row.stack || '',
+    deploy_platform: row.deploy_platform || '',
+    hosting_platform: row.hosting_platform || '',
+    admin_credentials: row.admin_credentials || '',
     requirements: projectReqsFromText(row.requirements),
     progress: 0,
   };
@@ -1336,9 +1437,18 @@ export async function dbUpdateProject(projectId, data) {
     'end_date',
     'owner_user_id',
     'owner_name',
+    'secondary_owner_user_id',
+    'secondary_owner_name',
     'teammates',
     'project_type',
     'client_name',
+    'documents_url',
+    'frontend_url',
+    'backend_url',
+    'stack',
+    'deploy_platform',
+    'hosting_platform',
+    'admin_credentials',
     'requirements',
   ];
   const updates = [];
@@ -1359,7 +1469,7 @@ export async function dbUpdateProject(projectId, data) {
       const val =
         col === 'start_date' || col === 'end_date' || col === 'due_date' || col === 'task_date'
           ? toNullableDate(v)
-          : col === 'owner_user_id'
+          : col === 'owner_user_id' || col === 'secondary_owner_user_id'
             ? toNullableInt(v)
             : col === 'teammates'
               ? teammatesToText(v)
@@ -1393,10 +1503,19 @@ export async function dbUpdateProject(projectId, data) {
     owner: row.owner_name || 'IT Team',
     owner_name: row.owner_name || 'IT Team',
     owner_user_id: row.owner_user_id ?? null,
+    secondary_owner_name: row.secondary_owner_name ?? null,
+    secondary_owner_user_id: row.secondary_owner_user_id ?? null,
     teammates: teammatesFromText(row.teammates),
     teammates_text: row.teammates || '',
     project_type: row.project_type || 'internal',
     client_name: row.client_name || '',
+    documents_url: row.documents_url || '',
+    frontend_url: row.frontend_url || '',
+    backend_url: row.backend_url || '',
+    stack: row.stack || '',
+    deploy_platform: row.deploy_platform || '',
+    hosting_platform: row.hosting_platform || '',
+    admin_credentials: row.admin_credentials || '',
     requirements: projectReqsFromText(row.requirements),
     progress: 0,
   };
@@ -1437,10 +1556,19 @@ export async function dbGetProjectById(projectId) {
     owner: row.owner_name || 'IT Team',
     owner_name: row.owner_name || 'IT Team',
     owner_user_id: row.owner_user_id ?? null,
+    secondary_owner_name: row.secondary_owner_name ?? null,
+    secondary_owner_user_id: row.secondary_owner_user_id ?? null,
     teammates: teammatesFromText(row.teammates),
     teammates_text: row.teammates || '',
     project_type: row.project_type || 'internal',
     client_name: row.client_name || '',
+    documents_url: row.documents_url || '',
+    frontend_url: row.frontend_url || '',
+    backend_url: row.backend_url || '',
+    stack: row.stack || '',
+    deploy_platform: row.deploy_platform || '',
+    hosting_platform: row.hosting_platform || '',
+    admin_credentials: row.admin_credentials || '',
     requirements: projectReqsFromText(row.requirements),
     progress: 0,
   };
@@ -3160,10 +3288,11 @@ export async function dbGetUserEodLockState(userId, isAdmin) {
 }
 
 /**
- * IT-team members (Internal + External Projects, gated by it_updates.view) who have
- * NOT submitted an EOD report for the given working day. Admins are excluded (they are
- * never required to file), and members on approved leave that day are excluded too.
- * Used by the 8pm daily reminder that reports absentees to the directors.
+ * ACTIVE IT-team members (Internal + External Projects, gated by it_updates.view) who
+ * have NOT submitted an EOD report for the given working day. Inactive users are
+ * excluded (they are not required to file), as are admins (never required) and members
+ * on approved leave that day. Used by the 8pm daily reminder that reports absentees to
+ * the directors.
  */
 export async function dbGetItMembersMissingEod(dateStr) {
   const p = getPool();
@@ -3852,6 +3981,322 @@ export async function dbSetRolePermissions(roleId, permissionIds) {
     return true;
   } catch (err) {
     console.error('dbSetRolePermissions:', err.message);
+    return false;
+  }
+}
+
+// ─────────────────────────── Company Profile & Branding ───────────────────────────
+
+/** Fetch the singleton company profile (published `data` + unpublished `draft` + meta). */
+export async function dbGetCompanyProfile() {
+  const p = getPool();
+  if (!p) return { data: {}, draft: null, updated_at: null, updated_by: null, updated_by_name: null };
+  try {
+    const { rows } = await p.query(
+      `SELECT c.data, c.draft, c.updated_at, c.updated_by, u.username AS updated_by_name
+         FROM company_profile c
+         LEFT JOIN users u ON u.user_id = c.updated_by
+        WHERE c.id = 1`
+    );
+    const row = rows[0];
+    if (!row) return { data: {}, draft: null, updated_at: null, updated_by: null, updated_by_name: null };
+    return {
+      data: row.data || {},
+      draft: row.draft || null,
+      updated_at: row.updated_at,
+      updated_by: row.updated_by,
+      updated_by_name: row.updated_by_name || null,
+    };
+  } catch (err) {
+    console.error('dbGetCompanyProfile:', err.message);
+    return { data: {}, draft: null, updated_at: null, updated_by: null, updated_by_name: null };
+  }
+}
+
+/** Save the auto-saved draft (unpublished edits). Returns the new updated_at or null. */
+export async function dbSaveCompanyDraft(draft, userId) {
+  const p = getPool();
+  if (!p) return null;
+  try {
+    const { rows } = await p.query(
+      `UPDATE company_profile
+          SET draft = $1, updated_at = CURRENT_TIMESTAMP, updated_by = $2
+        WHERE id = 1
+        RETURNING updated_at`,
+      [JSON.stringify(draft ?? {}), userId ?? null]
+    );
+    return rows[0]?.updated_at || null;
+  } catch (err) {
+    console.error('dbSaveCompanyDraft:', err.message);
+    return null;
+  }
+}
+
+/**
+ * Publish the profile: `data` becomes the given object (assets are managed separately
+ * and preserved), the draft is cleared, and a version snapshot is recorded.
+ */
+export async function dbPublishCompanyProfile(profile, userId) {
+  const p = getPool();
+  if (!p) return null;
+  try {
+    // Preserve the separately-managed asset blob so publishing text edits never wipes
+    // uploaded logos/signatures.
+    const { rows: cur } = await p.query('SELECT data FROM company_profile WHERE id = 1');
+    const existingAssets = cur[0]?.data?.assets || {};
+    const merged = { ...(profile || {}), assets: { ...existingAssets, ...((profile || {}).assets || {}) } };
+    const { rows } = await p.query(
+      `UPDATE company_profile
+          SET data = $1, draft = NULL, updated_at = CURRENT_TIMESTAMP, updated_by = $2
+        WHERE id = 1
+        RETURNING data, updated_at`,
+      [JSON.stringify(merged), userId ?? null]
+    );
+    await p.query(
+      `INSERT INTO company_profile_versions (data, published_by) VALUES ($1, $2)`,
+      [JSON.stringify(merged), userId ?? null]
+    );
+    return rows[0] ? { data: rows[0].data, updated_at: rows[0].updated_at } : null;
+  } catch (err) {
+    console.error('dbPublishCompanyProfile:', err.message);
+    return null;
+  }
+}
+
+/** Set/replace a single brand asset (base64 data URL) in the published profile. */
+export async function dbSetCompanyAsset(type, dataUrl, userId) {
+  const p = getPool();
+  if (!p) return null;
+  try {
+    const { rows: cur } = await p.query('SELECT data FROM company_profile WHERE id = 1');
+    const data = cur[0]?.data || {};
+    data.assets = { ...(data.assets || {}), [type]: dataUrl };
+    const { rows } = await p.query(
+      `UPDATE company_profile SET data = $1, updated_at = CURRENT_TIMESTAMP, updated_by = $2 WHERE id = 1 RETURNING data`,
+      [JSON.stringify(data), userId ?? null]
+    );
+    return rows[0]?.data?.assets || null;
+  } catch (err) {
+    console.error('dbSetCompanyAsset:', err.message);
+    return null;
+  }
+}
+
+/** Remove a single brand asset from the published profile. */
+export async function dbDeleteCompanyAsset(type, userId) {
+  const p = getPool();
+  if (!p) return null;
+  try {
+    const { rows: cur } = await p.query('SELECT data FROM company_profile WHERE id = 1');
+    const data = cur[0]?.data || {};
+    if (data.assets) delete data.assets[type];
+    const { rows } = await p.query(
+      `UPDATE company_profile SET data = $1, updated_at = CURRENT_TIMESTAMP, updated_by = $2 WHERE id = 1 RETURNING data`,
+      [JSON.stringify(data), userId ?? null]
+    );
+    return rows[0]?.data?.assets || {};
+  } catch (err) {
+    console.error('dbDeleteCompanyAsset:', err.message);
+    return null;
+  }
+}
+
+/** Raw base64 for one company asset (for the cacheable serving endpoint). */
+export async function dbGetCompanyAssetRaw(type) {
+  const p = getPool();
+  if (!p) return null;
+  try {
+    const { rows } = await p.query('SELECT data FROM company_profile WHERE id = 1');
+    return rows[0]?.data?.assets?.[type] ?? null;
+  } catch (err) {
+    console.error('dbGetCompanyAssetRaw:', err.message);
+    return null;
+  }
+}
+
+// ─────────────────────────────────── Invoices ───────────────────────────────────
+
+const mapInvoiceRow = (r) => ({
+  invoice_id: r.invoice_id,
+  invoice_number: r.invoice_number,
+  invoice_date: r.invoice_date ? String(r.invoice_date).slice(0, 10) : null,
+  due_date: r.due_date ? String(r.due_date).slice(0, 10) : null,
+  client_name: r.client_name || '',
+  client_address: r.client_address || '',
+  client_email: r.client_email || '',
+  client_gst: r.client_gst || '',
+  place_of_supply: r.place_of_supply || '',
+  is_inter_state: Boolean(r.is_inter_state),
+  gst_rate: Number(r.gst_rate ?? 0),
+  currency: r.currency || 'INR',
+  items: Array.isArray(r.items) ? r.items : [],
+  discount: Number(r.discount ?? 0),
+  subtotal: Number(r.subtotal ?? 0),
+  tax_total: Number(r.tax_total ?? 0),
+  total: Number(r.total ?? 0),
+  notes: r.notes || '',
+  terms: r.terms || '',
+  status: r.status || 'draft',
+  created_by: r.created_by ?? null,
+  created_at: r.created_at,
+  updated_at: r.updated_at,
+});
+
+// Recompute money fields server-side so stored totals never drift from the items.
+function computeInvoiceTotals(data) {
+  const items = Array.isArray(data.items) ? data.items : [];
+  const rawSubtotal = items.reduce((sum, it) => {
+    const qty = Number(it?.qty) || 0;
+    const rate = Number(it?.rate) || 0;
+    return sum + qty * rate;
+  }, 0);
+  const discount = Number(data.discount) || 0;
+  const subtotal = Math.max(0, rawSubtotal - discount);
+  const gstRate = Number(data.gst_rate) || 0;
+  const taxTotal = +(subtotal * (gstRate / 100)).toFixed(2);
+  const total = +(subtotal + taxTotal).toFixed(2);
+  return { subtotal: +subtotal.toFixed(2), tax_total: taxTotal, total };
+}
+
+/** Suggest the next invoice number: INV-<year>-<zero-padded sequence>. */
+export async function dbNextInvoiceNumber(year) {
+  const p = getPool();
+  const prefix = `INV-${year}-`;
+  if (!p) return `${prefix}0001`;
+  try {
+    const { rows } = await p.query(
+      `SELECT invoice_number FROM invoices WHERE invoice_number LIKE $1`,
+      [`${prefix}%`]
+    );
+    let max = 0;
+    for (const r of rows) {
+      const n = parseInt(String(r.invoice_number).slice(prefix.length), 10);
+      if (Number.isFinite(n) && n > max) max = n;
+    }
+    return `${prefix}${String(max + 1).padStart(4, '0')}`;
+  } catch (err) {
+    console.error('dbNextInvoiceNumber:', err.message);
+    return `${prefix}0001`;
+  }
+}
+
+export async function dbGetInvoices() {
+  const p = getPool();
+  if (!p) return [];
+  try {
+    const { rows } = await p.query('SELECT * FROM invoices ORDER BY created_at DESC, invoice_id DESC');
+    return rows.map(mapInvoiceRow);
+  } catch (err) {
+    console.error('dbGetInvoices:', err.message);
+    return [];
+  }
+}
+
+export async function dbGetInvoiceById(invoiceId) {
+  const p = getPool();
+  if (!p) return null;
+  try {
+    const { rows } = await p.query('SELECT * FROM invoices WHERE invoice_id = $1', [invoiceId]);
+    return rows[0] ? mapInvoiceRow(rows[0]) : null;
+  } catch (err) {
+    console.error('dbGetInvoiceById:', err.message);
+    return null;
+  }
+}
+
+export async function dbCreateInvoice(data, userId) {
+  const p = getPool();
+  if (!p) return null;
+  const totals = computeInvoiceTotals(data);
+  try {
+    const { rows } = await p.query(
+      `INSERT INTO invoices (
+         invoice_number, invoice_date, due_date, client_name, client_address, client_email,
+         client_gst, place_of_supply, is_inter_state, gst_rate, currency, items, discount,
+         subtotal, tax_total, total, notes, terms, status, created_by
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
+       RETURNING *`,
+      [
+        data.invoice_number,
+        toNullableDate(data.invoice_date),
+        toNullableDate(data.due_date),
+        data.client_name ?? null,
+        data.client_address ?? null,
+        data.client_email ?? null,
+        data.client_gst ?? null,
+        data.place_of_supply ?? null,
+        Boolean(data.is_inter_state),
+        Number(data.gst_rate) || 0,
+        data.currency || 'INR',
+        JSON.stringify(Array.isArray(data.items) ? data.items : []),
+        Number(data.discount) || 0,
+        totals.subtotal,
+        totals.tax_total,
+        totals.total,
+        data.notes ?? null,
+        data.terms ?? null,
+        data.status || 'draft',
+        userId ?? null,
+      ]
+    );
+    return rows[0] ? mapInvoiceRow(rows[0]) : null;
+  } catch (err) {
+    console.error('dbCreateInvoice:', err.message);
+    return null;
+  }
+}
+
+export async function dbUpdateInvoice(invoiceId, data) {
+  const p = getPool();
+  if (!p) return null;
+  const totals = computeInvoiceTotals(data);
+  try {
+    const { rows } = await p.query(
+      `UPDATE invoices SET
+         invoice_number = $2, invoice_date = $3, due_date = $4, client_name = $5,
+         client_address = $6, client_email = $7, client_gst = $8, place_of_supply = $9,
+         is_inter_state = $10, gst_rate = $11, currency = $12, items = $13, discount = $14,
+         subtotal = $15, tax_total = $16, total = $17, notes = $18, terms = $19, status = $20,
+         updated_at = CURRENT_TIMESTAMP
+       WHERE invoice_id = $1 RETURNING *`,
+      [
+        invoiceId,
+        data.invoice_number,
+        toNullableDate(data.invoice_date),
+        toNullableDate(data.due_date),
+        data.client_name ?? null,
+        data.client_address ?? null,
+        data.client_email ?? null,
+        data.client_gst ?? null,
+        data.place_of_supply ?? null,
+        Boolean(data.is_inter_state),
+        Number(data.gst_rate) || 0,
+        data.currency || 'INR',
+        JSON.stringify(Array.isArray(data.items) ? data.items : []),
+        Number(data.discount) || 0,
+        totals.subtotal,
+        totals.tax_total,
+        totals.total,
+        data.notes ?? null,
+        data.terms ?? null,
+        data.status || 'draft',
+      ]
+    );
+    return rows[0] ? mapInvoiceRow(rows[0]) : null;
+  } catch (err) {
+    console.error('dbUpdateInvoice:', err.message);
+    return null;
+  }
+}
+
+export async function dbDeleteInvoice(invoiceId) {
+  const p = getPool();
+  if (!p) return false;
+  try {
+    const { rowCount } = await p.query('DELETE FROM invoices WHERE invoice_id = $1', [invoiceId]);
+    return rowCount > 0;
+  } catch (err) {
+    console.error('dbDeleteInvoice:', err.message);
     return false;
   }
 }

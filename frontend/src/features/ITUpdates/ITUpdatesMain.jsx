@@ -32,7 +32,6 @@ import ProjectSearchSelect from '../../components/ProjectSearchSelect';
 import PeriodFilter from '../../components/PeriodFilter';
 import TaskComments from '../../components/TaskComments';
 import ProjectLogo from '../../components/ProjectLogo';
-import ProjectDocuments from '../../components/ProjectDocuments';
 import ProjectRequirements from '../../components/ProjectRequirements';
 import MemberPicker from '../../components/MemberPicker';
 import Preloader from '../../components/Preloader';
@@ -350,6 +349,8 @@ const ITUpdatesMain = ({ currentUser, onLogout, scope = 'internal' }) => {
   const [dashboardData, setDashboardData] = useState(null);
   const [teamOverview, setTeamOverview] = useState([]);
   const [projects, setProjects] = useState([]);
+  // Admin-only: selected projects for the deployment-details export.
+  const [selectedProjectIds, setSelectedProjectIds] = useState([]);
   const [tasks, setTasks] = useState([]);
 
   const [projectModal, setProjectModal] = useState({ open: false, project: null });
@@ -437,6 +438,62 @@ const ITUpdatesMain = ({ currentUser, onLogout, scope = 'internal' }) => {
     () => Array.isArray(user?.permissions) && user.permissions.includes('admin.access'),
     [user]
   );
+
+  const TOGGLE_PROJECT_SELECTED = useCallback((id) => {
+    setSelectedProjectIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
+  }, []);
+
+  const ALL_PROJECTS_SELECTED = projects.length > 0 && selectedProjectIds.length === projects.length;
+  const TOGGLE_SELECT_ALL_PROJECTS = useCallback(() => {
+    setSelectedProjectIds((prev) => (prev.length === projects.length ? [] : projects.map((p) => p.id)));
+  }, [projects]);
+
+  // Credential exports are provided only from Management → UC Credentials.
+  const EXPORT_PROJECTS_CSV = useCallback(() => {
+    const chosen = selectedProjectIds.length
+      ? projects.filter((p) => selectedProjectIds.includes(p.id))
+      : projects;
+    if (!chosen.length) {
+      toastError('There are no projects to export.');
+      return;
+    }
+    const cols = [
+      ['Project', (p) => p.name ?? p.project_name],
+      ['Status', (p) => p.status],
+      ['Priority', (p) => p.priority],
+      ['Primary Owner', (p) => p.owner_name],
+      ['Secondary Owner', (p) => p.secondary_owner_name],
+      ['Team Members', (p) => (Array.isArray(p.teammates) ? p.teammates.join('; ') : p.teammates_text)],
+      ['Frontend URL', (p) => p.frontend_url],
+      ['Backend URL', (p) => p.backend_url],
+      ['Stack', (p) => p.stack],
+      ['Deploy Platform', (p) => p.deploy_platform],
+      ['Hosting Platform', (p) => p.hosting_platform],
+      ['Admin Credentials', (p) => p.admin_credentials],
+      ['Documents URL', (p) => p.documents_url],
+      ['Client', (p) => p.client_name],
+      ['Project URL', (p) => p.project_url],
+    ];
+    const esc = (v) => {
+      const s = String(v ?? '');
+      return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    };
+    const lines = [cols.map((c) => esc(c[0])).join(',')];
+    chosen.forEach((p) => lines.push(cols.map((c) => esc(c[1](p))).join(',')));
+    const csv = '﻿' + lines.join('\r\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `UC_credentials-${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    toastSuccess(`Exported ${chosen.length} project${chosen.length === 1 ? '' : 's'}`);
+  }, [projects, selectedProjectIds]);
 
   // Only active developers are assignable (inactive users stay visible in dashboards
   // but can't be given new tasks/projects).
@@ -908,6 +965,15 @@ const ITUpdatesMain = ({ currentUser, onLogout, scope = 'internal' }) => {
         end_date: payload.end_date,
         owner_user_id: payload.owner_user_id || null,
         owner_name: payload.owner_name || null,
+        secondary_owner_user_id: payload.secondary_owner_user_id || null,
+        secondary_owner_name: payload.secondary_owner_name || null,
+        documents_url: payload.documents_url ?? null,
+        frontend_url: payload.frontend_url ?? null,
+        backend_url: payload.backend_url ?? null,
+        stack: payload.stack ?? null,
+        deploy_platform: payload.deploy_platform ?? null,
+        hosting_platform: payload.hosting_platform ?? null,
+        admin_credentials: payload.admin_credentials ?? null,
         teammates: payload.teammates ?? [],
         client_name: payload.client_name ?? null,
         project_type: payload.project_type === 'external' ? 'external' : 'internal',
@@ -1453,13 +1519,23 @@ const ITUpdatesMain = ({ currentUser, onLogout, scope = 'internal' }) => {
                       </span>
                     </div>
                     <div className="it-updates-project-meta">
-                      <span>Owner: {project.owner_name ?? project.owner ?? 'Not set'}</span>
+                      <span>Primary Owner: {project.owner_name || project.owner || 'Not set'}</span>
+                    </div>
+                    <div className="it-updates-project-meta">
+                      <span>Secondary Owner: {project.secondary_owner_name || 'Not set'}</span>
                     </div>
                     {(Array.isArray(project.teammates) && project.teammates.length > 0) || project.teammates_text ? (
                       <div className="it-updates-project-meta">
                         <span>
-                          Team: {Array.isArray(project.teammates) ? project.teammates.join(', ') : project.teammates_text}
+                          Team Members: {Array.isArray(project.teammates) ? project.teammates.join(', ') : project.teammates_text}
                         </span>
+                      </div>
+                    ) : null}
+                    {project.documents_url ? (
+                      <div className="it-updates-project-meta">
+                        <a href={project.documents_url} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}>
+                          Documents ↗
+                        </a>
                       </div>
                     ) : null}
                     <div className="it-updates-project-meta">
@@ -1969,12 +2045,30 @@ function ProjectModal({ project, teammatesOptions, currentUser, defaultProjectTy
     end_date: project?.end_date ? project.end_date.slice(0, 10) : '',
     owner_user_id: project?.owner_user_id ? String(project.owner_user_id) : '',
     owner_name: project?.owner_name ?? project?.owner ?? '',
+    secondary_owner_user_id: project?.secondary_owner_user_id ? String(project.secondary_owner_user_id) : '',
+    secondary_owner_name: project?.secondary_owner_name ?? '',
+    documents_url: project?.documents_url ?? '',
+    frontend_url: project?.frontend_url ?? '',
+    backend_url: project?.backend_url ?? '',
+    stack: project?.stack ?? '',
+    deploy_platform: project?.deploy_platform ?? '',
+    hosting_platform: project?.hosting_platform ?? '',
+    admin_credentials: project?.admin_credentials ?? '',
     teammates: initialTeammates,
     project_type: project?.project_type ?? defaultProjectType,
   });
   const [saveState, setSaveState] = useState({ saving: false, saved: false });
   // The sector this modal was opened in ('internal' | 'external').
   const isExternalSector = defaultProjectType === 'external';
+
+  // Deployment links, stack, hosting, and admin credentials are restricted to a
+  // project's owners/team members/admins. The backend flags this via `secrets_visible`;
+  // a brand-new project (no id) is always editable by its creator.
+  const canSeeSecrets =
+    form.project_type === 'internal' &&
+    (!project?.id ||
+      project?.secrets_visible === true ||
+      (Array.isArray(currentUser?.permissions) && currentUser.permissions.includes('admin.access')));
 
   useEffect(() => {
     const onClickOutside = (event) => {
@@ -2120,22 +2214,34 @@ function ProjectModal({ project, teammatesOptions, currentUser, defaultProjectTy
               rows={3}
             />
           </label>
-          {isExternalSector && (
-            <label>
-              Owner
-              <MemberPicker
-                members={teammatesOptions}
-                value={form.owner_name}
-                onChange={(v) =>
-                  setForm((f) => {
-                    const m = (teammatesOptions || []).find((u) => (u.username ?? u.assignee) === v);
-                    return { ...f, owner_name: v, owner_user_id: m ? String(m.user_id) : '' };
-                  })
-                }
-                placeholder="Select an owner from the IT team…"
-              />
-            </label>
-          )}
+          <label>
+            Primary Owner
+            <MemberPicker
+              members={teammatesOptions}
+              value={form.owner_name}
+              onChange={(v) =>
+                setForm((f) => {
+                  const m = (teammatesOptions || []).find((u) => (u.username ?? u.assignee) === v);
+                  return { ...f, owner_name: v, owner_user_id: m ? String(m.user_id) : '' };
+                })
+              }
+              placeholder="Select the primary owner…"
+            />
+          </label>
+          <label>
+            Secondary Owner
+            <MemberPicker
+              members={teammatesOptions}
+              value={form.secondary_owner_name}
+              onChange={(v) =>
+                setForm((f) => {
+                  const m = (teammatesOptions || []).find((u) => (u.username ?? u.assignee) === v);
+                  return { ...f, secondary_owner_name: v, secondary_owner_user_id: m ? String(m.user_id) : '' };
+                })
+              }
+              placeholder="Select a secondary owner (optional)…"
+            />
+          </label>
           <label>
             Project sector
             <select
@@ -2146,14 +2252,14 @@ function ProjectModal({ project, teammatesOptions, currentUser, defaultProjectTy
               <option value="external">External Projects</option>
             </select>
           </label>
-          <label className={isExternalSector ? 'it-updates-form-row-full' : undefined}>
-            Teammates involved
+          <label className="it-updates-form-row-full">
+            Team Members
             <MemberPicker
               members={teammatesOptions}
               multiple
               value={form.teammates}
               onChange={(arr) => setForm((f) => ({ ...f, teammates: arr }))}
-              placeholder="Select teammates from the IT team…"
+              placeholder="Select team members from the IT team…"
             />
           </label>
           <label>
@@ -2196,15 +2302,54 @@ function ProjectModal({ project, teammatesOptions, currentUser, defaultProjectTy
               onChange={(e) => setForm((f) => ({ ...f, end_date: e.target.value }))}
             />
           </label>
-          {project?.id ? (
-            <div className="it-updates-project-docs it-updates-form-row-full">
-              <div className="it-updates-project-docs-label">Documents</div>
-              <ProjectDocuments projectId={project.id} />
+          <label className="it-updates-form-row-full">
+            Documents (Google Drive URL)
+            <input
+              type="url"
+              value={form.documents_url}
+              onChange={(e) => setForm((f) => ({ ...f, documents_url: e.target.value }))}
+              placeholder="https://drive.google.com/…"
+            />
+          </label>
+
+          {canSeeSecrets && (
+            <div className="it-updates-form-row-full it-updates-project-secrets">
+              <div className="it-updates-project-docs-label">
+                Deployment &amp; Access
+                <span className="it-updates-secrets-hint"> </span>
+              </div>
+              <div className="it-updates-secrets-grid">
+                <label>
+                  Frontend deployed link
+                  <input type="url" value={form.frontend_url} onChange={(e) => setForm((f) => ({ ...f, frontend_url: e.target.value }))} placeholder="https://app.example.com" />
+                </label>
+                <label>
+                  Backend deployed link
+                  <input type="url" value={form.backend_url} onChange={(e) => setForm((f) => ({ ...f, backend_url: e.target.value }))} placeholder="https://api.example.com" />
+                </label>
+                <label>
+                  Stack used
+                  <input value={form.stack} onChange={(e) => setForm((f) => ({ ...f, stack: e.target.value }))} placeholder="e.g. React, Node, Postgres" />
+                </label>
+                <label>
+                  Deployment platform
+                  <input value={form.deploy_platform} onChange={(e) => setForm((f) => ({ ...f, deploy_platform: e.target.value }))} placeholder="e.g. Vercel, Netlify" />
+                </label>
+                <label>
+                  Hosting platform
+                  <input value={form.hosting_platform} onChange={(e) => setForm((f) => ({ ...f, hosting_platform: e.target.value }))} placeholder="e.g. Render, AWS, Linode" />
+                </label>
+              </div>
+              <label>
+                Admin credentials
+                <textarea
+                  rows={3}
+                  value={form.admin_credentials}
+                  onChange={(e) => setForm((f) => ({ ...f, admin_credentials: e.target.value }))}
+                  placeholder="Admin URL / username / password (kept private to this project's team)"
+                />
+              </label>
             </div>
-          ) : (
-            <p className="it-updates-project-docs-hint it-updates-form-row-full">
-              Save the project to attach its Project Documentation, BRD, and Credentials.
-            </p>
           )}
           {isExternalSector && project?.id && (
             <div className="it-updates-form-row-full">

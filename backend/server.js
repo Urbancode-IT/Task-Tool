@@ -268,6 +268,65 @@ async function buildUserFromDbUser(dbUser) {
 
 const asyncMw = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 
+// Sensitive project fields are used only by internal projects and are visible
+// only to that project's owners/team members or an admin.
+const PROJECT_SECRET_FIELDS = ['frontend_url', 'backend_url', 'stack', 'deploy_platform', 'hosting_platform', 'admin_credentials'];
+const isInternalProject = (project) => project?.project_type !== 'external';
+
+function clearProjectSecrets(project) {
+  const copy = { ...project, secrets_visible: false };
+  for (const field of PROJECT_SECRET_FIELDS) copy[field] = '';
+  return copy;
+}
+
+function stripProjectSecrets(payload) {
+  for (const field of PROJECT_SECRET_FIELDS) delete payload[field];
+  return payload;
+}
+
+function eraseProjectSecrets(payload) {
+  for (const field of PROJECT_SECRET_FIELDS) payload[field] = '';
+  return payload;
+}
+
+// Resolve { isAdmin, uid, username } for the requester (username lowercased for
+// case-insensitive team-member matching; skipped for admins who always pass).
+async function requesterIdentity(req) {
+  const isAdmin = Array.isArray(req.user?.permissions) && req.user.permissions.includes('admin.access');
+  const uid = req.user?.id != null ? String(req.user.id) : null;
+  let username = req.user?.username || req.user?.name ? String(req.user.username || req.user.name).toLowerCase() : null;
+  if (!isAdmin && uid) {
+    try {
+      const u = await db.dbGetUserById(uid);
+      username = u?.username ? String(u.username).toLowerCase() : null;
+    } catch { /* ignore */ }
+  }
+  return { isAdmin, uid, username };
+}
+
+// True when the requester may see/edit a project's sensitive fields: admin, primary/
+// secondary owner (by id), or a listed team member (by username).
+function projectSecretsAuthorized(project, { isAdmin, uid, username }) {
+  if (isAdmin) return true;
+  if (uid && (String(project.owner_user_id) === uid || String(project.secondary_owner_user_id) === uid)) return true;
+  const mates = Array.isArray(project.teammates)
+    ? project.teammates
+    : String(project.teammates_text || '').split(',').map((s) => s.trim());
+  return Boolean(username && mates.some((m) => String(m).toLowerCase() === username));
+}
+
+// Blank out the sensitive fields on any project the requester is not authorized to see,
+// and add `secrets_visible` so the UI knows whether to show the section.
+async function gateProjectSecrets(list, req) {
+  const who = await requesterIdentity(req);
+  return list.map((proj) => {
+    if (isInternalProject(proj) && projectSecretsAuthorized(proj, who)) {
+      return { ...proj, secrets_visible: true };
+    }
+    return clearProjectSecrets(proj);
+  });
+}
+
 // Reject assigning a task/project to a KNOWN inactive user (only active users are
 // assignable). Returns true when it is OK to proceed. No-ops for empty/unknown ids.
 async function assigneeActiveOrReject(res, assignedTo) {
@@ -302,7 +361,10 @@ app.post('/auth/login', async (req, res) => {
       return res.status(401).json({ message: 'Invalid email/username or password' });
     }
     const user = await buildUserFromDbUser(dbUser);
-    const payload = { id: user.id, email: user.email };
+    // Keep the JWT payload minimal: only the user id. A JWT is signed, not encrypted,
+    // so anyone who can read the cookie can decode its claims — never put PII (email,
+    // name, roles) here. Everything else is loaded server-side from the id.
+    const payload = { id: user.id };
     const access = signAccessToken(payload);
     const refresh = signRefreshToken(payload);
     if (access) {
@@ -318,7 +380,7 @@ app.post('/auth/login', async (req, res) => {
   if (!user) {
     return res.status(401).json({ message: 'Invalid email or password' });
   }
-  const payload = { id: user.id, email: user.email };
+  const payload = { id: user.id };
   const access = signAccessToken(payload);
   const refresh = signRefreshToken(payload);
   if (access) {
@@ -366,7 +428,7 @@ function resolveSessionFromCookies(req, res) {
     return { ok: false, status: 401, message: 'Invalid or expired refresh token' };
   }
 
-  const newAccess = signAccessToken({ id: refreshDecoded.id, email: refreshDecoded.email });
+  const newAccess = signAccessToken({ id: refreshDecoded.id });
   if (newAccess) {
     res.cookie('access_token', newAccess, COOKIE_OPTS);
   } else {
@@ -431,7 +493,7 @@ app.post('/auth/refresh', (req, res) => {
   if (!token) return res.status(401).json({ message: 'Refresh token required' });
   const decoded = verifyRefreshToken(token);
   if (!decoded) return res.status(401).json({ message: 'Invalid or expired refresh token' });
-  const access = signAccessToken({ id: decoded.id, email: decoded.email });
+  const access = signAccessToken({ id: decoded.id });
   if (access) {
     res.cookie('access_token', access, COOKIE_OPTS);
     return res.json({ success: true });
@@ -445,7 +507,7 @@ app.post('/auth/refresh-token', (req, res) => {
   if (token) {
     const decoded = verifyRefreshToken(token);
     if (decoded) {
-      const access = signAccessToken({ id: decoded.id, email: decoded.email });
+      const access = signAccessToken({ id: decoded.id });
       if (access) {
         res.cookie('access_token', access, COOKIE_OPTS);
         return res.json({ success: true });
@@ -524,11 +586,17 @@ app.get(`${BASE_PATH}/projects`, async (req, res) => {
       } else {
         console.log('GET /projects: fetched', list.length, 'project(s) from database');
       }
-      return res.json(list);
+      // Deployment links, stack, hosting, and admin credentials are only exposed to a
+      // project's owners (primary/secondary), its team members, and admins.
+      const gated = await gateProjectSecrets(list, req);
+      return res.json(gated);
     }
-    const { status } = req.query;
-    const filtered = status ? projects.filter((p) => p.status === status) : projects;
-    res.json(filtered);
+    const { status, type } = req.query;
+    const filtered = projects.filter((p) =>
+      (!status || p.status === status) &&
+      (!type || p.project_type === type)
+    );
+    res.json(await gateProjectSecrets(filtered, req));
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: 'Failed to fetch projects' });
@@ -537,8 +605,10 @@ app.get(`${BASE_PATH}/projects`, async (req, res) => {
 
 app.post(`${BASE_PATH}/projects`, async (req, res) => {
   try {
+    if (req.body?.project_type === 'external') stripProjectSecrets(req.body);
     if (db.useDb()) {
       if (!(await assigneeActiveOrReject(res, req.body?.owner_user_id))) return;
+      if (!(await assigneeActiveOrReject(res, req.body?.secondary_owner_user_id))) return;
       const body = { ...req.body, name: req.body.name ?? req.body.project_name };
       const project = await db.dbCreateProject(body);
       if (!project) return res.status(500).json({ message: 'Failed to create project' });
@@ -567,6 +637,16 @@ app.put(`${BASE_PATH}/projects/:projectId`, async (req, res) => {
   try {
     if (db.useDb()) {
       if (req.body?.owner_user_id !== undefined && !(await assigneeActiveOrReject(res, req.body.owner_user_id))) return;
+      if (req.body?.secondary_owner_user_id !== undefined && !(await assigneeActiveOrReject(res, req.body.secondary_owner_user_id))) return;
+      // Only owners/team members/admins may change the sensitive deployment/credential
+      // fields; strip them from the payload for anyone else so they can't be overwritten.
+      const existingProj = await db.dbGetProjectById(req.params.projectId);
+      const resultingType = req.body?.project_type ?? existingProj?.project_type;
+      if (resultingType === 'external') {
+        eraseProjectSecrets(req.body);
+      } else if (existingProj && !projectSecretsAuthorized(existingProj, await requesterIdentity(req))) {
+        stripProjectSecrets(req.body);
+      }
       const project = await db.dbUpdateProject(req.params.projectId, req.body);
       if (!project) return res.status(404).json({ message: 'Project not found' });
       return res.json(project);
@@ -574,6 +654,8 @@ app.put(`${BASE_PATH}/projects/:projectId`, async (req, res) => {
     const { projectId } = req.params;
     const idx = projects.findIndex((p) => p.id === projectId);
     if (idx === -1) return res.status(404).json({ message: 'Project not found' });
+    const resultingType = req.body?.project_type ?? projects[idx].project_type;
+    if (resultingType === 'external') eraseProjectSecrets(req.body);
     projects[idx] = { ...projects[idx], ...req.body };
     res.json(projects[idx]);
   } catch (err) {
@@ -605,12 +687,20 @@ app.delete(`${BASE_PATH}/projects/:projectId`, async (req, res) => {
    base64 data URLs stored in project_documents (see db/index.js). */
 const PROJECT_DOC_TYPES = ['project_documentation', 'brd', 'credentials'];
 
+// Credential documents follow the same internal-project access rule as the
+// credential fields: admins and that project's owners/team members only.
+async function credentialDocumentAllowed(projectId, req) {
+  const project = await db.dbGetProjectById(projectId);
+  return Boolean(project && isInternalProject(project) && projectSecretsAuthorized(project, await requesterIdentity(req)));
+}
+
 // List a project's document slots (metadata only, no file payload).
 app.get(`${BASE_PATH}/projects/:projectId/documents`, async (req, res) => {
   try {
     if (!db.useDb()) return res.json([]);
     const list = await db.dbListProjectDocuments(req.params.projectId);
-    return res.json(list);
+    const mayAccessCredentials = await credentialDocumentAllowed(req.params.projectId, req);
+    return res.json(mayAccessCredentials ? list : list.filter((doc) => doc.doc_type !== 'credentials'));
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: 'Failed to fetch project documents' });
@@ -623,6 +713,9 @@ app.get(`${BASE_PATH}/projects/:projectId/documents/:docType`, async (req, res) 
     const { docType } = req.params;
     if (!PROJECT_DOC_TYPES.includes(docType)) {
       return res.status(400).json({ message: 'Invalid document type' });
+    }
+    if (docType === 'credentials' && !(await credentialDocumentAllowed(req.params.projectId, req))) {
+      return res.status(403).json({ message: 'You are not authorized to access this project credentials.' });
     }
     if (!db.useDb()) return res.status(404).json({ message: 'Document not found' });
     const doc = await db.dbGetProjectDocument(req.params.projectId, docType);
@@ -640,6 +733,9 @@ app.put(`${BASE_PATH}/projects/:projectId/documents/:docType`, async (req, res) 
     const { docType } = req.params;
     if (!PROJECT_DOC_TYPES.includes(docType)) {
       return res.status(400).json({ message: 'Invalid document type' });
+    }
+    if (docType === 'credentials' && !(await credentialDocumentAllowed(req.params.projectId, req))) {
+      return res.status(403).json({ message: 'You are not authorized to manage this project credentials.' });
     }
     if (!db.useDb()) return res.status(503).json({ message: 'Database unavailable' });
     const { file_name, mime_type, file_data } = req.body || {};
@@ -665,6 +761,9 @@ app.delete(`${BASE_PATH}/projects/:projectId/documents/:docType`, async (req, re
     const { docType } = req.params;
     if (!PROJECT_DOC_TYPES.includes(docType)) {
       return res.status(400).json({ message: 'Invalid document type' });
+    }
+    if (docType === 'credentials' && !(await credentialDocumentAllowed(req.params.projectId, req))) {
+      return res.status(403).json({ message: 'You are not authorized to manage this project credentials.' });
     }
     if (!db.useDb()) return res.status(503).json({ message: 'Database unavailable' });
     const ok = await db.dbDeleteProjectDocument(req.params.projectId, docType);
@@ -1692,6 +1791,197 @@ app.delete(`${BASE_PATH}/tasks/:taskId/requirements/:reqId`, async (req, res) =>
 // ---- Admin API (RBAC: requires admin.access) ----
 const ADMIN_PATH = '/api/admin';
 app.use(ADMIN_PATH, requireAuth, asyncMw(attachUserPermissions), requirePermission('admin.access'));
+
+// ───────────────────────── Company Profile & Branding ─────────────────────────
+// Single source of truth for company identity, branding, compliance, banking, and
+// digital presence. `data` is published; `draft` is the auto-saved work-in-progress.
+
+const COMPANY_VALIDATORS = {
+  email: /^[^\s@]+@[^\s@]+\.[^\s@]+$/,
+  url: /^https?:\/\/[^\s.]+\.[^\s]+$/i,
+  gst: /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/,
+  pan: /^[A-Z]{5}[0-9]{4}[A-Z]$/,
+  ifsc: /^[A-Z]{4}0[A-Z0-9]{6}$/,
+  swift: /^[A-Z]{6}[A-Z0-9]{2}([A-Z0-9]{3})?$/,
+  sac: /^[0-9]{6,8}$/,
+  postal: /^[1-9][0-9]{5}$/,
+};
+
+// Validate only fields that carry a value, so a partially-filled profile can still be
+// saved. Returns an array of { field, message } (empty when valid).
+function validateCompanyProfile(profile = {}) {
+  const errors = [];
+  const check = (val, type, field, label) => {
+    if (val == null || String(val).trim() === '') return;
+    if (!COMPANY_VALIDATORS[type].test(String(val).trim())) {
+      errors.push({ field, message: `${label} is invalid.` });
+    }
+  };
+  if (!profile.company_name || !String(profile.company_name).trim()) {
+    errors.push({ field: 'company_name', message: 'Company name is required.' });
+  }
+  const c = profile.contact || {};
+  check(c.official_email, 'email', 'official_email', 'Official email');
+  check(c.accounts_email, 'email', 'accounts_email', 'Accounts email');
+  check(c.website || profile.website, 'url', 'website', 'Website URL');
+  const comp = profile.compliance || {};
+  check(comp.gst, 'gst', 'gst', 'GST number');
+  check(comp.pan, 'pan', 'pan', 'PAN number');
+  check(comp.sac, 'sac', 'sac', 'SAC code');
+  const bank = profile.bank || {};
+  check(bank.ifsc, 'ifsc', 'ifsc', 'IFSC code');
+  check(bank.swift, 'swift', 'swift', 'SWIFT code');
+  const addr = profile.address || {};
+  check(addr.postal_code, 'postal', 'postal_code', 'Postal code');
+  const social = profile.social || {};
+  ['linkedin', 'facebook', 'instagram', 'twitter', 'youtube', 'website'].forEach((k) => {
+    check(social[k], 'url', `social.${k}`, `${k} URL`);
+  });
+  return errors;
+}
+
+const ASSET_ACTION = {
+  logo: 'Logo changed',
+  favicon: 'Favicon updated',
+  signature: 'Authorized signature updated',
+  digital_signature: 'Digital signature updated',
+  seal: 'Company seal updated',
+};
+const COMPANY_ASSET_TYPES = Object.keys(ASSET_ACTION);
+
+app.get(`${ADMIN_PATH}/company`, asyncMw(async (req, res) => {
+  if (!db.useDb()) return res.json({ data: {}, draft: null });
+  const profile = await db.dbGetCompanyProfile();
+  res.json(profile);
+}));
+
+app.post(`${ADMIN_PATH}/company/draft`, asyncMw(async (req, res) => {
+  if (!db.useDb()) return res.status(400).json({ message: 'A database connection is required.' });
+  const updatedAt = await db.dbSaveCompanyDraft(req.body || {}, req.user?.id ?? null);
+  res.json({ status: 'saved', updated_at: updatedAt });
+}));
+
+app.put(`${ADMIN_PATH}/company`, asyncMw(async (req, res) => {
+  if (!db.useDb()) return res.status(400).json({ message: 'A database connection is required.' });
+  const errors = validateCompanyProfile(req.body || {});
+  if (errors.length) return res.status(400).json({ message: 'Please fix the highlighted fields.', errors });
+  const result = await db.dbPublishCompanyProfile(req.body || {}, req.user?.id ?? null);
+  if (!result) return res.status(500).json({ message: 'Failed to publish company profile.' });
+  db.dbCreateAuditLog({
+    userId: req.user?.id ?? null,
+    action: 'Company profile updated',
+    resource: 'company_profile',
+    resourceId: '1',
+  }).catch(() => {});
+  res.json(result);
+}));
+
+app.post(`${ADMIN_PATH}/company/asset`, asyncMw(async (req, res) => {
+  if (!db.useDb()) return res.status(400).json({ message: 'A database connection is required.' });
+  const { type, dataUrl } = req.body || {};
+  if (!COMPANY_ASSET_TYPES.includes(type)) return res.status(400).json({ message: 'Unknown asset type.' });
+  if (typeof dataUrl !== 'string' || !dataUrl.startsWith('data:image/')) {
+    return res.status(400).json({ message: 'Asset must be an image data URL.' });
+  }
+  if (dataUrl.length > 3 * 1024 * 1024) {
+    return res.status(400).json({ message: 'Asset is too large (max ~2 MB).' });
+  }
+  const assets = await db.dbSetCompanyAsset(type, dataUrl, req.user?.id ?? null);
+  if (!assets) return res.status(500).json({ message: 'Failed to save asset.' });
+  db.dbCreateAuditLog({
+    userId: req.user?.id ?? null,
+    action: ASSET_ACTION[type] || 'Brand asset updated',
+    resource: 'company_profile',
+    resourceId: '1',
+  }).catch(() => {});
+  res.json({ assets });
+}));
+
+app.delete(`${ADMIN_PATH}/company/asset/:type`, asyncMw(async (req, res) => {
+  if (!db.useDb()) return res.status(400).json({ message: 'A database connection is required.' });
+  const { type } = req.params;
+  if (!COMPANY_ASSET_TYPES.includes(type)) return res.status(400).json({ message: 'Unknown asset type.' });
+  const assets = await db.dbDeleteCompanyAsset(type, req.user?.id ?? null);
+  db.dbCreateAuditLog({
+    userId: req.user?.id ?? null,
+    action: `${ASSET_ACTION[type] || 'Brand asset'} removed`,
+    resource: 'company_profile',
+    resourceId: '1',
+  }).catch(() => {});
+  res.json({ assets: assets || {} });
+}));
+
+// Serve a company asset as a real, cacheable image (for cross-module/PDF usage).
+app.get(`${ADMIN_PATH}/company/asset/:type`, asyncMw(async (req, res) => {
+  if (!db.useDb()) return res.status(404).end();
+  const image = await db.dbGetCompanyAssetRaw(req.params.type);
+  if (!image || typeof image !== 'string' || !image.startsWith('data:')) return res.status(404).end();
+  const match = /^data:([^;,]+)?(;base64)?,(.*)$/s.exec(image);
+  if (!match) return res.status(404).end();
+  const buf = match[2] ? Buffer.from(match[3], 'base64') : Buffer.from(decodeURIComponent(match[3]));
+  const etag = '"' + crypto.createHash('sha1').update(image).digest('hex').slice(0, 16) + '"';
+  if (req.headers['if-none-match'] === etag) return res.status(304).end();
+  res.setHeader('Content-Type', match[1] || 'image/png');
+  res.setHeader('Cache-Control', 'private, max-age=31536000');
+  res.setHeader('ETag', etag);
+  return res.end(buf);
+}));
+
+app.get(`${ADMIN_PATH}/company/activity`, asyncMw(async (req, res) => {
+  if (!db.useDb()) return res.json([]);
+  const list = await db.dbGetAuditLogs({ resource: 'company_profile', limit: 50 });
+  res.json(list);
+}));
+
+// ─────────────────────────────── Invoices ───────────────────────────────
+app.get(`${ADMIN_PATH}/invoices`, asyncMw(async (req, res) => {
+  if (!db.useDb()) return res.json([]);
+  res.json(await db.dbGetInvoices());
+}));
+
+// Must be registered before `/invoices/:id` so it is not captured as an id.
+app.get(`${ADMIN_PATH}/invoices/next-number`, asyncMw(async (req, res) => {
+  const year = new Date().getFullYear();
+  res.json({ invoice_number: await db.dbNextInvoiceNumber(year) });
+}));
+
+app.get(`${ADMIN_PATH}/invoices/:id`, asyncMw(async (req, res) => {
+  if (!db.useDb()) return res.status(404).json({ message: 'Not found' });
+  const inv = await db.dbGetInvoiceById(req.params.id);
+  if (!inv) return res.status(404).json({ message: 'Invoice not found' });
+  res.json(inv);
+}));
+
+app.post(`${ADMIN_PATH}/invoices`, asyncMw(async (req, res) => {
+  if (!db.useDb()) return res.status(400).json({ message: 'A database connection is required.' });
+  const body = { ...req.body };
+  if (!body.invoice_number || !String(body.invoice_number).trim()) {
+    body.invoice_number = await db.dbNextInvoiceNumber(new Date().getFullYear());
+  }
+  const created = await db.dbCreateInvoice(body, req.user?.id ?? null);
+  if (!created) return res.status(500).json({ message: 'Failed to create invoice (the number may already exist).' });
+  db.dbCreateAuditLog({
+    userId: req.user?.id ?? null,
+    action: `Invoice ${created.invoice_number} created`,
+    resource: 'invoice',
+    resourceId: String(created.invoice_id),
+  }).catch(() => {});
+  res.status(201).json(created);
+}));
+
+app.put(`${ADMIN_PATH}/invoices/:id`, asyncMw(async (req, res) => {
+  if (!db.useDb()) return res.status(400).json({ message: 'A database connection is required.' });
+  const updated = await db.dbUpdateInvoice(req.params.id, req.body || {});
+  if (!updated) return res.status(404).json({ message: 'Invoice not found' });
+  res.json(updated);
+}));
+
+app.delete(`${ADMIN_PATH}/invoices/:id`, asyncMw(async (req, res) => {
+  if (!db.useDb()) return res.status(400).json({ message: 'A database connection is required.' });
+  const ok = await db.dbDeleteInvoice(req.params.id);
+  if (!ok) return res.status(404).json({ message: 'Invoice not found' });
+  res.status(204).send();
+}));
 
 app.get(`${ADMIN_PATH}/permissions`, async (req, res) => {
   try {
