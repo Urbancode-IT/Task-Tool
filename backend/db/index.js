@@ -3331,6 +3331,61 @@ export async function dbGetItMembersMissingEod(dateStr) {
   }
 }
 
+/**
+ * Users who still owe an EOD report for `dateStr` and should be reminded directly.
+ *
+ * "Present" is the same signal the EOD lock uses: the account is active and the day is
+ * not on the member's leave list. Excluded are admins (never required to file), accounts
+ * created after the day, days an admin already excused, anyone who has already filed,
+ * and users without an email address (nothing to send to).
+ *
+ * `itOnly` narrows the list to the IT team (it_updates.view) to match the 8pm director
+ * report; the default covers everyone the EOD lock can lock out.
+ */
+export async function dbGetUsersMissingEod(dateStr, { itOnly = false } = {}) {
+  const p = getPool();
+  if (!p) return [];
+  try {
+    const { rows } = await p.query(
+      `SELECT u.user_id, u.username, u.email
+         FROM users u
+        WHERE COALESCE(u.is_active, true) = true
+          AND u.email IS NOT NULL
+          AND btrim(u.email) <> ''
+          AND u.created_at::date <= $1::date
+          AND (u.eod_excused_through IS NULL OR u.eod_excused_through < $1::date)
+          AND ($2::boolean = false OR EXISTS (
+                SELECT 1
+                  FROM user_roles ur
+                  JOIN role_permissions rp ON rp.role_id = ur.role_id
+                  JOIN permissions pm      ON pm.permission_id = rp.permission_id
+                 WHERE ur.user_id = u.user_id AND pm.code = 'it_updates.view'
+              ))
+          AND NOT EXISTS (
+                SELECT 1
+                  FROM user_roles ur2
+                  JOIN role_permissions rp2 ON rp2.role_id = ur2.role_id
+                  JOIN permissions pm2      ON pm2.permission_id = rp2.permission_id
+                 WHERE ur2.user_id = u.user_id AND pm2.code = 'admin.access'
+              )
+          AND NOT EXISTS (
+                SELECT 1 FROM eod_reports e
+                 WHERE e.user_id = u.user_id AND e.report_date = $1::date
+              )
+          AND NOT EXISTS (
+                SELECT 1 FROM member_leaves ml
+                 WHERE ml.user_id = u.user_id AND ml.leave_date = $1::date
+              )
+        ORDER BY u.username`,
+      [dateStr, itOnly]
+    );
+    return rows;
+  } catch (err) {
+    console.error('dbGetUsersMissingEod:', err.message);
+    return [];
+  }
+}
+
 /** Users currently locked for a missing EOD report. */
 export async function dbGetLockedEodUsers() {
   const p = getPool();
