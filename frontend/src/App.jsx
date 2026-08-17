@@ -3,12 +3,12 @@ import MainLayout from './components/MainLayout';
 import EodLockScreen from './components/EodLockScreen';
 import authApi from './api/authApi';
 import { MdVisibility, MdVisibilityOff } from 'react-icons/md';
-
-// Real Seyal brand icon (served from /public), same as the sidebar.
-const logoSrc = '/logo-icon.png';
+import { useBranding } from './branding/BrandingContext';
 import './App.css';
 
 const LoginPage = ({ onLogin }) => {
+  // Logo and wordmark follow the published company profile.
+  const branding = useBranding();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -36,11 +36,11 @@ const LoginPage = ({ onLogin }) => {
       <div className="auth-grid-overlay" />
       <div className="auth-card">
         <div className="auth-logo-wrapper">
-          <img src={logoSrc} alt="Seyal" className="auth-logo-img" />
-          <span className="auth-logo-text">Seyal</span>
+          <img src={branding.logo} alt={branding.company_name} className="auth-logo-img" />
+          <span className="auth-logo-text">{branding.company_name}</span>
         </div>
         <h1 className="auth-title">Welcome back</h1>
-        <p className="auth-subtitle">Sign in to your workspace to continue</p>
+        <p className="auth-subtitle">{branding.tagline || 'Sign in to your workspace to continue'}</p>
         <form onSubmit={handleSubmit} className="auth-form">
           <label className="auth-field">
             <span>Email or username</span>

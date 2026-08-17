@@ -49,6 +49,8 @@ import { sanitizeCommentHtml } from '../../utils/sanitizeHtml';
 import { BRANCHES } from '../Admin/AdminUserModals';
 import MemberDashboard from './MemberDashboard';
 import './ITUpdatesMain.css';
+import { useLabels } from '../../branding/BrandingContext';
+import { applyLabels, applyStatusLabels } from '../../branding/labels';
 
 // Adapter so the shared comment thread posts to project-comment endpoints
 // (@mention → email, same as tasks/EOD).
@@ -61,13 +63,13 @@ const projectCommentApi = {
 };
 
 const TABS = [
-  { key: 'Dashboard', label: 'Home', icon: MdHome },
-  { key: 'My Dashboard', label: 'Dashboard', icon: MdInsights },
-  { key: 'My Tasks', label: 'My Tasks', icon: MdChecklist },
-  { key: 'All Tasks', label: 'All Tasks', icon: MdViewKanban },
-  { key: 'Projects', label: 'Projects', icon: MdFolder },
-  { key: 'Overview', label: 'Overview', icon: MdTableChart },
-  { key: 'EOD Updates', label: 'EOD Updates', icon: MdOutlineAssignment },
+  { key: 'Dashboard', labelId: 'section.home', label: 'Home', icon: MdHome },
+  { key: 'My Dashboard', labelId: 'section.dashboard', label: 'Dashboard', icon: MdInsights },
+  { key: 'My Tasks', labelId: 'section.my_tasks', label: 'My Tasks', icon: MdChecklist },
+  { key: 'All Tasks', labelId: 'section.all_tasks', label: 'All Tasks', icon: MdViewKanban },
+  { key: 'Projects', labelId: 'section.projects', label: 'Projects', icon: MdFolder },
+  { key: 'Overview', labelId: 'section.overview', label: 'Overview', icon: MdTableChart },
+  { key: 'EOD Updates', labelId: 'section.eod_updates', label: 'EOD Updates', icon: MdOutlineAssignment },
 ];
 const MODULE_TEAM = 'it';
 
@@ -392,32 +394,43 @@ const ITUpdatesMain = ({ currentUser, onLogout, scope = 'internal' }) => {
       }
     })();
 
-  const visibleTabs = useMemo(() => {
+  const rawTabs = useMemo(() => {
     if (!isExternalScope) return TABS;
     // External: the projects dashboard is the default "Dashboard" tab; the personal
     // member dashboard becomes "My Dashboard". Tasks is a single merged tab.
     return [
-      { key: 'Dashboard', label: 'Dashboard', icon: MdSpaceDashboard },
-      { key: 'My Dashboard', label: 'My Dashboard', icon: MdInsights },
-      { key: 'Tasks', label: 'Client CRM', icon: MdHandshake },
-      { key: 'My Tasks', label: 'My Tasks', icon: MdChecklist },
-      { key: 'All Tasks', label: 'All Tasks', icon: MdViewKanban },
-      { key: 'Projects', label: 'Projects', icon: MdFolder },
-      { key: 'Overview', label: 'Overview', icon: MdTableChart },
-      { key: 'EOD Updates', label: 'EOD Updates', icon: MdOutlineAssignment },
+      { key: 'Dashboard', labelId: 'section.dashboard', label: 'Dashboard', icon: MdSpaceDashboard },
+      { key: 'My Dashboard', labelId: 'section.my_dashboard', label: 'My Dashboard', icon: MdInsights },
+      { key: 'Tasks', labelId: 'section.client_crm', label: 'Client CRM', icon: MdHandshake },
+      { key: 'My Tasks', labelId: 'section.my_tasks', label: 'My Tasks', icon: MdChecklist },
+      { key: 'All Tasks', labelId: 'section.all_tasks', label: 'All Tasks', icon: MdViewKanban },
+      { key: 'Projects', labelId: 'section.projects', label: 'Projects', icon: MdFolder },
+      { key: 'Overview', labelId: 'section.overview', label: 'Overview', icon: MdTableChart },
+      { key: 'EOD Updates', labelId: 'section.eod_updates', label: 'EOD Updates', icon: MdOutlineAssignment },
     ];
   }, [isExternalScope]);
+
+  // Sidebar names are renameable from Company & Branding; keys are untouched.
+  const label = useLabels();
+  const visibleTabs = useMemo(() => applyLabels(rawTabs, label), [rawTabs, label]);
 
   // Task board column labels + order: freelancing flow (with Prospect) for External.
   // Only the Client CRM tab uses the freelancing headings (with Prospect). My Tasks /
   // All Tasks use the same standard columns as Internal, in both sectors.
   const isClientCrm = isExternalScope && activeTab === 'Tasks';
-  const boardStatusLabels = isClientCrm ? EXTERNAL_STATUS_LABELS : STATUS_LABELS;
+  // Column names are renameable from Company & Branding; the status keys behind them
+  // are database values and stay untouched.
+  const statusLabels = useMemo(() => applyStatusLabels(STATUS_LABELS, label), [label]);
+  const externalStatusLabels = useMemo(
+    () => applyStatusLabels(EXTERNAL_STATUS_LABELS, label, 'status.external'),
+    [label]
+  );
+  const boardStatusLabels = isClientCrm ? externalStatusLabels : statusLabels;
   const boardStatuses = isClientCrm ? EXTERNAL_STATUSES : DEFAULT_STATUSES;
 
   // The External dashboard pipeline chart always reflects the CRM (freelancing) stages.
   const pipelineStatuses = isExternalScope ? EXTERNAL_STATUSES : DEFAULT_STATUSES;
-  const pipelineLabels = isExternalScope ? EXTERNAL_STATUS_LABELS : STATUS_LABELS;
+  const pipelineLabels = isExternalScope ? externalStatusLabels : statusLabels;
 
   // Count of task cards in each pipeline stage (for the External dashboard chart).
   const stageCounts = useMemo(() => {
@@ -1725,11 +1738,11 @@ const ITUpdatesMain = ({ currentUser, onLogout, scope = 'internal' }) => {
                               onClick={(e) => e.stopPropagation()}
                               onChange={(e) => setInlineDraft((prev) => ({ ...(prev || {}), status: e.target.value }))}
                             >
-                              <option value="todo">{STATUS_LABELS.todo}</option>
-                              <option value="in_progress">{STATUS_LABELS.in_progress}</option>
-                              <option value="review">{STATUS_LABELS.review}</option>
-                              <option value="rework">{STATUS_LABELS.rework}</option>
-                              <option value="completed">{STATUS_LABELS.completed}</option>
+                              <option value="todo">{statusLabels.todo}</option>
+                              <option value="in_progress">{statusLabels.in_progress}</option>
+                              <option value="review">{statusLabels.review}</option>
+                              <option value="rework">{statusLabels.rework}</option>
+                              <option value="completed">{statusLabels.completed}</option>
                             </select>
                           ) : (
                             <span
@@ -1741,7 +1754,7 @@ const ITUpdatesMain = ({ currentUser, onLogout, scope = 'internal' }) => {
                                 color: STATUS_COLORS[task.status] || '#374151',
                               }}
                             >
-                              {STATUS_LABELS[task.status] ?? task.status}
+                              {statusLabels[task.status] ?? task.status}
                             </span>
                           )}
                         </td>

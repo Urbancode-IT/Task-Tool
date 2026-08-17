@@ -154,7 +154,7 @@
 .admin-team-filter-btn.active {
   background: var(--clr-primary-600);
   border-color: transparent;
-  color: #fff;
+  color: var(--brand-on, #fff);
 }
 
 .admin-username-link {
@@ -549,13 +549,13 @@
 }
 
 .admin-btn-view-task {
-  border-color: #cfe0f6;
-  color: #00429b;
+  border-color: var(--clr-primary-100, #cfe0f6);
+  color: var(--clr-primary-700, #00429b);
 }
 
 .admin-btn-view-task:hover {
   background: #eef0ff;
-  border-color: #a3c3ec;
+  border-color: var(--clr-primary-200, #a3c3ec);
 }
 
 .admin-modal-backdrop {
@@ -672,7 +672,7 @@
 
 .admin-btn-primary {
   background: var(--clr-primary-600);
-  color: #fff;
+  color: var(--brand-on, #fff);
 }
 
 .admin-btn-primary:hover {

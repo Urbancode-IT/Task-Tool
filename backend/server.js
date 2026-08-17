@@ -9,8 +9,8 @@ import bcrypt from 'bcrypt';
 import crypto from 'node:crypto';
 import jwt from 'jsonwebtoken';
 import * as db from './db/index.js';
-import { sendMail, isMailConfigured, renderEmail } from './mailer.js';
-import { startEodDirectorReport, startEodMemberReminders } from './eodReminder.js';
+import { sendMail, isMailConfigured, renderEmail, applyEmailBranding } from './mailer.js';
+import { startEodDirectorReport, startEodMemberReminders, startEodMidnightLock } from './eodReminder.js';
 import { requireAuth, attachUserPermissions, requirePermission, signAccessToken, signRefreshToken, verifyRefreshToken } from './middlewares/authMiddleware.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -1788,6 +1788,92 @@ app.delete(`${BASE_PATH}/tasks/:taskId/requirements/:reqId`, async (req, res) =>
   }
 });
 
+// ───────────────────────── Public branding ─────────────────────────
+// The company profile drives the whole product's identity, but the profile API is
+// admin-only and the login screen runs before any session exists. This exposes the
+// presentational subset — name, tagline, colours, logo, favicon — with no auth.
+// Banking, tax identifiers, addresses and internal contacts are deliberately excluded.
+let brandingCache = null;
+
+function publicBranding(data = {}) {
+  const assets = data.assets || {};
+  return {
+    company_name: data.company_name || '',
+    legal_name: data.legal_name || '',
+    tagline: data.tagline || '',
+    website: data.website || data.contact?.website || '',
+    colors: {
+      primary: data.colors?.primary || '',
+      secondary: data.colors?.secondary || '',
+      accent: data.colors?.accent || '',
+    },
+    logo: assets.logo || '',
+    favicon: assets.favicon || '',
+    // Module/section renames for whitelabeling. Overrides only — the client keeps
+    // the coded defaults for anything not stored here.
+    labels: sanitiseLabels(data.labels),
+  };
+}
+
+/**
+ * Keep the label map to plain, bounded strings. It is written by admins but rendered
+ * verbatim in the app chrome, so cap the size and drop anything that is not a
+ * non-empty string rather than trusting whatever the profile happens to hold.
+ */
+function sanitiseLabels(raw) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+  const out = {};
+  for (const [key, value] of Object.entries(raw)) {
+    if (typeof value !== 'string') continue;
+    const trimmed = value.trim();
+    if (!trimmed || trimmed.length > 60) continue;
+    if (!/^[\w.]{1,60}$/.test(key)) continue;
+    out[key] = trimmed;
+  }
+  return out;
+}
+
+async function loadBranding() {
+  if (brandingCache) return brandingCache;
+  // Never cache a miss: at boot this can run before the pool is up, and a cached
+  // empty profile would blank the brand until the next publish.
+  if (!db.useDb()) return publicBranding({});
+  const data = (await db.dbGetCompanyProfile())?.data || {};
+  const branding = publicBranding(data);
+  brandingCache = branding;
+  // Email gets more than the public subset: the signature templates and the
+  // contact details they merge in are internal and never served to the browser.
+  applyEmailBranding({
+    ...branding,
+    contact: data.contact || {},
+    signatures: {
+      member: data.email_signature || '',
+      admin: data.email_signature_admin || '',
+      // Per-mail overrides; a blank entry falls through to the audience default.
+      byMail: Object.fromEntries(
+        Object.entries(data.email_signatures_by_mail || {})
+          .filter(([, v]) => typeof v === 'string' && v.trim())
+      ),
+    },
+  });
+  return branding;
+}
+
+/** Called after any profile or asset change so the next read is fresh. */
+function invalidateBranding() {
+  brandingCache = null;
+  loadBranding().catch(() => {});
+}
+
+app.get('/api/branding', asyncMw(async (req, res) => {
+  // Assets are inlined as data URLs, so the payload must never be cached stale.
+  res.set('Cache-Control', 'no-store');
+  res.json(await loadBranding());
+}));
+
+// Prime the cache at boot so the first email already carries the right identity.
+loadBranding().catch(() => {});
+
 // ---- Admin API (RBAC: requires admin.access) ----
 const ADMIN_PATH = '/api/admin';
 app.use(ADMIN_PATH, requireAuth, asyncMw(attachUserPermissions), requirePermission('admin.access'));
@@ -1867,6 +1953,7 @@ app.put(`${ADMIN_PATH}/company`, asyncMw(async (req, res) => {
   if (errors.length) return res.status(400).json({ message: 'Please fix the highlighted fields.', errors });
   const result = await db.dbPublishCompanyProfile(req.body || {}, req.user?.id ?? null);
   if (!result) return res.status(500).json({ message: 'Failed to publish company profile.' });
+  invalidateBranding();
   db.dbCreateAuditLog({
     userId: req.user?.id ?? null,
     action: 'Company profile updated',
@@ -1888,6 +1975,7 @@ app.post(`${ADMIN_PATH}/company/asset`, asyncMw(async (req, res) => {
   }
   const assets = await db.dbSetCompanyAsset(type, dataUrl, req.user?.id ?? null);
   if (!assets) return res.status(500).json({ message: 'Failed to save asset.' });
+  invalidateBranding();
   db.dbCreateAuditLog({
     userId: req.user?.id ?? null,
     action: ASSET_ACTION[type] || 'Brand asset updated',
@@ -1902,6 +1990,7 @@ app.delete(`${ADMIN_PATH}/company/asset/:type`, asyncMw(async (req, res) => {
   const { type } = req.params;
   if (!COMPANY_ASSET_TYPES.includes(type)) return res.status(400).json({ message: 'Unknown asset type.' });
   const assets = await db.dbDeleteCompanyAsset(type, req.user?.id ?? null);
+  invalidateBranding();
   db.dbCreateAuditLog({
     userId: req.user?.id ?? null,
     action: `${ASSET_ACTION[type] || 'Brand asset'} removed`,
@@ -1934,6 +2023,38 @@ app.get(`${ADMIN_PATH}/company/activity`, asyncMw(async (req, res) => {
 }));
 
 // ─────────────────────────────── Invoices ───────────────────────────────
+
+/**
+ * Every issued invoice must carry the company seal and the director's signature,
+ * so an invoice may only leave draft once both brand assets exist. Either the wet
+ * or the digital signature satisfies the signature requirement.
+ * Returns the human-readable names of whatever is missing.
+ */
+async function missingInvoiceSignoff() {
+  const [seal, signature, digital] = await Promise.all([
+    db.dbGetCompanyAssetRaw('seal'),
+    db.dbGetCompanyAssetRaw('signature'),
+    db.dbGetCompanyAssetRaw('digital_signature'),
+  ]);
+  const missing = [];
+  if (!seal) missing.push('company seal');
+  if (!signature && !digital) missing.push('director signature');
+  return missing;
+}
+
+/** 400s the response when a non-draft invoice lacks its sign-off assets. */
+async function blockedForSignoff(status, res) {
+  const s = String(status || '').trim().toLowerCase();
+  if (!s || s === 'draft') return false;
+  const missing = await missingInvoiceSignoff();
+  if (!missing.length) return false;
+  res.status(400).json({
+    message: `Upload the ${missing.join(' and ')} under Company Branding before issuing this invoice.`,
+    missing_assets: missing,
+  });
+  return true;
+}
+
 app.get(`${ADMIN_PATH}/invoices`, asyncMw(async (req, res) => {
   if (!db.useDb()) return res.json([]);
   res.json(await db.dbGetInvoices());
@@ -1955,6 +2076,7 @@ app.get(`${ADMIN_PATH}/invoices/:id`, asyncMw(async (req, res) => {
 app.post(`${ADMIN_PATH}/invoices`, asyncMw(async (req, res) => {
   if (!db.useDb()) return res.status(400).json({ message: 'A database connection is required.' });
   const body = { ...req.body };
+  if (await blockedForSignoff(body.status, res)) return;
   if (!body.invoice_number || !String(body.invoice_number).trim()) {
     body.invoice_number = await db.dbNextInvoiceNumber(new Date().getFullYear());
   }
@@ -1971,6 +2093,7 @@ app.post(`${ADMIN_PATH}/invoices`, asyncMw(async (req, res) => {
 
 app.put(`${ADMIN_PATH}/invoices/:id`, asyncMw(async (req, res) => {
   if (!db.useDb()) return res.status(400).json({ message: 'A database connection is required.' });
+  if (await blockedForSignoff(req.body?.status, res)) return;
   const updated = await db.dbUpdateInvoice(req.params.id, req.body || {});
   if (!updated) return res.status(404).json({ message: 'Invoice not found' });
   res.json(updated);
@@ -2410,6 +2533,9 @@ async function notifyMentions({ taskId, team, mentionIds, commenterName, html, t
         heading: 'You were mentioned in a comment',
         ctaUrl: link,
         ctaLabel: 'Open task',
+        // A real person triggered this, so {{sender_name}} can resolve.
+        sender: { name: who },
+        mailType: 'mention',
         contentHtml:
           `<p style="margin:0 0 16px;">Hi ${u.username || 'there'},</p>` +
           `<p style="margin:0 0 16px;"><strong>${who}</strong> mentioned you in a comment on <strong>${title}</strong>:</p>` +
@@ -2444,6 +2570,8 @@ async function notifyAssignment({ task, assignerName }) {
       heading: 'A task was assigned to you',
       ctaUrl: link,
       ctaLabel: 'Open task',
+      sender: { name: who },
+      mailType: 'task_assigned',
       contentHtml:
         `<p style="margin:0 0 16px;">Hi ${assignee.username || 'there'},</p>` +
         `<p style="margin:0 0 16px;"><strong>${who}</strong> assigned you a new task: <strong>${title}</strong>.</p>` +
@@ -2477,6 +2605,7 @@ async function runDeadlineCheck() {
           html: renderEmail({
             preheader: subject,
             heading: t.kind === 'overdue' ? 'Task overdue' : 'Task due soon',
+            mailType: t.kind === 'overdue' ? 'task_overdue' : 'task_due_soon',
             ctaUrl: link,
             ctaLabel: 'Open task',
             contentHtml:
@@ -2525,6 +2654,9 @@ async function start() {
     startEodMemberReminders(db);
     // Daily 8pm report of IT members who missed their EOD, sent to the directors.
     startEodDirectorReport(db);
+    // Midnight: lock everyone who missed the working day that just closed and email
+    // the list to admins. Not gated on email config — the lock must happen regardless.
+    startEodMidnightLock(db);
   });
 }
 start();

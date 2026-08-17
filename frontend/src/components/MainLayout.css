@@ -76,7 +76,7 @@
   padding: 0.5rem 1rem;
   border: none;
   background: transparent;
-  color: #000000;
+  color: var(--clr-slate-800);
   border-radius: 8px;
   font-size: 0.9rem;
   font-weight: 500;
@@ -88,12 +88,14 @@
 
 .main-layout-module-btn:hover {
   background: var(--clr-slate-100);
-  color: #000000;
+  color: var(--clr-slate-900);
 }
 
+/* The selected module is the most prominent brand cue in the top bar, so it
+   carries the primary colour rather than a fixed black. */
 .main-layout-module-btn.active {
   background: var(--clr-primary-50);
-  color: #000000;
+  color: var(--clr-primary-700);
   font-weight: 600;
 }
 

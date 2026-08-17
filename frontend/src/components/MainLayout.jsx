@@ -9,26 +9,30 @@ import AdminMain from '../features/Admin/AdminMain';
 import ToastContainer from './Toast';
 import ConfirmDialog from './ConfirmDialog';
 import usePersistedState from '../utils/usePersistedState';
+import { useBranding, useLabels } from '../branding/BrandingContext';
+import { applyLabels } from '../branding/labels';
 import './MainLayout.css';
 
-const LOGO_SRC = '/logo-icon.png';
-
+// `labelId` makes the displayed name renameable from Company & Branding; the coded
+// label stays as the fallback. See branding/labels.js.
 const MODULES = [
   // "IT Updates" is now the Internal Projects sector. External Projects sits beside
   // it and is available to the same IT-team members (gated by it_updates.view).
-  { key: 'it_updates', label: 'Internal Projects', icon: MdFolderSpecial, permission: 'it_updates.view' },
-  { key: 'external_projects', label: 'External Projects', icon: MdPublic, permission: 'it_updates.view' },
-  { key: 'consultants', label: 'Consultants', icon: MdPeople, permission: 'consultants.view' },
-  { key: 'creative_team', label: 'Creative Team', icon: MdCampaign, permission: 'creative_team.view' },
-  { key: 'social_media', label: 'Social Media Management', icon: MdShare, permission: 'social_media.view' },
+  { key: 'it_updates', labelId: 'module.it_updates', label: 'Internal Projects', icon: MdFolderSpecial, permission: 'it_updates.view' },
+  { key: 'external_projects', labelId: 'module.external_projects', label: 'External Projects', icon: MdPublic, permission: 'it_updates.view' },
+  { key: 'consultants', labelId: 'module.consultants', label: 'Consultants', icon: MdPeople, permission: 'consultants.view' },
+  { key: 'creative_team', labelId: 'module.creative_team', label: 'Creative Team', icon: MdCampaign, permission: 'creative_team.view' },
+  { key: 'social_media', labelId: 'module.social_media', label: 'Social Media Management', icon: MdShare, permission: 'social_media.view' },
   {
     key: 'legal_finance',
+    labelId: 'module.legal_finance',
     label: 'Legal & Finance',
     icon: MdGavel,
     permissions: ['legal_finance.view', 'legal_finance.manage'],
   },
   {
     key: 'admin',
+    labelId: 'module.admin',
     label: 'Management',
     icon: MdAdminPanelSettings,
     permissions: ['admin.access', 'director.view', 'director.manage'],
@@ -39,6 +43,8 @@ export default function MainLayout({ currentUser, onLogout }) {
   // Persisted so a page reload lands back on the same module.
   // Invalid/unpermitted values fall back via `safeActiveModule` below.
   const [activeModule, setActiveModule] = usePersistedState('activeModule', 'it_updates');
+  const branding = useBranding();
+  const label = useLabels();
 
   const user = currentUser;
 
@@ -54,6 +60,9 @@ export default function MainLayout({ currentUser, onLogout }) {
     });
     return filtered.length > 0 ? filtered : MODULES.filter((m) => m.key === 'it_updates');
   }, [userPermissions]);
+
+  // Renames applied after filtering; permissions key off `key`, never the label.
+  const visibleModules = useMemo(() => applyLabels(modulesToShow, label), [modulesToShow, label]);
 
   const safeActiveModule = modulesToShow.some((m) => m.key === activeModule)
     ? activeModule
@@ -97,11 +106,11 @@ export default function MainLayout({ currentUser, onLogout }) {
       <header className="main-layout-header">
         <div className="main-layout-header-left">
           <div className="main-layout-brand">
-            <img src={LOGO_SRC} alt="Seyal" className="main-layout-logo" />
-            <span className="main-layout-brand-name">Seyal</span>
+            <img src={branding.logo} alt={branding.company_name} className="main-layout-logo" />
+            <span className="main-layout-brand-name">{branding.company_name}</span>
           </div>
           <nav className="main-layout-module-nav">
-            {modulesToShow.map((mod) => {
+            {visibleModules.map((mod) => {
               const Icon = mod.icon;
               return (
                 <button

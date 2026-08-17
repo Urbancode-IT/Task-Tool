@@ -49,7 +49,33 @@
 /* ── Layout: editor + preview ── */
 .cb-layout { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 1rem; align-items: start; }
 .cb-editor { display: flex; flex-direction: column; gap: 0.85rem; min-width: 0; }
-.cb-side { display: flex; flex-direction: column; gap: 1rem; position: sticky; top: 0.5rem; }
+/* The whole column pins, and is capped to the viewport so it can never grow taller
+   than its scrollport — a sticky box taller than the scrollport does not stick, it
+   just scrolls away. Anything beyond the cap scrolls inside the column itself, so
+   the preview stays beside the fields being edited for the entire form. */
+/* A pinned, viewport-tall column: a small tab strip, then whichever panel is
+   selected filling the rest. The column never scrolls; the panel scrolls itself. */
+.cb-side {
+  display: flex; flex-direction: column; gap: 0.6rem; min-width: 0;
+  position: sticky; top: 0.5rem;
+  height: calc(100vh - var(--app-header-height, 60px) - 1.5rem);
+  overflow: hidden;
+}
+
+.cb-side-tabs {
+  flex: 0 0 auto; display: grid; grid-template-columns: 1fr 1fr; gap: 0.25rem;
+  padding: 0.25rem; background: var(--cb-bg-soft);
+  border: 1px solid var(--cb-border); border-radius: 10px;
+}
+.cb-side-tab {
+  padding: 0.4rem 0.5rem; border: none; border-radius: 7px; background: transparent;
+  font: inherit; font-size: 0.8rem; font-weight: 600; color: var(--cb-muted); cursor: pointer;
+}
+.cb-side-tab.active { background: var(--cb-bg); color: var(--cb-text); box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08); }
+
+/* Whichever panel is showing fills the column; min-height:0 permits its inner scroll. */
+.cb-side > .cb-preview, .cb-side > .cb-timeline { flex: 1 1 auto; min-height: 0; }
+.cb-preview { overflow-y: auto; }
 
 /* ── Collapsible sections ── */
 .cb-section { background: var(--cb-bg); border: 1px solid var(--cb-border); border-radius: 12px; overflow: hidden; }
@@ -92,17 +118,92 @@
 .cb-value-add { display: flex; gap: 0.5rem; }
 .cb-value-add input { flex: 1; box-sizing: border-box; padding: 0.5rem 0.6rem; border: 1px solid var(--cb-border); border-radius: 8px; font: inherit; }
 
-/* ── Address / signature preview ── */
-.cb-address-preview, .cb-sign-preview { display: flex; flex-direction: column; gap: 0.3rem; }
-.cb-address-preview pre, .cb-sign-preview pre {
-  margin: 0; padding: 0.6rem 0.75rem; background: var(--cb-bg-soft); border: 1px solid var(--cb-border);
-  border-radius: 8px; font: inherit; white-space: pre-wrap; color: var(--cb-text);
-}
 .cb-merge-hint { margin: 0; font-size: 0.76rem; color: var(--cb-muted); }
+/* The coded subject line, shown above each per-mail signature field. */
+.cb-mail-format {
+  margin: 0; font-size: 0.74rem; line-height: 1.4; color: var(--cb-muted);
+  background: var(--cb-bg-soft); border: 1px solid var(--cb-border);
+  border-radius: 7px; padding: 0.35rem 0.5rem;
+}
+.cb-mail-format span {
+  font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em;
+  font-size: 0.64rem; margin-right: 0.35rem;
+}
+
+/* A miniature of the real mail in the preview column. */
+.cb-mail {
+  border: 1px solid var(--cb-border); border-radius: 8px;
+  background: var(--cb-bg-soft); padding: 0.55rem 0.6rem;
+  display: flex; flex-direction: column; gap: 0.3rem;
+}
+.cb-mail-subject {
+  font-size: 0.7rem; color: var(--cb-muted);
+  padding-bottom: 0.3rem; border-bottom: 1px solid var(--cb-border);
+  word-break: break-word;
+}
+.cb-mail-heading { font-size: 0.82rem; font-weight: 700; color: var(--cb-text); }
+.cb-mail-line { margin: 0; font-size: 0.74rem; line-height: 1.45; color: var(--cb-muted); }
+.cb-mail-cta {
+  align-self: flex-start; margin-top: 0.15rem;
+  background: var(--cb-primary, #2563eb); color: #fff;
+  border-radius: 6px; padding: 0.2rem 0.55rem; font-size: 0.7rem; font-weight: 600;
+}
+.cb-mail-sign {
+  margin: 0.35rem 0 0; padding-top: 0.4rem; border-top: 1px solid var(--cb-border);
+  font-family: inherit; font-size: 0.72rem; line-height: 1.45;
+  color: var(--cb-text); white-space: pre-wrap; word-break: break-word;
+}
+
+.cb-sign-divider {
+  margin: 1.4rem 0 0.15rem; padding-top: 1rem; border-top: 1px solid var(--cb-border);
+  font-size: 0.82rem; font-weight: 600; color: var(--cb-text);
+}
+/* One block per audience, separated so the two templates do not read as one. */
+.cb-sign-block { display: flex; flex-direction: column; gap: 0.5rem; margin-top: 1rem; }
+.cb-sign-block + .cb-sign-block { border-top: 1px solid var(--cb-border); padding-top: 1rem; }
 
 /* ── Assets ── */
+/* Text rows inside the single preview card — quiet dividers, no nested boxes. */
+.cb-preview-row {
+  display: flex; flex-direction: column; gap: 0.25rem;
+  padding: 0.7rem 0.9rem; border-top: 1px solid var(--cb-border); text-align: left;
+}
+.cb-preview-row-label {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 0.5rem;
+  font-size: 0.68rem; font-weight: 600; text-transform: uppercase;
+  letter-spacing: 0.04em; color: var(--cb-muted);
+}
+/* Says whether this mail uses its own signature or inherits its audience default. */
+.cb-mail-source {
+  font-style: normal; font-weight: 500; text-transform: none;
+  letter-spacing: 0; font-size: 0.68rem; color: var(--cb-muted); opacity: 0.85;
+  text-align: right; white-space: nowrap;
+}
+.cb-preview-row pre {
+  margin: 0; font-family: inherit; font-size: 0.78rem; line-height: 1.5;
+  color: var(--cb-text); white-space: pre-wrap; word-break: break-word;
+}
+
+.cb-label-group { display: flex; flex-direction: column; gap: 0.2rem; margin-top: 1rem; }
+.cb-label-group .cb-grid-2 { margin-top: 0.45rem; }
+
+.cb-colors-note {
+  margin: 1rem 0 0.6rem;
+  font-size: 0.78rem;
+  line-height: 1.45;
+  color: var(--cb-muted);
+}
+.cb-colors-note strong { color: var(--cb-text); }
+
+.cb-asset-warn {
+  margin: 0 0 0.75rem; padding: 0.55rem 0.7rem;
+  border: 1px solid #fcd34d; border-radius: 8px;
+  background: #fffbeb; color: #92400e; font-size: 0.8rem; line-height: 1.4;
+}
 .cb-assets { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 0.75rem; }
-.cb-asset { display: flex; flex-direction: column; gap: 0.35rem; }
+/* Label, optional hint, then the box — the box keeps its own fixed height. */
+.cb-asset { display: flex; flex-direction: column; gap: 0.2rem; }
+.cb-asset .cb-asset-box { margin-top: 0.15rem; }
 .cb-asset-box {
   position: relative; aspect-ratio: 1; border: 1px dashed var(--cb-border); border-radius: 10px;
   background: var(--cb-bg-soft); display: flex; align-items: center; justify-content: center; overflow: hidden;
@@ -122,7 +223,6 @@
 
 /* ── Live preview ── */
 .cb-preview { background: var(--cb-bg); border: 1px solid var(--cb-border); border-radius: 12px; overflow: hidden; }
-.cb-preview-head { padding: 0.6rem 0.9rem; font-size: 0.78rem; font-weight: 600; color: var(--cb-muted); border-bottom: 1px solid var(--cb-border); }
 .cb-preview-card { padding: 1.1rem; text-align: center; position: relative; }
 .cb-preview-bar { position: absolute; top: 0; left: 0; right: 0; height: 5px; background: var(--cb-primary); }
 .cb-preview-logo {
@@ -133,14 +233,21 @@
 .cb-preview-logo img { width: 100%; height: 100%; object-fit: contain; background: #fff; }
 .cb-preview-name { font-size: 1.15rem; font-weight: 700; color: var(--cb-secondary); }
 .cb-preview-tag { font-size: 0.85rem; color: var(--cb-accent); margin-top: 0.2rem; font-weight: 600; }
-.cb-preview-desc { font-size: 0.8rem; color: var(--cb-muted); margin: 0.6rem 0 0; line-height: 1.45; }
 .cb-preview-swatches { display: flex; justify-content: center; gap: 0.5rem; margin-top: 0.9rem; }
 .cb-preview-swatches span { width: 26px; height: 26px; border-radius: 7px; border: 1px solid rgba(0,0,0,0.1); }
 
 /* ── Timeline ── */
-.cb-timeline { background: var(--cb-bg); border: 1px solid var(--cb-border); border-radius: 12px; padding: 0.85rem 1rem; }
-.cb-timeline-head { display: flex; align-items: center; gap: 0.4rem; font-weight: 600; font-size: 0.85rem; color: var(--cb-text); margin-bottom: 0.6rem; }
-.cb-timeline ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.6rem; max-height: 340px; overflow-y: auto; }
+.cb-timeline {
+  display: flex; flex-direction: column; overflow: hidden;
+  background: var(--cb-bg); border: 1px solid var(--cb-border); border-radius: 12px;
+}
+.cb-timeline-empty { margin: 0; padding: 0.9rem; }
+/* The only scroller in the column; min-height:0 lets it shrink inside the flex card. */
+.cb-timeline ul {
+  list-style: none; margin: 0; padding: 0.75rem 0.9rem;
+  display: flex; flex-direction: column; gap: 0.6rem;
+  flex: 1 1 auto; min-height: 0; overflow-y: auto;
+}
 .cb-timeline li { display: flex; flex-direction: column; gap: 0.1rem; border-left: 2px solid var(--cb-primary, #2563eb); padding-left: 0.6rem; }
 .cb-tl-action { font-size: 0.82rem; font-weight: 600; color: var(--cb-text); }
 .cb-tl-meta { font-size: 0.72rem; color: var(--cb-muted); }
@@ -152,7 +259,10 @@
 /* ── Responsive ── */
 @media (max-width: 980px) {
   .cb-layout { grid-template-columns: 1fr; }
-  .cb-side { position: static; }
+  /* Stacked below the form: nothing to pin, panel sizes to its content. */
+  .cb-side { position: static; height: auto; overflow: visible; }
+  .cb-preview { overflow: visible; }
+  .cb-timeline ul { max-height: 340px; }
 }
 @media (max-width: 620px) {
   .cb-grid-2, .cb-colors { grid-template-columns: 1fr; }

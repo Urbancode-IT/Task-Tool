@@ -219,7 +219,7 @@
   font-weight: 600;
   cursor: pointer;
   background: var(--clr-primary-600);
-  color: #ffffff;
+  color: var(--brand-on, #ffffff);
   position: relative;
   overflow: hidden;
   transition: transform var(--transition-fast), box-shadow var(--transition-fast);
@@ -375,7 +375,7 @@
   font-size: 0.74rem;
   font-weight: 700;
   letter-spacing: 0.02em;
-  color: #0054c4;
+  color: var(--clr-primary-600, #0054c4);
   background: #eef0ff;
 }
 

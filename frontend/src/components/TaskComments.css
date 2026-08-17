@@ -209,22 +209,22 @@
 }
 
 .tc-link-input:focus {
-  border-color: #0054c4;
+  border-color: var(--clr-primary-600, #0054c4);
 }
 
 .tc-link-add {
   padding: 0.4rem 0.7rem;
   border: none;
   border-radius: 6px;
-  background: #0054c4;
-  color: #fff;
+  background: var(--clr-primary-600, #0054c4);
+  color: var(--brand-on, #fff);
   font-size: 0.82rem;
   font-weight: 600;
   cursor: pointer;
 }
 
 .tc-link-add:hover {
-  background: #00429b;
+  background: var(--clr-primary-700, #00429b);
 }
 
 .tc-color-menu {

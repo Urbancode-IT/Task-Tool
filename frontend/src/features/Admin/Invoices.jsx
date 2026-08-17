@@ -1,8 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { MdAdd, MdArrowBack, MdPrint, MdDelete, MdEdit, MdContentCopy } from 'react-icons/md';
+import { MdAdd, MdArrowBack, MdPrint, MdDelete, MdEdit, MdContentCopy, MdWarning } from 'react-icons/md';
 import adminApi from '../../api/adminApi';
 import { toastSuccess, toastError } from '../../utils/toast';
 import { confirmDialog } from '../../utils/confirm';
+import { amountInWords } from '../../utils/amountInWords';
+import { formatPlaceOfSupply } from '../../utils/gstStates';
+import { BRANDING_EVENT } from '../../branding/BrandingContext';
 import './Invoices.css';
 
 const CURRENCY_SYMBOL = { INR: '₹', USD: '$', EUR: '€', GBP: '£', AED: 'AED ' };
@@ -12,7 +15,49 @@ const money = (amount, currency = 'INR') => {
   return `${sym}${n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 };
 
-const blankItem = () => ({ description: '', hsn_sac: '', qty: 1, rate: 0 });
+const qty2 = (v) => (Number(v) || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+// Bare number, no symbol — the document's table and totals carry the currency in the header.
+const plain = (amount) =>
+  (Number(amount) || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const fmtDate = (d) => {
+  if (!d) return '—';
+  const dt = new Date(d);
+  if (Number.isNaN(dt.getTime())) return String(d);
+  const p = (n) => String(n).padStart(2, '0');
+  return `${p(dt.getDate())}/${p(dt.getMonth() + 1)}/${dt.getFullYear()}`;
+};
+
+// SAC 998314 — "IT design and development services" — covers the web build work we bill for.
+const DEFAULT_SAC = '998314';
+// Suggestions only; every field stays free-text so one-off engagements are still billable.
+const SERVICE_SUGGESTIONS = [
+  'Website design & development',
+  'Landing page design & development',
+  'E-commerce store development',
+  'Web application development',
+  'UI/UX design',
+  'Frontend development',
+  'Backend / API development',
+  'CMS setup & content migration',
+  'Website redesign / revamp',
+  'Responsive & cross-browser fixes',
+  'Third-party / payment gateway integration',
+  'Website maintenance & support (monthly retainer)',
+  'Bug fixing & change requests (hourly)',
+  'Domain & hosting setup',
+  'SEO setup & performance optimisation',
+  'Technical consulting (hourly)',
+];
+const SAC_SUGGESTIONS = [
+  { code: '998314', label: 'IT design & development services' },
+  { code: '998313', label: 'IT consulting & support services' },
+  { code: '998315', label: 'Hosting & IT infrastructure provisioning' },
+  { code: '998316', label: 'IT infrastructure & network management' },
+  { code: '998319', label: 'Other IT services' },
+  { code: '998361', label: 'Advertising services' },
+];
+
+const blankItem = () => ({ description: '', hsn_sac: DEFAULT_SAC, qty: 1, rate: 0 });
 const emptyInvoice = () => ({
   invoice_number: '',
   invoice_date: new Date().toISOString().slice(0, 10),
@@ -28,13 +73,51 @@ const emptyInvoice = () => ({
   status: 'draft',
 });
 
+const lineGross = (it) => (Number(it?.qty) || 0) * (Number(it?.rate) || 0);
+
+/**
+ * The company seal and the director's signature are mandatory on an issued invoice.
+ * Mirrors the server's blockedForSignoff guard — either signature asset will do.
+ */
+function signoffAssets(company) {
+  const a = company?.assets || {};
+  return { seal: a.seal || '', sign: a.digital_signature || a.signature || '' };
+}
+function missingSignoff(company) {
+  const { seal, sign } = signoffAssets(company);
+  const missing = [];
+  if (!seal) missing.push('company seal');
+  if (!sign) missing.push('director signature');
+  return missing;
+}
+const signoffMessage = (missing) =>
+  `Upload the ${missing.join(' and ')} under Company Branding → Visual Identity before issuing this invoice.`;
+
 // Money math — mirrors the server's computeInvoiceTotals.
 function computeTotals(inv) {
-  const raw = (inv.items || []).reduce((s, it) => s + (Number(it.qty) || 0) * (Number(it.rate) || 0), 0);
+  const raw = (inv.items || []).reduce((s, it) => s + lineGross(it), 0);
   const subtotal = Math.max(0, raw - (Number(inv.discount) || 0));
   const taxTotal = +(subtotal * ((Number(inv.gst_rate) || 0) / 100)).toFixed(2);
   const half = +(taxTotal / 2).toFixed(2);
   return { subtotal: +subtotal.toFixed(2), taxTotal, half, total: +(subtotal + taxTotal).toFixed(2) };
+}
+
+/**
+ * Per-line taxable value and tax for the document's CGST/SGST/IGST columns.
+ * GST is held at invoice level, so the invoice-level discount is spread across the
+ * lines in proportion to their value; the columns then reconcile with the summary.
+ */
+function computeLines(inv) {
+  const items = inv.items || [];
+  const rate = Number(inv.gst_rate) || 0;
+  const gross = items.reduce((s, it) => s + lineGross(it), 0);
+  const discount = Math.min(Math.max(0, Number(inv.discount) || 0), gross);
+  return items.map((it) => {
+    const amount = lineGross(it);
+    const taxable = gross > 0 ? amount - (amount / gross) * discount : 0;
+    const tax = +(taxable * (rate / 100)).toFixed(2);
+    return { ...it, taxable: +taxable.toFixed(2), tax, half: +(tax / 2).toFixed(2) };
+  });
 }
 
 export default function Invoices() {
@@ -54,10 +137,21 @@ export default function Invoices() {
       .finally(() => setLoading(false));
   }, []);
 
+  const loadCompany = useCallback(() => {
+    adminApi.getCompanyProfile().then((r) => setCompany(r.data?.data || {})).catch(() => {});
+  }, []);
+
   useEffect(() => {
     loadInvoices();
-    adminApi.getCompanyProfile().then((r) => setCompany(r.data?.data || {})).catch(() => {});
-  }, [loadInvoices]);
+    loadCompany();
+  }, [loadInvoices, loadCompany]);
+
+  // The invoice carries the full profile — address, GST, bank, seal, signature — so
+  // it must refetch when branding is republished, not print a stale letterhead.
+  useEffect(() => {
+    window.addEventListener(BRANDING_EVENT, loadCompany);
+    return () => window.removeEventListener(BRANDING_EVENT, loadCompany);
+  }, [loadCompany]);
 
   const startNew = async () => {
     const inv = emptyInvoice();
@@ -83,11 +177,19 @@ export default function Invoices() {
     }
   };
 
-  const openPrint = (inv) => { setPrintInv(inv); setMode('print'); };
+  // Blank until the profile call returns, so it cannot block on a not-yet-loaded profile.
+  const missingAssets = useMemo(() => (company.assets ? missingSignoff(company) : []), [company]);
+
+  const openPrint = (inv) => {
+    if (missingAssets.length) return toastError(signoffMessage(missingAssets));
+    setPrintInv(inv);
+    setMode('print');
+  };
 
   const save = async () => {
     if (!draft.client_name?.trim()) return toastError('Client name is required.');
     if (!(draft.items || []).some((it) => it.description?.trim())) return toastError('Add at least one line item.');
+    if (draft.status !== 'draft' && missingAssets.length) return toastError(signoffMessage(missingAssets));
     setSaving(true);
     try {
       const saved = draft.invoice_id
@@ -106,6 +208,8 @@ export default function Invoices() {
   };
 
   const saveAndPrint = async () => {
+    // Checked before saving so the user is not left mid-flow with nothing printed.
+    if (missingAssets.length) return toastError(signoffMessage(missingAssets));
     const saved = await save();
     if (saved) openPrint(saved);
   };
@@ -120,6 +224,7 @@ export default function Invoices() {
         draft={draft}
         setDraft={setDraft}
         saving={saving}
+        missingAssets={missingAssets}
         onCancel={() => { setDraft(null); setMode('list'); }}
         onSave={save}
         onSaveAndPrint={saveAndPrint}
@@ -169,7 +274,8 @@ export default function Invoices() {
   );
 }
 
-function InvoiceEditor({ draft, setDraft, saving, onCancel, onSave, onSaveAndPrint }) {
+function InvoiceEditor({ draft, setDraft, saving, missingAssets = [], onCancel, onSave, onSaveAndPrint }) {
+  const blocked = missingAssets.length > 0;
   const set = (k, v) => setDraft((d) => ({ ...d, [k]: v }));
   const setItem = (i, k, v) => setDraft((d) => ({ ...d, items: d.items.map((it, idx) => (idx === i ? { ...it, [k]: v } : it)) }));
   const addItem = () => setDraft((d) => ({ ...d, items: [...d.items, blankItem()] }));
@@ -186,11 +292,18 @@ function InvoiceEditor({ draft, setDraft, saving, onCancel, onSave, onSaveAndPri
           <button type="button" className="admin-btn admin-btn-secondary" onClick={onSave} disabled={saving}>
             {saving ? 'Saving…' : 'Save'}
           </button>
-          <button type="button" className="admin-btn admin-btn-primary" onClick={onSaveAndPrint} disabled={saving}>
+          <button type="button" className="admin-btn admin-btn-primary" onClick={onSaveAndPrint} disabled={saving || blocked} title={blocked ? signoffMessage(missingAssets) : undefined}>
             <MdPrint size={16} /> Save & Print
           </button>
         </div>
       </div>
+
+      {blocked && (
+        <div className="inv-signoff-warn" role="alert">
+          <MdWarning size={18} />
+          <span>{signoffMessage(missingAssets)} The invoice can be saved as a draft, but it cannot be issued or printed without them.</span>
+        </div>
+      )}
 
       <div className="inv-form-grid">
         <label>Invoice #<input value={draft.invoice_number} onChange={(e) => set('invoice_number', e.target.value)} /></label>
@@ -219,8 +332,8 @@ function InvoiceEditor({ draft, setDraft, saving, onCancel, onSave, onSaveAndPri
         </div>
         {draft.items.map((it, i) => (
           <div className="inv-item-row" key={i}>
-            <input value={it.description} onChange={(e) => setItem(i, 'description', e.target.value)} placeholder="Item / service" />
-            <input value={it.hsn_sac} onChange={(e) => setItem(i, 'hsn_sac', e.target.value)} />
+            <input list="inv-service-list" value={it.description} onChange={(e) => setItem(i, 'description', e.target.value)} placeholder="e.g. Website design & development" />
+            <input list="inv-sac-list" value={it.hsn_sac} onChange={(e) => setItem(i, 'hsn_sac', e.target.value)} placeholder={DEFAULT_SAC} />
             <input className="inv-num" type="number" min="0" value={it.qty} onChange={(e) => setItem(i, 'qty', e.target.value)} />
             <input className="inv-num" type="number" min="0" step="0.01" value={it.rate} onChange={(e) => setItem(i, 'rate', e.target.value)} />
             <span className="inv-num inv-amount">{money((Number(it.qty) || 0) * (Number(it.rate) || 0), draft.currency)}</span>
@@ -229,6 +342,13 @@ function InvoiceEditor({ draft, setDraft, saving, onCancel, onSave, onSaveAndPri
         ))}
         <button type="button" className="admin-btn admin-btn-secondary inv-add-item" onClick={addItem}><MdAdd size={16} /> Add item</button>
       </div>
+      {/* Kept outside .inv-items so the option lists never become grid/flex children. */}
+      <datalist id="inv-service-list">
+        {SERVICE_SUGGESTIONS.map((s) => <option key={s} value={s} />)}
+      </datalist>
+      <datalist id="inv-sac-list">
+        {SAC_SUGGESTIONS.map((s) => <option key={s.code} value={s.code}>{s.label}</option>)}
+      </datalist>
 
       <div className="inv-bottom">
         <div className="inv-bottom-left">
@@ -264,14 +384,27 @@ function InvoiceEditor({ draft, setDraft, saving, onCancel, onSave, onSaveAndPri
 
 function InvoicePrint({ invoice, company, onBack }) {
   const t = computeTotals(invoice);
+  const lines = computeLines(invoice);
   const c = company || {};
   const addr = c.address || {};
   const contact = c.contact || {};
   const comp = c.compliance || {};
   const bank = c.bank || {};
   const assets = c.assets || {};
+  const signoff = signoffAssets(c);
+  const sellerName = c.legal_name || c.company_name || 'Your Company';
+  const cur = invoice.currency || 'INR';
   const companyAddress = [addr.line1, addr.line2, [addr.city, addr.state].filter(Boolean).join(', '), [addr.country, addr.postal_code].filter(Boolean).join(' ')]
     .filter((x) => x && String(x).trim());
+
+  const gstRate = Number(invoice.gst_rate) || 0;
+  const halfRate = gstRate / 2;
+  const interState = !!invoice.is_inter_state;
+  // Under GST the document is a "tax invoice" only when tax is actually charged.
+  const title = gstRate > 0 ? 'TAX INVOICE' : 'INVOICE';
+  const balanceDue = invoice.status === 'paid' ? 0 : t.total;
+  const taxCols = interState ? 1 : 2;
+  const hasBank = bank.account_name || bank.bank_name || bank.account_number;
 
   return (
     <div className="inv-print-root">
@@ -281,97 +414,174 @@ function InvoicePrint({ invoice, company, onBack }) {
       </div>
 
       <div className="inv-print">
-        <header className="inv-print-head">
-          <div className="inv-print-company">
-            {assets.logo ? <img src={assets.logo} alt="Logo" className="inv-print-logo" /> : null}
-            <div>
-              <div className="inv-print-cname">{c.company_name || 'Your Company'}</div>
-              {c.legal_name && <div className="inv-print-legal">{c.legal_name}</div>}
-              {companyAddress.map((l, i) => <div key={i} className="inv-print-cline">{l}</div>)}
-              {contact.official_email && <div className="inv-print-cline">{contact.official_email}</div>}
-              {contact.contact_number && <div className="inv-print-cline">{contact.contact_number}</div>}
-              {comp.gst && <div className="inv-print-cline">GSTIN: {comp.gst}</div>}
-              {comp.pan && <div className="inv-print-cline">PAN: {comp.pan}</div>}
-            </div>
+        <header className="inv-doc-head">
+          <div className="inv-doc-brand">
+            {assets.logo ? <img src={assets.logo} alt="" className="inv-doc-logo" /> : null}
+            {c.tagline && <div className="inv-doc-tagline">{c.tagline}</div>}
           </div>
-          <div className="inv-print-title">
-            <h1>INVOICE</h1>
-            <div className="inv-print-meta"><span>Invoice #</span><strong>{invoice.invoice_number}</strong></div>
-            <div className="inv-print-meta"><span>Date</span><strong>{invoice.invoice_date || '—'}</strong></div>
-            {invoice.due_date && <div className="inv-print-meta"><span>Due</span><strong>{invoice.due_date}</strong></div>}
+          <div className="inv-doc-title">
+            <h1>{title}</h1>
+            <div className="inv-doc-number"># {invoice.invoice_number}</div>
           </div>
         </header>
 
-        <section className="inv-print-billto">
-          <div className="inv-print-billto-label">Bill To</div>
-          <div className="inv-print-billto-name">{invoice.client_name}</div>
-          {invoice.client_address && <div className="inv-print-cline" style={{ whiteSpace: 'pre-wrap' }}>{invoice.client_address}</div>}
-          {invoice.client_email && <div className="inv-print-cline">{invoice.client_email}</div>}
-          {invoice.client_gst && <div className="inv-print-cline">GSTIN: {invoice.client_gst}</div>}
-          {invoice.place_of_supply && <div className="inv-print-cline">Place of supply: {invoice.place_of_supply}</div>}
-        </section>
-
-        <table className="inv-print-table">
-          <thead>
-            <tr><th>#</th><th>Description</th><th>HSN/SAC</th><th className="inv-num">Qty</th><th className="inv-num">Rate</th><th className="inv-num">Amount</th></tr>
-          </thead>
-          <tbody>
-            {(invoice.items || []).map((it, i) => (
-              <tr key={i}>
-                <td>{i + 1}</td>
-                <td>{it.description}</td>
-                <td>{it.hsn_sac}</td>
-                <td className="inv-num">{it.qty}</td>
-                <td className="inv-num">{money(it.rate, invoice.currency)}</td>
-                <td className="inv-num">{money((Number(it.qty) || 0) * (Number(it.rate) || 0), invoice.currency)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-
-        <div className="inv-print-summary">
-          <div className="inv-print-notes">
-            {invoice.notes && <><div className="inv-print-billto-label">Notes</div><p>{invoice.notes}</p></>}
-            {invoice.terms && <><div className="inv-print-billto-label">Terms</div><p>{invoice.terms}</p></>}
-            {(bank.account_name || bank.bank_name || bank.account_number) && (
-              <div className="inv-print-bank">
-                <div className="inv-print-billto-label">Bank Details</div>
-                {bank.account_name && <div className="inv-print-cline">Account Name: {bank.account_name}</div>}
-                {bank.bank_name && <div className="inv-print-cline">Bank: {bank.bank_name}</div>}
-                {bank.account_number && <div className="inv-print-cline">A/C: {bank.account_number}</div>}
-                {bank.branch && <div className="inv-print-cline">Branch: {bank.branch}</div>}
-                {bank.ifsc && <div className="inv-print-cline">IFSC: {bank.ifsc}</div>}
-                {bank.swift && <div className="inv-print-cline">SWIFT: {bank.swift}</div>}
-              </div>
-            )}
-          </div>
-          <div className="inv-print-totals">
-            <div className="inv-total-line"><span>Subtotal</span><span>{money(t.subtotal, invoice.currency)}</span></div>
-            {Number(invoice.discount) > 0 && <div className="inv-total-line"><span>Discount</span><span>-{money(invoice.discount, invoice.currency)}</span></div>}
-            {invoice.is_inter_state ? (
-              <div className="inv-total-line"><span>IGST ({invoice.gst_rate}%)</span><span>{money(t.taxTotal, invoice.currency)}</span></div>
-            ) : (
-              <>
-                <div className="inv-total-line"><span>CGST ({(Number(invoice.gst_rate) || 0) / 2}%)</span><span>{money(t.half, invoice.currency)}</span></div>
-                <div className="inv-total-line"><span>SGST ({(Number(invoice.gst_rate) || 0) / 2}%)</span><span>{money(t.half, invoice.currency)}</span></div>
-              </>
-            )}
-            <div className="inv-total-line inv-grand"><span>Total</span><span>{money(t.total, invoice.currency)}</span></div>
+        <div className="inv-doc-top">
+          <address className="inv-doc-seller">
+            <span className="inv-doc-seller-name">{sellerName}</span>
+            {companyAddress.map((l, i) => <span key={i}>{l}</span>)}
+            {comp.gst && <span>GSTIN {comp.gst}</span>}
+            {comp.pan && <span>PAN {comp.pan}</span>}
+            {contact.official_email && <span>{contact.official_email}</span>}
+            {contact.contact_number && <span>{contact.contact_number}</span>}
+          </address>
+          <div className="inv-doc-balance">
+            <div className="inv-doc-balance-label">Balance Due</div>
+            <div className="inv-doc-balance-value">{money(balanceDue, cur)}</div>
           </div>
         </div>
 
-        {(assets.signature || assets.digital_signature || assets.seal) && (
-          <div className="inv-print-signoff">
-            {assets.seal && <img src={assets.seal} alt="Seal" className="inv-print-seal" />}
-            <div className="inv-print-sign">
-              {(assets.digital_signature || assets.signature) && (
-                <img src={assets.digital_signature || assets.signature} alt="Signature" className="inv-print-sig" />
+        <div className="inv-doc-parties">
+          <address className="inv-doc-client">
+            <span className="inv-doc-client-name">{invoice.client_name}</span>
+            {invoice.client_address && <span className="inv-doc-preline">{invoice.client_address}</span>}
+            {invoice.client_email && <span>{invoice.client_email}</span>}
+            {invoice.client_gst && <span>GSTIN {invoice.client_gst}</span>}
+          </address>
+          <dl className="inv-doc-meta">
+            <div className="inv-doc-meta-row"><dt>Invoice Date :</dt><dd>{fmtDate(invoice.invoice_date)}</dd></div>
+            {invoice.terms && <div className="inv-doc-meta-row"><dt>Terms :</dt><dd>{invoice.terms}</dd></div>}
+            {invoice.due_date && <div className="inv-doc-meta-row"><dt>Due Date :</dt><dd>{fmtDate(invoice.due_date)}</dd></div>}
+          </dl>
+        </div>
+
+        {invoice.place_of_supply && (
+          <div className="inv-doc-pos">Place Of Supply : {formatPlaceOfSupply(invoice.place_of_supply)}</div>
+        )}
+
+        <table className="inv-doc-table">
+          <thead>
+            <tr>
+              <th className="inv-doc-c-idx">#</th>
+              <th>Description</th>
+              <th className="inv-doc-c-hsn">HSN/SAC</th>
+              <th className="inv-num">Qty</th>
+              <th className="inv-num">Rate</th>
+              {interState ? (
+                <th className="inv-num">IGST</th>
+              ) : (
+                <>
+                  <th className="inv-num">CGST</th>
+                  <th className="inv-num">SGST</th>
+                </>
               )}
-              <div className="inv-print-sign-label">Authorized Signatory</div>
-              <div className="inv-print-cline">{c.company_name || ''}</div>
-            </div>
+              <th className="inv-num">Amount</th>
+            </tr>
+          </thead>
+          <tbody>
+            {lines.map((l, i) => (
+              <tr key={i}>
+                <td className="inv-doc-c-idx">{i + 1}</td>
+                <td className="inv-doc-desc">{l.description}</td>
+                <td className="inv-doc-c-hsn">{l.hsn_sac || ''}</td>
+                <td className="inv-num">{qty2(l.qty)}</td>
+                <td className="inv-num">{plain(l.rate)}</td>
+                {interState ? (
+                  <td className="inv-num">{plain(l.tax)}<span className="inv-doc-taxpct">{gstRate}%</span></td>
+                ) : (
+                  <>
+                    <td className="inv-num">{plain(l.half)}<span className="inv-doc-taxpct">{halfRate}%</span></td>
+                    <td className="inv-num">{plain(l.half)}<span className="inv-doc-taxpct">{halfRate}%</span></td>
+                  </>
+                )}
+                <td className="inv-num">{plain(l.taxable)}</td>
+              </tr>
+            ))}
+          </tbody>
+          <tfoot>
+            <tr>
+              <td className="inv-doc-sum-gap" colSpan={4 + taxCols} />
+              <th className="inv-doc-sum-label">Sub Total</th>
+              <td className="inv-num">{plain(t.subtotal)}</td>
+            </tr>
+            {Number(invoice.discount) > 0 && (
+              <tr>
+                <td className="inv-doc-sum-gap" colSpan={4 + taxCols} />
+                <th className="inv-doc-sum-label">Discount</th>
+                <td className="inv-num">-{plain(invoice.discount)}</td>
+              </tr>
+            )}
+            {interState ? (
+              <tr>
+                <td className="inv-doc-sum-gap" colSpan={4 + taxCols} />
+                <th className="inv-doc-sum-label">IGST ({gstRate}%)</th>
+                <td className="inv-num">{plain(t.taxTotal)}</td>
+              </tr>
+            ) : (
+              <>
+                <tr>
+                  <td className="inv-doc-sum-gap" colSpan={4 + taxCols} />
+                  <th className="inv-doc-sum-label">CGST ({halfRate}%)</th>
+                  <td className="inv-num">{plain(t.half)}</td>
+                </tr>
+                <tr>
+                  <td className="inv-doc-sum-gap" colSpan={4 + taxCols} />
+                  <th className="inv-doc-sum-label">SGST ({halfRate}%)</th>
+                  <td className="inv-num">{plain(t.half)}</td>
+                </tr>
+              </>
+            )}
+            <tr className="inv-doc-sum-total">
+              <td className="inv-doc-sum-gap" colSpan={4 + taxCols} />
+              <th className="inv-doc-sum-label">Total</th>
+              <td className="inv-num">{money(t.total, cur)}</td>
+            </tr>
+            <tr className="inv-doc-sum-due">
+              <td className="inv-doc-sum-gap" colSpan={4 + taxCols} />
+              <th className="inv-doc-sum-label">Balance Due</th>
+              <td className="inv-num">{money(balanceDue, cur)}</td>
+            </tr>
+          </tfoot>
+        </table>
+
+        <div className="inv-doc-words">
+          <span className="inv-doc-words-label">Total In Words :</span>
+          <em className="inv-doc-words-value">{amountInWords(t.total, cur)}</em>
+        </div>
+
+        {(invoice.notes || hasBank) && (
+          <div className="inv-doc-extra">
+            {invoice.notes && (
+              <div className="inv-doc-block">
+                <div className="inv-doc-block-label">Notes</div>
+                <p className="inv-doc-preline">{invoice.notes}</p>
+              </div>
+            )}
+            {hasBank && (
+              <div className="inv-doc-block">
+                <div className="inv-doc-block-label">Bank Details</div>
+                {bank.account_name && <div>Account Name: {bank.account_name}</div>}
+                {bank.bank_name && <div>Bank: {bank.bank_name}</div>}
+                {bank.account_number && <div>A/C: {bank.account_number}</div>}
+                {bank.branch && <div>Branch: {bank.branch}</div>}
+                {bank.ifsc && <div>IFSC: {bank.ifsc}</div>}
+                {bank.swift && <div>SWIFT: {bank.swift}</div>}
+              </div>
+            )}
           </div>
         )}
+
+        <div className="inv-doc-thanks">Thanks for your business.</div>
+
+        <div className="inv-doc-signoff">
+          {signoff.seal && <img src={signoff.seal} alt="Company seal" className="inv-doc-seal" />}
+          <div className="inv-doc-sign">
+            {signoff.sign && <img src={signoff.sign} alt="Director signature" className="inv-doc-sig" />}
+            <div className="inv-doc-sign-label">
+              <span className="inv-doc-sign-for">For {sellerName}</span>
+              <span className="inv-doc-sign-role">Director</span>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );

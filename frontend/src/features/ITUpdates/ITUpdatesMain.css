@@ -306,7 +306,7 @@
   height: 15px;
   border-radius: var(--radius-full);
   background: var(--clr-primary-600);
-  color: #ffffff;
+  color: var(--brand-on, #ffffff);
   border: 2px solid #ffffff;
   opacity: 0;
   transition: opacity var(--transition-fast);
@@ -450,7 +450,7 @@
 
 .it-updates-btn-primary {
   background: var(--clr-primary-600);
-  color: #ffffff;
+  color: var(--brand-on, #ffffff);
   box-shadow: 0 2px 8px rgba(0, 84, 196, 0.3);
 }
 
@@ -707,7 +707,7 @@
 .it-updates-team-filter-btn.active {
   background: var(--clr-primary-600);
   border-color: transparent;
-  color: #fff;
+  color: var(--brand-on, #fff);
 }
 
 /* ─── Dashboard Project Grid ─── */
@@ -2963,7 +2963,7 @@
   border: none;
   border-radius: 50%;
   background: var(--clr-primary-500, #0054c4);
-  color: #fff;
+  color: var(--brand-on, #fff);
   cursor: pointer;
   flex-shrink: 0;
   transition: background var(--transition-fast);
@@ -3404,7 +3404,7 @@
 
 .req-manual-save {
   background: var(--clr-primary-600);
-  color: #fff;
+  color: var(--brand-on, #fff);
 }
 
 .req-manual-save:hover:not(:disabled) {

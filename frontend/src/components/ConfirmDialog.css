@@ -29,7 +29,7 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  color: #0054c4;
+  color: var(--clr-primary-600, #0054c4);
   background: rgba(0, 84, 196, 0.12);
 }
 
@@ -81,12 +81,12 @@
 }
 
 .confirm-btn-primary {
-  background: #0054c4;
-  color: #ffffff;
+  background: var(--clr-primary-600, #0054c4);
+  color: var(--brand-on, #ffffff);
 }
 
 .confirm-btn-primary:hover {
-  background: #00429b;
+  background: var(--clr-primary-700, #00429b);
 }
 
 .confirm-btn-danger {
@@ -99,7 +99,7 @@
 }
 
 .confirm-btn:focus-visible {
-  outline: 2px solid #0054c4;
+  outline: 2px solid var(--clr-primary-600, #0054c4);
   outline-offset: 2px;
 }
 

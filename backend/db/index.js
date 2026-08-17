@@ -3386,6 +3386,56 @@ export async function dbGetUsersMissingEod(dateStr, { itOnly = false } = {}) {
   }
 }
 
+/**
+ * Lock every user who failed to file an EOD report for `dueDay`, in one sweep.
+ *
+ * dbGetUserEodLockState only locks a user when their own session is resolved, so a
+ * defaulter who never logs in never appears in the admin locked-users list. This
+ * applies the same rules eagerly at the day boundary: same population (active,
+ * non-admin), same exemptions (already locked, account newer than the day, admin-
+ * excused through the day, a report filed, or on leave that day).
+ *
+ * Existing locks are left untouched so their original lock date is preserved.
+ * @param {string} dueDay 'YYYY-MM-DD' — the working day that has just closed.
+ * @returns {Promise<Array<{user_id:number, username:string, email:string}>>} newly locked
+ */
+export async function dbLockEodDefaulters(dueDay) {
+  const p = getPool();
+  if (!p || !dueDay) return [];
+  try {
+    const { rows } = await p.query(
+      `UPDATE users u
+          SET eod_locked = true,
+              eod_lock_date = $1::date
+        WHERE COALESCE(u.is_active, true) = true
+          AND COALESCE(u.eod_locked, false) = false
+          AND u.created_at::date <= $1::date
+          AND (u.eod_excused_through IS NULL OR u.eod_excused_through < $1::date)
+          AND u.user_id NOT IN (
+                SELECT ur.user_id
+                  FROM user_roles ur
+                  JOIN role_permissions rp ON rp.role_id = ur.role_id
+                  JOIN permissions pm      ON pm.permission_id = rp.permission_id
+                 WHERE pm.code = 'admin.access'
+              )
+          AND NOT EXISTS (
+                SELECT 1 FROM eod_reports e
+                 WHERE e.user_id = u.user_id AND e.report_date = $1::date
+              )
+          AND NOT EXISTS (
+                SELECT 1 FROM member_leaves ml
+                 WHERE ml.user_id = u.user_id AND ml.leave_date = $1::date
+              )
+        RETURNING u.user_id, u.username, u.email`,
+      [dueDay]
+    );
+    return rows;
+  } catch (err) {
+    console.error('dbLockEodDefaulters:', err.message);
+    return [];
+  }
+}
+
 /** Users currently locked for a missing EOD report. */
 export async function dbGetLockedEodUsers() {
   const p = getPool();

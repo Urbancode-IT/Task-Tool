@@ -12,6 +12,13 @@
 //   EOD_REMINDER_TIMES     (default '17:30,19:30', comma-separated HH:MM) — member nudges
 //   EOD_REMINDER_SCOPE     ('all' default, or 'it' to remind IT members only)
 //   APP_URL                (optional link in the email)
+//
+// A third job runs at the day boundary:
+//   3. Midnight lock (default 00:00) — lock everyone who missed the working day that
+//      just closed and email the list to admins. Runs for each working day Mon–Sat;
+//      the run at Monday 00:00 is skipped because the day it would cover is Sunday.
+//   EOD_LOCK_HOUR / EOD_LOCK_MINUTE  (default 0 / 0)
+//   EOD_LOCK_REPORT_ROLES            (default 'director,admin')
 
 import { sendMail, isMailConfigured, renderEmail } from './mailer.js';
 
@@ -109,8 +116,10 @@ async function runReport(db) {
     heading: `EOD not submitted — ${dateStr}`,
     contentHtml,
     ctaUrl: process.env.APP_URL || '',
-    ctaLabel: 'Open Seyal',
+    // Label omitted so it follows the configured company name.
     preheader: `${missing.length} IT member(s) missing their EOD report for ${dateStr}.`,
+    audience: 'admin',
+    mailType: 'eod_pending_report',
   });
 
   const ok = await sendMail({
@@ -187,6 +196,8 @@ function reminderHtml({ username, dateStr, label }) {
     ctaUrl: process.env.APP_URL || '',
     ctaLabel: 'Submit EOD report',
     preheader: `Your EOD report for ${dateStr} is still pending.`,
+    audience: 'member',
+    mailType: 'eod_reminder',
   });
 }
 
@@ -266,6 +277,133 @@ export function startEodMemberReminders(db) {
     }, next.delay).unref?.();
   };
 
+  schedule();
+}
+
+/* ─────────────── Midnight enforcement: lock defaulters + report ─────────────── */
+
+const LOCK_HOUR = Number(process.env.EOD_LOCK_HOUR ?? 0);
+const LOCK_MINUTE = Number(process.env.EOD_LOCK_MINUTE ?? 0);
+// Recipients of the defaulters list. Any role code that does not exist resolves to
+// nobody, so listing both is safe on installs that only use one of them.
+const LOCK_REPORT_ROLES = String(process.env.EOD_LOCK_REPORT_ROLES ?? 'director,admin')
+  .split(',').map((s) => s.trim()).filter(Boolean);
+
+function msUntilNextLockRun() {
+  const now = eodNow();
+  const next = new Date(now);
+  next.setUTCHours(LOCK_HOUR, LOCK_MINUTE, 0, 0);
+  if (next <= now) next.setUTCDate(next.getUTCDate() + 1);
+  return Math.max(1000, next.getTime() - now.getTime());
+}
+
+/**
+ * The working day that just closed, as of the moment this fires.
+ *
+ * At 00:00 on day D the day that ended is D-1. Sunday is the only non-working day,
+ * so the run that would cover a Sunday (the one at Monday 00:00) is skipped. Every
+ * working day Mon–Sat is therefore enforced exactly once, the midnight after it ends.
+ * @returns {string|null} 'YYYY-MM-DD', or null when the closed day was not a working day
+ */
+function closedWorkingDay() {
+  const d = eodNow();
+  d.setUTCDate(d.getUTCDate() - 1);
+  if (d.getUTCDay() === 0) return null; // Sunday — nothing was due
+  return d.toISOString().slice(0, 10);
+}
+
+async function runMidnightLock(db) {
+  const dueDay = closedWorkingDay();
+  if (!dueDay) {
+    console.log('[eodLock] the day that just closed was a Sunday — nothing to enforce.');
+    return;
+  }
+
+  let locked = [];
+  try {
+    locked = await db.dbLockEodDefaulters(dueDay);
+  } catch (err) {
+    console.error('[eodLock] lock sweep failed:', err.message);
+    return;
+  }
+
+  if (!locked.length) {
+    console.log(`[eodLock] ${dueDay}: no new defaulters to lock.`);
+    return;
+  }
+  console.log(`[eodLock] ${dueDay}: locked ${locked.length} defaulter(s): ${locked.map((u) => u.username).join(', ')}`);
+
+  // The lock is the point of this job; the email is a notification on top of it, so a
+  // missing mail configuration must not stop anyone from being locked.
+  if (!isMailConfigured()) {
+    console.warn('[eodLock] Gmail not configured; defaulters were locked but no email was sent.');
+    return;
+  }
+
+  let recipients = [];
+  try {
+    const groups = await Promise.all(LOCK_REPORT_ROLES.map((code) => db.dbGetUsersByRoleCode(code)));
+    recipients = [...new Set(groups.flat().map((u) => u.email).filter(Boolean))];
+  } catch (err) {
+    console.error('[eodLock] failed to resolve recipients:', err.message);
+    return;
+  }
+  if (!recipients.length) {
+    console.warn(`[eodLock] no ${LOCK_REPORT_ROLES.join('/')} with an email address; skipping the report.`);
+    return;
+  }
+
+  const rows = locked
+    .map((u) => `<li style="margin:0 0 6px;"><strong>${escapeHtml(u.username)}</strong>${u.email ? ` — ${escapeHtml(u.email)}` : ''}</li>`)
+    .join('');
+
+  const html = renderEmail({
+    heading: `EOD defaulters locked — ${dueDay}`,
+    contentHtml:
+      `<p style="margin:0 0 16px;">These members did not file an EOD report for <strong>${dueDay}</strong>. Their accounts have been locked and they cannot sign in until an admin revokes the lock.</p>` +
+      `<ul style="margin:0;padding-left:20px;">${rows}</ul>` +
+      `<p style="margin:16px 0 0;color:#94a3b8;font-size:12px;">Total locked: ${locked.length}. This is an automated action taken at the day boundary.</p>`,
+    ctaUrl: process.env.APP_URL || '',
+    preheader: `${locked.length} member(s) locked for missing their EOD report on ${dueDay}.`,
+    audience: 'admin',
+    mailType: 'eod_defaulters_locked',
+  });
+
+  const ok = await sendMail({
+    to: recipients.join(', '),
+    subject: `EOD defaulters locked (${locked.length}) — ${dueDay}`,
+    html,
+  });
+  console.log(`[eodLock] defaulters report to ${recipients.length} recipient(s): ${ok ? 'sent' : 'FAILED'}`);
+}
+
+/**
+ * Lock EOD defaulters at the day boundary and email the list to admins.
+ *
+ * Runs at 00:00 EOD-time (override with EOD_LOCK_HOUR / EOD_LOCK_MINUTE). Locking no
+ * longer waits for the defaulter to attempt a login, so the admin locked-users list is
+ * accurate from midnight onward.
+ */
+export function startEodMidnightLock(db) {
+  let lastFired = '';
+  const schedule = () => {
+    const delay = msUntilNextLockRun();
+    const fireAt = new Date(Date.now() + delay);
+    console.log(`[eodLock] next lock sweep at ${fireAt.toISOString()} (in ${Math.round(delay / 60000)} min).`);
+    setTimeout(async () => {
+      // A timer firing marginally early must not run the same day's sweep twice.
+      const key = eodNow().toISOString().slice(0, 10);
+      if (key !== lastFired) {
+        lastFired = key;
+        try {
+          await runMidnightLock(db);
+        } catch (err) {
+          console.error('[eodLock] sweep error:', err.message);
+        }
+      }
+      schedule();
+    }, delay).unref?.();
+  };
   schedule();
 }
 

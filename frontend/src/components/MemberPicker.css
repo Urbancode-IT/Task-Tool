@@ -148,7 +148,7 @@
   align-items: center;
   justify-content: center;
   background: var(--clr-primary-500);
-  color: #fff;
+  color: var(--brand-on, #fff);
   font-size: 0.7rem;
   font-weight: 700;
 }

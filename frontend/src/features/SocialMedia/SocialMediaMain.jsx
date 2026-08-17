@@ -39,16 +39,18 @@ import MemberDashboard from '../ITUpdates/MemberDashboard';
 import Preloader from '../../components/Preloader';
 import { sanitizeCommentHtml } from '../../utils/sanitizeHtml';
 import '../ITUpdates/ITUpdatesMain.css';
+import { useLabels } from '../../branding/BrandingContext';
+import { applyLabels, statusTextFor } from '../../branding/labels';
 
 const TABS = [
-  { key: 'Dashboard', label: 'Home', icon: MdHome },
-  { key: 'My Dashboard', label: 'Dashboard', icon: MdInsights },
-  { key: 'My Tasks', label: 'My Tasks', icon: MdChecklist },
-  { key: 'All Tasks', label: 'All Tasks', icon: MdViewKanban },
-  { key: 'Overview', label: 'Overview', icon: MdTableChart },
-  { key: 'Calendar', label: 'Calendar', icon: MdCalendarToday },
-  { key: 'Link Hub', label: 'Link Hub', icon: MdLink },
-  { key: 'EOD Updates', label: 'EOD Updates', icon: MdOutlineAssignment },
+  { key: 'Dashboard', labelId: 'section.home', label: 'Home', icon: MdHome },
+  { key: 'My Dashboard', labelId: 'section.dashboard', label: 'Dashboard', icon: MdInsights },
+  { key: 'My Tasks', labelId: 'section.my_tasks', label: 'My Tasks', icon: MdChecklist },
+  { key: 'All Tasks', labelId: 'section.all_tasks', label: 'All Tasks', icon: MdViewKanban },
+  { key: 'Overview', labelId: 'section.overview', label: 'Overview', icon: MdTableChart },
+  { key: 'Calendar', labelId: 'section.calendar', label: 'Calendar', icon: MdCalendarToday },
+  { key: 'Link Hub', labelId: 'section.link_hub', label: 'Link Hub', icon: MdLink },
+  { key: 'EOD Updates', labelId: 'section.eod_updates', label: 'EOD Updates', icon: MdOutlineAssignment },
 ];
 const MODULE_TEAM = 'social_media';
 
@@ -107,7 +109,7 @@ const LEGACY_STATUS_ALIASES = {
 };
 
 const normalizeStatusKey = (status) => LEGACY_STATUS_ALIASES[status] || status || 'requirement';
-const getStatusLabel = (status) => STATUS_LABELS[normalizeStatusKey(status)] || status;
+const getStatusLabel = (status) => statusTextFor(STATUS_LABELS, normalizeStatusKey(status)) || status;
 const getStatusColor = (status) => STATUS_COLORS[normalizeStatusKey(status)] || '#374151';
 
 const PRIORITY_COLORS = {
@@ -167,6 +169,9 @@ function Avatar({ user }) {
 }
 
 export default function SocialMediaMain({ currentUser, onLogout }) {
+  // Sidebar names are renameable from Company & Branding; keys are untouched.
+  const label = useLabels();
+  const visibleTabs = useMemo(() => applyLabels(TABS, label), [label]);
   const [activeTab, setActiveTab] = useState('Dashboard');
   const [loading, setLoading] = useState(false);
   const [booted, setBooted] = useState(false);
@@ -481,7 +486,7 @@ export default function SocialMediaMain({ currentUser, onLogout }) {
       style={{ borderTopColor: STATUS_COLORS[statusKey] }}
     >
       <div className="it-updates-column-header">
-        <span>{STATUS_LABELS[statusKey]}</span>
+        <span>{statusTextFor(STATUS_LABELS, statusKey)}</span>
         <span className="it-updates-column-count">{items.length}</span>
       </div>
       <Droppable droppableId={statusKey}>
@@ -626,7 +631,7 @@ export default function SocialMediaMain({ currentUser, onLogout }) {
     </div>
   );
 
-  const tabConfig = TABS.find((t) => t.key === activeTab);
+  const tabConfig = visibleTabs.find((t) => t.key === activeTab);
 
   return (
     <div className={`it-updates-shell ${collapsed ? 'sidebar-collapsed' : ''}`}>
@@ -641,7 +646,7 @@ export default function SocialMediaMain({ currentUser, onLogout }) {
       <aside className={`it-updates-sidebar ${sidebarOpen ? 'open' : ''}`}>
         <nav className="it-updates-sidebar-nav">
           <div className="it-updates-sidebar-nav-label"></div>
-          {TABS.map((tab) => {
+          {visibleTabs.map((tab) => {
             const Icon = tab.icon;
             return (
               <button
@@ -818,7 +823,7 @@ export default function SocialMediaMain({ currentUser, onLogout }) {
                 >
                   <option value="">Statuses</option>
                   {STATUS_ORDER.map((status) => (
-                    <option key={status} value={status}>{STATUS_LABELS[status]}</option>
+                    <option key={status} value={status}>{statusTextFor(STATUS_LABELS, status)}</option>
                   ))}
                 </select>
                 <select
@@ -1790,7 +1795,7 @@ function TaskModal({ task, currentUser, onClose, onSave, onRefresh, teamMembers,
             Status
             <select value={form.status} onChange={(e) => setForm((f) => ({ ...f, status: e.target.value }))}>
               {STATUS_ORDER.map((status) => (
-                <option key={status} value={status}>{STATUS_LABELS[status]}</option>
+                <option key={status} value={status}>{statusTextFor(STATUS_LABELS, status)}</option>
               ))}
             </select>
           </label>
