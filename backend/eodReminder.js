@@ -20,7 +20,7 @@
 //   EOD_LOCK_HOUR / EOD_LOCK_MINUTE  (default 0 / 0)
 //   EOD_LOCK_REPORT_ROLES            (default 'director,admin')
 
-import { sendMail, isMailConfigured, renderEmail } from './mailer.js';
+import { sendMail, isMailConfigured, renderMail } from './mailer.js';
 
 const EOD_TZ_OFFSET_MIN = Number(process.env.EOD_TZ_OFFSET_MINUTES ?? 330);
 const REPORT_HOUR = Number(process.env.EOD_REPORT_HOUR ?? 20);
@@ -94,11 +94,9 @@ async function runReport(db) {
     )
     .join('');
 
-  const contentHtml = `
-    <p style="margin:0 0 14px;color:#334155;">
-      The following IT team member${missing.length === 1 ? ' has' : 's have'} not submitted an
-      EOD report for <strong>${dateStr}</strong> as of ${REPORT_HOUR}:00 (Internal &amp; External Projects):
-    </p>
+  // The table is generated, so the template only decides where it sits: a {table}
+  // paragraph in the body is replaced by this block.
+  const tableHtml = `
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"
            style="border-collapse:collapse;font-size:14px;">
       <tr>
@@ -107,25 +105,20 @@ async function runReport(db) {
         <th align="left" style="padding:6px 10px;border-bottom:2px solid #e5e9f0;color:#94a3b8;font-size:12px;text-transform:uppercase;">Email</th>
       </tr>
       ${rows}
-    </table>
-    <p style="margin:16px 0 0;color:#94a3b8;font-size:12px;">
-      Total pending: ${missing.length}. This is an automated daily summary.
-    </p>`;
+    </table>`;
 
-  const html = renderEmail({
-    heading: `EOD not submitted — ${dateStr}`,
-    contentHtml,
+  const mail = renderMail('eod_pending_report', {
+    values: { date: dateStr, count: missing.length, time: `${REPORT_HOUR}:00` },
+    blocks: { table: tableHtml },
     ctaUrl: process.env.APP_URL || '',
-    // Label omitted so it follows the configured company name.
-    preheader: `${missing.length} IT member(s) missing their EOD report for ${dateStr}.`,
+    preheader: `${missing.length} member(s) missing their EOD report for ${dateStr}.`,
     audience: 'admin',
-    mailType: 'eod_pending_report',
   });
 
   const ok = await sendMail({
     to: recipients.join(', '),
-    subject: `EOD not submitted (${missing.length}) — ${dateStr}`,
-    html,
+    subject: mail.subject,
+    html: mail.html,
   });
 
   console.log(
@@ -171,33 +164,13 @@ function nextSlot(times) {
   return { ...best, delay: Math.max(1000, best.at.getTime() - now.getTime()) };
 }
 
-function reminderHtml({ username, dateStr, label }) {
-  const contentHtml = `
-    <p style="margin:0 0 14px;color:#334155;">
-      Hi ${escapeHtml(username || 'there')},
-    </p>
-    <p style="margin:0 0 14px;color:#334155;">
-      Your EOD report for <strong>${dateStr}</strong> has not been submitted yet
-      (checked at ${label}). Please take a minute to write it up before you finish
-      for the day.
-    </p>
-    <p style="margin:0 0 14px;color:#334155;">
-      Reports are due by midnight. If the day closes without one, your account is
-      locked the next morning until an admin unlocks it.
-    </p>
-    <p style="margin:16px 0 0;color:#94a3b8;font-size:12px;">
-      If you are on leave today, ask an admin to mark the day so these reminders stop.
-      This is an automated reminder.
-    </p>`;
-
-  return renderEmail({
-    heading: `Reminder: submit your EOD report for ${dateStr}`,
-    contentHtml,
+/** Subject and HTML for the member reminder, from the (overridable) template. */
+function reminderMail({ username, dateStr, label }) {
+  return renderMail('eod_reminder', {
+    values: { name: username || 'there', date: dateStr, time: label },
     ctaUrl: process.env.APP_URL || '',
-    ctaLabel: 'Submit EOD report',
     preheader: `Your EOD report for ${dateStr} is still pending.`,
     audience: 'member',
-    mailType: 'eod_reminder',
   });
 }
 
@@ -231,11 +204,9 @@ async function runMemberReminders(db, slot) {
   // Sequential rather than Promise.all: one member's bounce must not abort the rest,
   // and it keeps the send rate well inside the Gmail account's daily quota.
   for (const u of pending) {
-    const ok = await sendMail({
-      to: u.email,
-      subject: `Reminder: your EOD report for ${dateStr} is pending`,
-      html: reminderHtml({ username: u.username, dateStr, label }),
-    });
+    // Subject and body both come from the template, so a reworded mail stays coherent.
+    const mail = reminderMail({ username: u.username, dateStr, label });
+    const ok = await sendMail({ to: u.email, subject: mail.subject, html: mail.html });
     if (ok) sent += 1;
   }
 
@@ -357,22 +328,21 @@ async function runMidnightLock(db) {
     .map((u) => `<li style="margin:0 0 6px;"><strong>${escapeHtml(u.username)}</strong>${u.email ? ` — ${escapeHtml(u.email)}` : ''}</li>`)
     .join('');
 
-  const html = renderEmail({
-    heading: `EOD defaulters locked — ${dueDay}`,
-    contentHtml:
-      `<p style="margin:0 0 16px;">These members did not file an EOD report for <strong>${dueDay}</strong>. Their accounts have been locked and they cannot sign in until an admin revokes the lock.</p>` +
-      `<ul style="margin:0;padding-left:20px;">${rows}</ul>` +
-      `<p style="margin:16px 0 0;color:#94a3b8;font-size:12px;">Total locked: ${locked.length}. This is an automated action taken at the day boundary.</p>`,
+  // Generated, so the template places it with a {list} paragraph rather than owning it.
+  const listHtml = `<ul style="margin:0;padding-left:20px;">${rows}</ul>`;
+
+  const mail = renderMail('eod_defaulters_locked', {
+    values: { date: dueDay, count: locked.length },
+    blocks: { list: listHtml },
     ctaUrl: process.env.APP_URL || '',
     preheader: `${locked.length} member(s) locked for missing their EOD report on ${dueDay}.`,
     audience: 'admin',
-    mailType: 'eod_defaulters_locked',
   });
 
   const ok = await sendMail({
     to: recipients.join(', '),
-    subject: `EOD defaulters locked (${locked.length}) — ${dueDay}`,
-    html,
+    subject: mail.subject,
+    html: mail.html,
   });
   console.log(`[eodLock] defaulters report to ${recipients.length} recipient(s): ${ok ? 'sent' : 'FAILED'}`);
 }

@@ -39,8 +39,8 @@ import MemberDashboard from '../ITUpdates/MemberDashboard';
 import Preloader from '../../components/Preloader';
 import { sanitizeCommentHtml } from '../../utils/sanitizeHtml';
 import '../ITUpdates/ITUpdatesMain.css';
-import { useLabels } from '../../branding/BrandingContext';
-import { applyLabels, statusTextFor } from '../../branding/labels';
+import { useNav } from '../../branding/BrandingContext';
+import { statusTextFor } from '../../branding/labels';
 
 const TABS = [
   { key: 'Dashboard', labelId: 'section.home', label: 'Home', icon: MdHome },
@@ -130,9 +130,8 @@ function Avatar({ user }) {
 }
 
 export default function CreativeTeamMain({ currentUser, onLogout }) {
-  // Sidebar names are renameable from Company & Branding; keys are untouched.
-  const label = useLabels();
-  const visibleTabs = useMemo(() => applyLabels(TABS, label), [label]);
+  const nav = useNav();
+  const visibleTabs = useMemo(() => nav.apply(TABS, 'module.creative_team'), [nav]);
   const [activeTab, setActiveTab] = useState('Dashboard');
   const [loading, setLoading] = useState(false);
   const [booted, setBooted] = useState(false);

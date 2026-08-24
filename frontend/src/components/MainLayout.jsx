@@ -9,8 +9,8 @@ import AdminMain from '../features/Admin/AdminMain';
 import ToastContainer from './Toast';
 import ConfirmDialog from './ConfirmDialog';
 import usePersistedState from '../utils/usePersistedState';
-import { useBranding, useLabels } from '../branding/BrandingContext';
-import { applyLabels } from '../branding/labels';
+import { useBranding, useNav } from '../branding/BrandingContext';
+// labels: nav names now come from useNav (see branding/BrandingContext)
 import './MainLayout.css';
 
 // `labelId` makes the displayed name renameable from Company & Branding; the coded
@@ -44,7 +44,7 @@ export default function MainLayout({ currentUser, onLogout }) {
   // Invalid/unpermitted values fall back via `safeActiveModule` below.
   const [activeModule, setActiveModule] = usePersistedState('activeModule', 'it_updates');
   const branding = useBranding();
-  const label = useLabels();
+  const nav = useNav();
 
   const user = currentUser;
 
@@ -62,7 +62,7 @@ export default function MainLayout({ currentUser, onLogout }) {
   }, [userPermissions]);
 
   // Renames applied after filtering; permissions key off `key`, never the label.
-  const visibleModules = useMemo(() => applyLabels(modulesToShow, label), [modulesToShow, label]);
+  const visibleModules = useMemo(() => nav.apply(modulesToShow, 'sectors'), [modulesToShow, nav]);
 
   const safeActiveModule = modulesToShow.some((m) => m.key === activeModule)
     ? activeModule

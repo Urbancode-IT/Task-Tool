@@ -5,6 +5,8 @@
 export function getDisplayRole(user) {
   if (!user) return '';
   const p = Array.isArray(user.permissions) ? user.permissions : [];
+  // Checked before admin.access, because the master tier also carries it.
+  if (user.is_master_admin || p.includes('master.access')) return 'Master Admin';
   if (p.includes('admin.access')) return 'Admin';
   if (p.includes('director.view') || p.includes('director.manage')) return 'Director';
   if (user.is_it_manager || p.includes('it_updates.users')) return 'IT Manager';

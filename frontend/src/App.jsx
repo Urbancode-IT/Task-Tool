@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import MainLayout from './components/MainLayout';
 import EodLockScreen from './components/EodLockScreen';
+import MasterLogin from './features/Master/MasterLogin';
+import MasterConsole from './features/Master/MasterConsole';
 import authApi from './api/authApi';
 import { MdVisibility, MdVisibilityOff } from 'react-icons/md';
 import { useBranding } from './branding/BrandingContext';
@@ -96,6 +98,54 @@ const LoginPage = ({ onLogin }) => {
   );
 };
 
+// The master console lives at its own path. The app ships no router, so the path is
+// read once at module scope — the two shells never coexist in one page load.
+// Requires the host to serve index.html for /master (see README notes).
+const IS_MASTER_PATH =
+  typeof window !== 'undefined' &&
+  ['/master', '/master/'].includes(window.location.pathname);
+
+/**
+ * Master console: its own login and its own shell. Kept separate from App so a
+ * master session cannot fall through into the workspace layout, and so the two
+ * login pages never share state.
+ */
+function MasterApp() {
+  const [user, setUser] = useState(null);
+  const [checking, setChecking] = useState(true);
+
+  // Restore an existing master session; an app-scoped cookie is ignored here.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const { data } = await authApi.restoreSession();
+        if (!cancelled) setUser(data?.user?.scope === 'master' ? data.user : null);
+      } catch {
+        if (!cancelled) setUser(null);
+      } finally {
+        if (!cancelled) setChecking(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
+    const onExpired = () => setUser(null);
+    window.addEventListener('auth:session-expired', onExpired);
+    return () => window.removeEventListener('auth:session-expired', onExpired);
+  }, []);
+
+  const logout = () => {
+    setUser(null);
+    // A master session is never cached, so there is nothing else to clear.
+  };
+
+  if (checking) return <div className="master-boot" />;
+  if (!user) return <MasterLogin onLogin={setUser} />;
+  return <MasterConsole currentUser={user} onLogout={logout} />;
+}
+
 function App() {
   // Speed up first paint: if we already have a cached user from a previous session,
   // render immediately and verify the session in the background.
@@ -103,7 +153,9 @@ function App() {
     const raw = localStorage.getItem('user');
     if (!raw) return null;
     try {
-      return JSON.parse(raw);
+      const cached = JSON.parse(raw);
+      // A master session is never cached, but never trust it here either.
+      return cached?.scope === 'master' ? null : cached;
     } catch {
       return null;
     }
@@ -115,7 +167,9 @@ function App() {
       try {
         const { data } = await authApi.restoreSession();
         if (!cancelled) {
-          if (data?.user) {
+          // Only an app-scoped session signs in here. A master cookie leaves this shell
+          // logged out, so /master stays the only way into the console.
+          if (data?.user && data.user.scope !== 'master') {
             setUser(data.user);
             localStorage.setItem('user', JSON.stringify(data.user));
           } else {
@@ -157,6 +211,8 @@ function App() {
     localStorage.removeItem('user');
   };
 
+  // sessionStorage, not localStorage: the choice belongs to this tab and should not
+  // leak into a fresh window or outlive the browser session.
   if (!user) {
     return <LoginPage onLogin={handleLogin} />;
   }
@@ -173,4 +229,6 @@ function App() {
   );
 }
 
-export default App;
+export default function Root() {
+  return IS_MASTER_PATH ? <MasterApp /> : <App />;
+}

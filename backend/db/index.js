@@ -161,7 +161,8 @@ export async function dbFindUserByEmailOrUsername(emailOrUsername) {
   if (!input) return null;
   try {
     const { rows } = await p.query(
-      `SELECT user_id, username, email, password_hash, profile_image, is_it_developer, is_it_manager
+      `SELECT user_id, username, email, password_hash, profile_image, is_it_developer, is_it_manager,
+              COALESCE(is_master_admin, false) AS is_master_admin
        FROM users
        WHERE LOWER(TRIM(email)) = LOWER($1)
           OR LOWER(REGEXP_REPLACE(TRIM(username), '\\s+', ' ', 'g')) = LOWER($1)
@@ -183,7 +184,9 @@ export async function dbGetUserById(userId) {
   if (!Number.isFinite(id)) return null;
   try {
     const { rows } = await p.query(
-      'SELECT user_id, username, email, profile_image, is_it_developer, is_it_manager, branch FROM users WHERE user_id = $1',
+      `SELECT user_id, username, email, profile_image, is_it_developer, is_it_manager, branch,
+              COALESCE(is_master_admin, false) AS is_master_admin
+         FROM users WHERE user_id = $1`,
       [id]
     );
     const row = rows[0];
@@ -192,6 +195,7 @@ export async function dbGetUserById(userId) {
       ...row,
       is_it_developer: row.is_it_developer === true || row.is_it_developer === 1,
       is_it_manager: row.is_it_manager === true || row.is_it_manager === 1,
+      is_master_admin: row.is_master_admin === true || row.is_master_admin === 1,
     };
   } catch (err) {
     console.error('dbGetUserById:', err.message);
@@ -510,6 +514,12 @@ export async function dbEnsureTables() {
     // to (and reported for) the EOD requirement. Existing users default to active.
     await p.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT true;`);
     await p.query(`UPDATE users SET is_active = true WHERE is_active IS NULL;`);
+    // Master admin: the system-owner tier that gets the separate /master console.
+    // Deliberately a column and not an RBAC permission — a permission row could be
+    // attached to a role from the admin screens, which would let an ordinary admin
+    // grant themselves master access. Only a direct write to this column does it.
+    await p.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS is_master_admin BOOLEAN DEFAULT false;`);
+    await p.query(`UPDATE users SET is_master_admin = false WHERE is_master_admin IS NULL;`);
   } catch (err) {
     console.warn('dbEnsureTables: users.profile_image check failed:', err.message);
   }
@@ -4013,7 +4023,9 @@ export async function dbGetUserPermissions(userId) {
        WHERE ur.user_id = $1 ORDER BY p.code`,
       [userId]
     );
-    return rows.map((r) => r.code);
+    // master.access is granted by users.is_master_admin alone. Filtered here so that
+    // even a manually inserted permission row cannot escalate anyone via RBAC.
+    return rows.map((r) => r.code).filter((code) => code !== 'master.access');
   } catch (err) {
     console.error('dbGetUserPermissions:', err.message);
     return [];
@@ -4264,9 +4276,15 @@ function computeInvoiceTotals(data) {
 }
 
 /** Suggest the next invoice number: INV-<year>-<zero-padded sequence>. */
-export async function dbNextInvoiceNumber(year) {
+/**
+ * Next number in the series. The series name comes from the company profile's
+ * `invoice.number_prefix`, published from the master console; changing it starts a new
+ * series and leaves numbers already issued alone, because the scan is prefix-scoped.
+ */
+export async function dbNextInvoiceNumber(year, seriesPrefix = 'INV') {
   const p = getPool();
-  const prefix = `INV-${year}-`;
+  const clean = String(seriesPrefix || 'INV').trim().replace(/[^A-Za-z0-9_-]/g, '') || 'INV';
+  const prefix = `${clean}-${year}-`;
   if (!p) return `${prefix}0001`;
   try {
     const { rows } = await p.query(
@@ -4473,6 +4491,7 @@ export async function dbGetUsersWithRoles() {
   try {
     const { rows } = await p.query(
       `SELECT u.user_id, u.username, u.email, u.profile_image, u.is_it_developer, u.is_it_manager, u.branch, u.is_active, u.created_at,
+              COALESCE(u.is_master_admin, false) AS is_master_admin,
               COALESCE(array_agg(r.name) FILTER (WHERE r.role_id IS NOT NULL), '{}') AS role_names,
               COALESCE(array_agg(r.code) FILTER (WHERE r.role_id IS NOT NULL), '{}') AS role_codes
        FROM users u
@@ -4489,4 +4508,77 @@ export async function dbGetUsersWithRoles() {
     console.error('dbGetUsersWithRoles:', err.message);
     return [];
   }
+}
+
+// ---- Master admin ----
+// The master tier is carried by users.is_master_admin, a plain column like
+// is_it_developer. It is deliberately not an RBAC permission: a permission row can be
+// attached to a role from the admin screens, so an ordinary admin could otherwise
+// grant it to themselves. Flipping this column requires direct database access.
+
+/** User ids flagged as master admins. Used to hide them from admin-facing lists. */
+export async function dbGetMasterAdminUserIds() {
+  const p = getPool();
+  if (!p) return [];
+  try {
+    const { rows } = await p.query('SELECT user_id FROM users WHERE is_master_admin = true');
+    return rows.map((r) => r.user_id);
+  } catch (err) {
+    console.error('dbGetMasterAdminUserIds:', err.message);
+    return [];
+  }
+}
+
+/** Grant or revoke the master tier for one user. Returns true when a row changed. */
+export async function dbSetMasterAdmin(userId, isMaster) {
+  const p = getPool();
+  if (!p) return false;
+  try {
+    const { rowCount } = await p.query(
+      'UPDATE users SET is_master_admin = $2 WHERE user_id = $1',
+      [userId, Boolean(isMaster)]
+    );
+    return rowCount > 0;
+  } catch (err) {
+    console.error('dbSetMasterAdmin:', err.message);
+    return false;
+  }
+}
+
+/** Counts and service facts for the master console overview. */
+export async function dbGetMasterOverview() {
+  const p = getPool();
+  if (!p) return null;
+  const one = async (sql, params = []) => {
+    try {
+      const { rows } = await p.query(sql, params);
+      return Number(rows[0]?.n) || 0;
+    } catch {
+      return 0;
+    }
+  };
+  const today = todayInEodTz();
+  const [users, activeUsers, lockedUsers, roles, permissions, eodToday, invoices, leavesToday] =
+    await Promise.all([
+      one('SELECT COUNT(*)::int AS n FROM users'),
+      one('SELECT COUNT(*)::int AS n FROM users WHERE COALESCE(is_active, true) = true'),
+      one('SELECT COUNT(*)::int AS n FROM users WHERE eod_locked = true'),
+      one('SELECT COUNT(*)::int AS n FROM roles'),
+      one('SELECT COUNT(*)::int AS n FROM permissions'),
+      one('SELECT COUNT(*)::int AS n FROM eod_reports WHERE report_date = $1::date', [today]),
+      one('SELECT COUNT(*)::int AS n FROM invoices'),
+      one('SELECT COUNT(*)::int AS n FROM member_leaves WHERE leave_date = $1::date', [today]),
+    ]);
+  return {
+    date: today,
+    users,
+    active_users: activeUsers,
+    inactive_users: Math.max(0, users - activeUsers),
+    locked_users: lockedUsers,
+    roles,
+    permissions,
+    eod_submitted_today: eodToday,
+    on_leave_today: leavesToday,
+    invoices,
+  };
 }

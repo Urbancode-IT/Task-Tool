@@ -399,3 +399,31 @@
   background: #f1f5f9;
   border-color: #cbd5e1;
 }
+
+/* Master console boot placeholder: covers the viewport while the session is
+   verified, using the same ground as the auth screen so there is no flash. */
+.master-boot {
+  position: fixed;
+  inset: 0;
+  background: var(--clr-slate-50, #f8fafc);
+}
+
+/* Secondary action on the auth card, beneath the primary button. */
+.auth-secondary-button {
+  width: 100%;
+  margin-top: 0.6rem;
+  padding: 0.7rem 1rem;
+  border: 1px solid var(--clr-slate-200, #e2e8f0);
+  border-radius: 10px;
+  background: #fff;
+  color: var(--clr-slate-700, #334155);
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.auth-secondary-button:hover {
+  border-color: var(--clr-slate-300, #cbd5e1);
+  background: var(--clr-slate-50, #f8fafc);
+}

@@ -1,0 +1,292 @@
+/* Master console → Regulatory & Compliance. Shares the bar/dirty/ghost shapes with
+   MasterAppearance.css so the two sections read as one console. */
+
+.rc-shell {
+  padding-top: 0;
+}
+
+.rc-bar {
+  position: sticky;
+  top: 0;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.25rem;
+  flex-wrap: wrap;
+  padding: 0.35rem 0 0.85rem;
+  background: var(--surface-bg, #f4f5f9);
+  border-bottom: 1px solid var(--clr-slate-200);
+}
+
+.rc-bar p {
+  margin: 0;
+  max-width: 62ch;
+  font-size: 0.8rem;
+  color: var(--clr-slate-500);
+}
+
+.rc-bar-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+}
+
+.rc-dirty {
+  padding: 0.15rem 0.6rem;
+  border-radius: 999px;
+  background: #fef3c7;
+  color: #92400e;
+  font-size: 0.74rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.rc-ghost {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.4rem 0.75rem;
+  border: 1px solid var(--clr-slate-200);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--clr-slate-600);
+  font: inherit;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.rc-ghost:hover:not(:disabled) {
+  background: var(--clr-slate-50);
+}
+
+.rc-warn {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.45rem;
+  margin: 0.9rem 0 0;
+  padding: 0.6rem 0.8rem;
+  border: 1px solid #fcd34d;
+  border-radius: 10px;
+  background: #fffbeb;
+  color: #92400e;
+  font-size: 0.79rem;
+  line-height: 1.45;
+}
+
+.rc-warn svg {
+  flex: none;
+  margin-top: 0.1rem;
+}
+
+/* ── Groups ── */
+
+.rc-groups {
+  display: grid;
+  gap: 1rem;
+  margin-top: 1.1rem;
+}
+
+.rc-group {
+  padding: 1rem 1.1rem 1.15rem;
+  border: 1px solid var(--clr-slate-200);
+  border-radius: 12px;
+  background: #fff;
+}
+
+.rc-h3 {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0;
+  font-size: 0.86rem;
+  font-weight: 700;
+  color: var(--clr-slate-700);
+}
+
+.rc-h3 svg {
+  color: var(--clr-primary-600, #0054c4);
+}
+
+.rc-h4 {
+  margin: 1.35rem 0 0;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--clr-slate-700);
+}
+
+.rc-note {
+  margin: 0.3rem 0 0;
+  max-width: 70ch;
+  font-size: 0.77rem;
+  line-height: 1.5;
+  color: var(--clr-slate-500);
+}
+
+/* ── Fields ── */
+
+.rc-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(215px, 1fr));
+  gap: 0.85rem 1rem;
+  margin-top: 0.95rem;
+}
+
+.rc-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  min-width: 0;
+}
+
+/* Spans the row so long prose is not squeezed into a narrow column. */
+.rc-field-wide {
+  grid-column: 1 / -1;
+}
+
+.rc-field-label {
+  font-size: 0.76rem;
+  font-weight: 600;
+  color: var(--clr-slate-600);
+}
+
+.rc-field input,
+.rc-field select,
+.rc-field textarea {
+  width: 100%;
+  padding: 0.46rem 0.6rem;
+  border: 1px solid var(--clr-slate-200);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--clr-slate-800);
+  font: inherit;
+  font-size: 0.82rem;
+}
+
+.rc-field textarea {
+  resize: vertical;
+  line-height: 1.5;
+}
+
+.rc-field input:focus,
+.rc-field select:focus,
+.rc-field textarea:focus {
+  outline: none;
+  border-color: var(--clr-primary-500, #0054c4);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--clr-primary-500, #0054c4) 16%, transparent);
+}
+
+.rc-field.invalid input {
+  border-color: #dc2626;
+}
+
+.rc-field-hint,
+.rc-field-msg {
+  font-size: 0.71rem;
+  line-height: 1.45;
+  color: var(--clr-slate-500);
+}
+
+.rc-field-msg {
+  color: #dc2626;
+  font-weight: 600;
+}
+
+/* ── SAC catalogue ── */
+
+.rc-sacs {
+  display: grid;
+  gap: 0.5rem;
+  margin-top: 0.85rem;
+}
+
+.rc-sac {
+  display: grid;
+  grid-template-columns: 7.5rem 1fr auto;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.rc-sac input {
+  padding: 0.42rem 0.6rem;
+  border: 1px solid var(--clr-slate-200);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--clr-slate-800);
+  font: inherit;
+  font-size: 0.82rem;
+  min-width: 0;
+}
+
+.rc-sac-code {
+  font-variant-numeric: tabular-nums;
+}
+
+.rc-sac.invalid .rc-sac-code {
+  border-color: #dc2626;
+}
+
+.rc-sac input:focus {
+  outline: none;
+  border-color: var(--clr-primary-500, #0054c4);
+}
+
+.rc-sac-del {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  border: 1px solid var(--clr-slate-200);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--clr-slate-500);
+  cursor: pointer;
+}
+
+.rc-sac-del:hover {
+  border-color: #fca5a5;
+  background: #fef2f2;
+  color: #dc2626;
+}
+
+.rc-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  margin-top: 0.7rem;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--clr-primary-600, #0054c4);
+  font: inherit;
+  font-size: 0.79rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.rc-link:hover {
+  text-decoration: underline;
+}
+
+.rc-foot {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.45rem;
+  margin: 1.1rem 0 0;
+  max-width: 78ch;
+  font-size: 0.76rem;
+  line-height: 1.5;
+  color: var(--clr-slate-500);
+}
+
+.rc-foot svg {
+  flex: none;
+  margin-top: 0.1rem;
+}
+
+@media (max-width: 640px) {
+  .rc-sac {
+    grid-template-columns: 6rem 1fr auto;
+  }
+}

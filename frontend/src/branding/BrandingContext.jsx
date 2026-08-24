@@ -1,6 +1,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import apiClient from '../api/client';
-import { LABEL_DEFAULTS, setLabelOverrides } from './labels';
+import { LABEL_DEFAULTS, setLabelOverrides, applyNav } from './labels';
+import { iconByName } from './navIcons';
 
 /**
  * Single source of truth for the company identity across the app.
@@ -22,6 +23,9 @@ const FALLBACK = {
   favicon: '/favicon.png?v=3',
   // Overrides only; anything absent falls back to the coded default.
   labels: {},
+  // Navigation customisation: sector icons, display order, and per-sector section
+  // names/icons so the same section can differ between sectors.
+  navigation: { icons: {}, order: {}, bySector: {} },
 };
 
 /** Dispatch on `window` after publishing so every mounted consumer refetches. */
@@ -50,6 +54,65 @@ export function useLabels() {
   );
 }
 
+/**
+ * Everything a module needs to render its nav: rename, icon swap and order, all
+ * resolved from the published profile.
+ *
+ *   const nav = useNav();
+ *   const tabs = nav.apply(TABS, 'sections');
+ *
+ * @returns {{ apply: (items: any[], groupKey: string) => any[],
+ *             label: (id: string, fallback?: string) => string,
+ *             iconFor: (id: string) => any,
+ *             orderFor: (groupKey: string) => string[] }}
+ */
+export function useNav() {
+  const { labels, navigation } = useContext(BrandingContext);
+
+  /**
+   * Resolution order, most specific first:
+   *   1. this sector's own override   (navigation.bySector[sector])
+   *   2. the shared override          (labels / navigation.icons)
+   *   3. the catalogue default, then the caller's coded fallback
+   *
+   * Step 2 is what keeps renames made before per-sector overrides existed working.
+   */
+  const label = useCallback(
+    (id, fallback, sector) =>
+      (sector && navigation?.bySector?.[sector]?.labels?.[id])
+        || labels?.[id]
+        || LABEL_DEFAULTS[id]
+        || fallback
+        || '',
+    [labels, navigation]
+  );
+
+  const iconFor = useCallback(
+    (id, sector) =>
+      iconByName((sector && navigation?.bySector?.[sector]?.icons?.[id]) || navigation?.icons?.[id]),
+    [navigation]
+  );
+
+  const orderFor = useCallback(
+    (groupKey) => (Array.isArray(navigation?.order?.[groupKey]) ? navigation.order[groupKey] : []),
+    [navigation]
+  );
+
+  // groupKey is the sector id for a sidebar, or 'sectors' for the top bar. Passing it
+  // as the scope is what makes one sector's names and icons independent of another's.
+  const apply = useCallback(
+    (items, groupKey) =>
+      applyNav(items, {
+        label: (id, fb) => label(id, fb, groupKey),
+        iconFor: (id) => iconFor(id, groupKey),
+        order: orderFor(groupKey),
+      }),
+    [label, iconFor, orderFor]
+  );
+
+  return useMemo(() => ({ apply, label, iconFor, orderFor }), [apply, label, iconFor, orderFor]);
+}
+
 /** Merge a server payload over the fallback, ignoring blank fields. */
 function normalise(raw) {
   if (!raw || typeof raw !== 'object') return FALLBACK;
@@ -71,6 +134,28 @@ function normalise(raw) {
     labels: Object.fromEntries(
       Object.entries(raw.labels || {}).filter(([, v]) => typeof v === 'string' && v.trim())
     ),
+    navigation: {
+      // Blank icon names are dropped so clearing one reverts to the coded icon.
+      icons: Object.fromEntries(
+        Object.entries(raw.navigation?.icons || {}).filter(([, v]) => typeof v === 'string' && v.trim())
+      ),
+      order: Object.fromEntries(
+        Object.entries(raw.navigation?.order || {}).filter(([, v]) => Array.isArray(v) && v.length > 0)
+      ),
+      // { 'module.creative_team': { labels: {...}, icons: {...} } }
+      bySector: Object.fromEntries(
+        Object.entries(raw.navigation?.bySector || {})
+          .filter(([, v]) => v && typeof v === 'object' && !Array.isArray(v))
+          .map(([sector, v]) => [sector, {
+            labels: Object.fromEntries(
+              Object.entries(v.labels || {}).filter(([, t]) => typeof t === 'string' && t.trim())
+            ),
+            icons: Object.fromEntries(
+              Object.entries(v.icons || {}).filter(([, t]) => typeof t === 'string' && t.trim())
+            ),
+          }])
+      ),
+    },
   };
 }
 
@@ -242,6 +327,47 @@ export function BrandingProvider({ children }) {
 /** Tell every mounted consumer that the published branding changed. */
 export function notifyBrandingChanged() {
   window.dispatchEvent(new CustomEvent(BRANDING_EVENT));
+}
+
+/**
+ * Paint an unpublished palette onto the live design tokens, so the master console's
+ * Appearance editor can be judged against the real UI instead of a swatch.
+ *
+ * This only mutates inline custom properties on <html>; it does not touch the
+ * published profile. Call `revertPalette` (or publish, which re-runs the provider's
+ * own effect) to put the real palette back.
+ */
+export function previewPalette(colors) {
+  applyColors(colors || {});
+}
+
+/** Drop the preview and restore the published palette. */
+export function revertPalette(published) {
+  applyColors(published || {});
+}
+
+/**
+ * The full set of tokens `previewPalette` derives from a primary colour, for showing
+ * the generated scale in the editor. Mirrors applyColors, so a change there should be
+ * reflected here.
+ */
+export function derivedScale(primary, accent) {
+  const base = parseHex(primary);
+  if (!base) return null;
+  const tint = (amount) => toHex(mix(base, WHITE, amount));
+  const accentBase = parseHex(accent) || base;
+  return {
+    50: tint(0.92),
+    100: tint(0.84),
+    200: tint(0.68),
+    300: tint(0.48),
+    400: tint(0.24),
+    500: primary,
+    700: toHex(mix(base, BLACK, 0.22)),
+    accent: toHex(accentBase),
+    surface: tint(0.965),
+    on: luminance(base) > 0.5 ? '#0f172a' : '#ffffff',
+  };
 }
 
 export default BrandingContext;

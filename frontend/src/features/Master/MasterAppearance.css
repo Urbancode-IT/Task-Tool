@@ -1,0 +1,544 @@
+/* Master console → Appearance. Built on the app's tokens, so this screen re-themes
+   itself along with everything else while a draft palette is being previewed. */
+
+.ma-shell {
+  padding-top: 0;
+}
+
+.ma-bar {
+  position: sticky;
+  top: 0;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.25rem;
+  flex-wrap: wrap;
+  padding: 0.35rem 0 0.85rem;
+  background: var(--surface-bg, #f4f5f9);
+  border-bottom: 1px solid var(--clr-slate-200);
+}
+
+.ma-bar p {
+  margin: 0;
+  max-width: 62ch;
+  font-size: 0.8rem;
+  color: var(--clr-slate-500);
+}
+
+.ma-bar-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+}
+
+.ma-dirty {
+  padding: 0.15rem 0.6rem;
+  border-radius: 999px;
+  background: #fef3c7;
+  color: #92400e;
+  font-size: 0.74rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.ma-ghost {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.4rem 0.75rem;
+  border: 1px solid var(--clr-slate-200);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--clr-slate-600);
+  font: inherit;
+  font-size: 0.8rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.ma-ghost:hover:not(:disabled) {
+  border-color: #fca5a5;
+  color: #b91c1c;
+}
+
+/* ── Two columns ── */
+.ma-split {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 244px;
+  gap: 1.75rem;
+  margin-top: 1.2rem;
+  align-items: start;
+}
+
+.ma-main { min-width: 0; }
+
+.ma-h3 {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin: 0 0 0.6rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--clr-slate-500);
+}
+
+.ma-h3:not(:first-child) {
+  margin-top: 1.5rem;
+}
+
+.ma-note {
+  margin: -0.35rem 0 0.6rem;
+  font-size: 0.78rem;
+  color: var(--clr-slate-400);
+}
+
+/* ── Presets ── */
+.ma-presets {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(168px, 1fr));
+  gap: 0.55rem;
+}
+
+.ma-preset {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.55rem 0.65rem;
+  border: 1px solid var(--clr-slate-200);
+  border-radius: var(--radius-md);
+  background: #fff;
+  font: inherit;
+  font-size: 0.82rem;
+  color: var(--clr-slate-700);
+  text-align: left;
+  cursor: pointer;
+}
+
+.ma-preset:hover {
+  border-color: var(--clr-slate-300);
+}
+
+.ma-preset.active {
+  border-color: var(--clr-primary-400);
+  background: var(--clr-primary-50);
+  color: var(--clr-primary-700);
+  font-weight: 600;
+}
+
+.ma-preset-swatches {
+  display: flex;
+  flex-shrink: 0;
+  border-radius: 5px;
+  overflow: hidden;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+}
+
+.ma-preset-swatches span {
+  width: 13px;
+  height: 22px;
+}
+
+.ma-preset-name {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ma-preset-tick { flex-shrink: 0; }
+
+/* ── Colour fields ── */
+.ma-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(216px, 1fr));
+  gap: 1rem;
+}
+
+.ma-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  min-width: 0;
+}
+
+.ma-field-top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.ma-field-label {
+  font-size: 0.74rem;
+  font-weight: 700;
+  color: var(--clr-slate-700);
+}
+
+.ma-invalid {
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: #b91c1c;
+}
+
+.ma-input-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.3rem 0.45rem;
+  border: 1px solid var(--clr-slate-200);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.ma-input-row:focus-within { border-color: var(--clr-primary-400); }
+.ma-input-row.invalid { border-color: #fca5a5; }
+
+/* Strip the native swatch chrome so it reads as a colour chip. */
+.ma-input-row input[type='color'] {
+  width: 34px;
+  height: 30px;
+  flex-shrink: 0;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  cursor: pointer;
+}
+
+.ma-input-row input[type='color']::-webkit-color-swatch-wrapper { padding: 0; }
+.ma-input-row input[type='color']::-webkit-color-swatch {
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  border-radius: 6px;
+}
+
+.ma-hex {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: none;
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: 0.84rem;
+  color: var(--clr-slate-800);
+  text-transform: lowercase;
+}
+
+.ma-field small {
+  font-size: 0.72rem;
+  line-height: 1.45;
+  color: var(--clr-slate-400);
+}
+
+.ma-warn {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.4rem;
+  margin: 0.9rem 0 0;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid #fde68a;
+  border-left: 3px solid #f59e0b;
+  border-radius: 8px;
+  background: #fffbeb;
+  font-size: 0.78rem;
+  line-height: 1.5;
+  color: #92400e;
+}
+
+.ma-warn svg { flex-shrink: 0; margin-top: 1px; }
+
+/* ── Derived scale ── */
+.ma-scale {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.ma-scale-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.2rem;
+}
+
+.ma-scale-cell span {
+  width: 52px;
+  height: 34px;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 7px;
+}
+
+.ma-scale-cell em {
+  font-style: normal;
+  font-size: 0.66rem;
+  color: var(--clr-slate-400);
+}
+
+.ma-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-top: 1.5rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--clr-slate-100);
+  font-size: 0.75rem;
+  color: var(--clr-slate-400);
+}
+
+.ma-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.28rem;
+  border: none;
+  background: none;
+  padding: 0.2rem 0;
+  color: var(--clr-slate-400);
+  font: inherit;
+  font-size: 0.78rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.ma-link:hover { color: #b91c1c; text-decoration: underline; }
+
+/* ── Samples ── */
+.ma-preview { position: sticky; top: 4.75rem; }
+
+.ma-preview-label {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  margin-bottom: 0.5rem;
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--clr-slate-400);
+}
+
+.ma-sample {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  padding: 0.85rem;
+  border: 1px solid var(--clr-slate-200);
+  border-radius: var(--radius-md);
+  background: #fff;
+}
+
+.ma-sample-btn { width: 100%; justify-content: center; }
+
+.ma-sample-chips { display: flex; gap: 0.35rem; }
+
+.ma-chip {
+  padding: 0.12rem 0.55rem;
+  border-radius: 999px;
+  background: var(--clr-slate-100);
+  color: var(--clr-slate-600);
+  font-size: 0.74rem;
+}
+
+.ma-chip.solid {
+  background: var(--clr-primary-50);
+  color: var(--clr-primary-700);
+  font-weight: 600;
+}
+
+.ma-sample-card {
+  padding: 0.7rem 0.8rem;
+  border: 1px solid var(--clr-slate-100);
+  border-radius: var(--radius-md);
+  background: var(--surface-bg, #f8fafc);
+}
+
+.ma-sample-card-label {
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--clr-slate-500);
+}
+
+.ma-sample-card-value {
+  margin-top: 0.15rem;
+  font-size: 1.35rem;
+  font-weight: 700;
+  color: var(--clr-primary-600);
+}
+
+.ma-sample-nav { display: flex; flex-direction: column; gap: 2px; }
+
+.ma-sample-nav span {
+  padding: 0.4rem 0.55rem;
+  border-radius: 8px;
+  font-size: 0.8rem;
+  color: var(--clr-slate-600);
+}
+
+.ma-sample-nav span.active {
+  background: var(--clr-primary-50);
+  color: var(--clr-primary-700);
+  font-weight: 600;
+}
+
+.ma-sample-link {
+  font-size: 0.8rem;
+  color: var(--clr-primary-600);
+}
+
+.ma-preview-note {
+  margin: 0.55rem 0 0;
+  font-size: 0.71rem;
+  line-height: 1.5;
+  color: var(--clr-slate-400);
+}
+
+@media (max-width: 1100px) {
+  .ma-split { grid-template-columns: minmax(0, 1fr); }
+  .ma-preview { position: static; }
+  .ma-sample {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    align-items: start;
+  }
+}
+
+/* ── Visual identity ──
+   Brand assets. Uploads publish immediately, so unlike the palette below there is no
+   draft state to represent here. */
+
+.ma-assets {
+  display: grid;
+  /* auto-fit, not auto-fill: with five cards a sixth track would otherwise be created
+     and left empty, stranding dead space at the end of the row. */
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 0.9rem;
+  margin-top: 0.95rem;
+}
+
+.ma-asset {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+  /* Fill the track so the box below can be pushed to a shared baseline. */
+  height: 100%;
+}
+
+.ma-asset-label {
+  font-size: 0.76rem;
+  font-weight: 600;
+  color: var(--clr-slate-600);
+}
+
+.ma-asset-hint {
+  font-size: 0.7rem;
+  line-height: 1.4;
+  color: var(--clr-slate-500);
+  /* The gap the box used to supply itself; the box now owns its top margin. */
+  margin-bottom: 0.4rem;
+}
+
+.ma-asset-box {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* auto, not a fixed gap: a hint that wraps to two lines must not push its own box
+     below the others. Every box lands on the same baseline regardless of label length. */
+  margin-top: auto;
+  flex: none;
+  height: 92px;
+  padding: 0.5rem;
+  border: 1px dashed var(--clr-slate-200);
+  border-radius: 10px;
+  /* A chequerboard, so a transparent PNG reads as transparent rather than white. */
+  background-color: #fff;
+  background-image:
+    linear-gradient(45deg, var(--clr-slate-100) 25%, transparent 25%, transparent 75%, var(--clr-slate-100) 75%),
+    linear-gradient(45deg, var(--clr-slate-100) 25%, transparent 25%, transparent 75%, var(--clr-slate-100) 75%);
+  background-size: 14px 14px;
+  background-position: 0 0, 7px 7px;
+}
+
+.ma-asset-box.busy {
+  opacity: 0.6;
+}
+
+.ma-asset-box img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+.ma-asset-drop {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.25rem;
+  width: 100%;
+  height: 100%;
+  border-radius: 8px;
+  color: var(--clr-slate-500);
+  font-size: 0.74rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.ma-asset-drop:hover {
+  color: var(--clr-primary-600, #0054c4);
+}
+
+.ma-asset-remove {
+  position: absolute;
+  top: 0.3rem;
+  right: 0.3rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.6rem;
+  height: 1.6rem;
+  border: 1px solid var(--clr-slate-200);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.94);
+  color: var(--clr-slate-500);
+  cursor: pointer;
+}
+
+.ma-asset-remove:hover:not(:disabled) {
+  border-color: #fca5a5;
+  background: #fef2f2;
+  color: #dc2626;
+}
+
+/* A staged asset is not published yet: dashed accent border plus a badge on the label,
+   so it is obvious which images the next Publish will write. */
+.ma-asset-label {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-height: 1.15rem;
+}
+
+.ma-asset-pending {
+  padding: 0.02rem 0.35rem;
+  border-radius: 999px;
+  background: #fef3c7;
+  color: #92400e;
+  font-size: 0.63rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.ma-asset-box.staged {
+  border-style: dashed;
+  border-color: var(--clr-primary-400, #337bd4);
+}

@@ -9,8 +9,9 @@ import bcrypt from 'bcrypt';
 import crypto from 'node:crypto';
 import jwt from 'jsonwebtoken';
 import * as db from './db/index.js';
-import { sendMail, isMailConfigured, renderEmail, applyEmailBranding } from './mailer.js';
+import { sendMail, isMailConfigured, renderMail, applyEmailBranding } from './mailer.js';
 import { startEodDirectorReport, startEodMemberReminders, startEodMidnightLock } from './eodReminder.js';
+import { requireMasterScope } from './middlewares/masterMiddleware.js';
 import { requireAuth, attachUserPermissions, requirePermission, signAccessToken, signRefreshToken, verifyRefreshToken } from './middlewares/authMiddleware.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -221,6 +222,7 @@ async function buildUserFromDbUser(dbUser) {
     profile_image: db.avatarUrlFor(dbUser.user_id, dbUser.profile_image),
     is_it_developer: Boolean(dbUser.is_it_developer),
     is_it_manager: Boolean(dbUser.is_it_manager),
+    is_master_admin: Boolean(dbUser.is_master_admin),
     branch: dbUser.branch ?? null,
   };
   try {
@@ -232,6 +234,9 @@ async function buildUserFromDbUser(dbUser) {
     if (user.is_it_developer || user.is_it_manager) {
       legacy.push('it_updates.view', 'it_updates.manage', 'it_updates.users');
     }
+    // The master tier comes from users.is_master_admin and nothing else. master implies
+    // admin, so the console can reuse the existing admin endpoints.
+    if (user.is_master_admin) legacy.push('master.access', 'admin.access');
     user.permissions = [...new Set([...(Array.isArray(perms) ? perms : []), ...legacy])];
     user.roleIds = Array.isArray(roleIds) ? roleIds : [];
   } catch (_) {
@@ -239,7 +244,8 @@ async function buildUserFromDbUser(dbUser) {
     user.roleIds = [];
   }
   const perms = user.permissions || [];
-  if (perms.includes('admin.access')) user.role = 'Admin';
+  if (user.is_master_admin) user.role = 'Master Admin';
+  else if (perms.includes('admin.access')) user.role = 'Admin';
   else if (perms.includes('director.view') || perms.includes('director.manage')) user.role = 'Director';
   else if (user.is_it_manager || perms.includes('it_updates.users')) user.role = 'IT Manager';
   else if (user.is_it_developer || (perms.includes('it_updates.manage') && perms.includes('it_updates.view')))
@@ -361,10 +367,15 @@ app.post('/auth/login', async (req, res) => {
       return res.status(401).json({ message: 'Invalid email/username or password' });
     }
     const user = await buildUserFromDbUser(dbUser);
-    // Keep the JWT payload minimal: only the user id. A JWT is signed, not encrypted,
-    // so anyone who can read the cookie can decode its claims — never put PII (email,
-    // name, roles) here. Everything else is loaded server-side from the id.
-    const payload = { id: user.id };
+    // The master admin has its own login page and console; it must not be able to
+    // sign in here, and a normal account must not be able to sign in there.
+    if (user.is_master_admin) {
+      return res.status(403).json({ message: 'This account must sign in from the master console.' });
+    }
+    // Keep the JWT payload minimal: the user id and the session scope. A JWT is signed,
+    // not encrypted, so anyone who can read the cookie can decode its claims — never put
+    // PII (email, name, roles) here. Everything else is loaded server-side from the id.
+    const payload = { id: user.id, scope: 'app' };
     const access = signAccessToken(payload);
     const refresh = signRefreshToken(payload);
     if (access) {
@@ -428,7 +439,9 @@ function resolveSessionFromCookies(req, res) {
     return { ok: false, status: 401, message: 'Invalid or expired refresh token' };
   }
 
-  const newAccess = signAccessToken({ id: refreshDecoded.id });
+  // Preserve the scope, or a master session would silently downgrade to app scope
+  // the first time its 15-minute access token expired.
+  const newAccess = signAccessToken({ id: refreshDecoded.id, scope: refreshDecoded.scope || 'app' });
   if (newAccess) {
     res.cookie('access_token', newAccess, COOKIE_OPTS);
   } else {
@@ -461,6 +474,8 @@ app.get('/auth/me', asyncMw(async (req, res) => {
     const dbUser = await db.dbGetUserById(decoded.id);
     if (!dbUser) return res.status(401).json({ message: 'User not found' });
     const user = await buildUserFromDbUser(dbUser);
+    user.scope = decoded.scope === 'master' ? 'master' : 'app';
+    user.is_master = user.scope === 'master' && (user.permissions || []).includes('master.access');
     return res.json({ user });
   }
 
@@ -493,7 +508,7 @@ app.post('/auth/refresh', (req, res) => {
   if (!token) return res.status(401).json({ message: 'Refresh token required' });
   const decoded = verifyRefreshToken(token);
   if (!decoded) return res.status(401).json({ message: 'Invalid or expired refresh token' });
-  const access = signAccessToken({ id: decoded.id });
+  const access = signAccessToken({ id: decoded.id, scope: decoded.scope || 'app' });
   if (access) {
     res.cookie('access_token', access, COOKIE_OPTS);
     return res.json({ success: true });
@@ -507,7 +522,7 @@ app.post('/auth/refresh-token', (req, res) => {
   if (token) {
     const decoded = verifyRefreshToken(token);
     if (decoded) {
-      const access = signAccessToken({ id: decoded.id });
+      const access = signAccessToken({ id: decoded.id, scope: decoded.scope || 'app' });
       if (access) {
         res.cookie('access_token', access, COOKIE_OPTS);
         return res.json({ success: true });
@@ -517,6 +532,58 @@ app.post('/auth/refresh-token', (req, res) => {
   res.cookie('access_token', 'demo-token', COOKIE_OPTS);
   res.json({ success: true });
 });
+
+/**
+ * Master console login. Separate from /auth/login: it accepts only accounts holding
+ * master.access and stamps the session with scope 'master', which is what
+ * requireMasterScope checks on every /api/master route.
+ */
+app.post('/auth/master-login', asyncMw(async (req, res) => {
+  const identifier = String(req.body?.email || req.body?.username || '').replace(/\s+/g, ' ').trim();
+  const pwd = String(req.body?.password || '').trim();
+  const deny = () => res.status(401).json({ message: 'Invalid master credentials' });
+
+  if (!identifier || !pwd) return deny();
+  if (!db.useDb()) {
+    return res.status(503).json({ message: 'Master console requires a database connection.' });
+  }
+
+  const dbUser = await db.dbFindUserByEmailOrUsername(identifier);
+  if (!dbUser) return deny();
+  if (!(await bcrypt.compare(pwd, dbUser.password_hash))) return deny();
+
+  const user = await buildUserFromDbUser(dbUser);
+  if (!user.is_master_admin) {
+    // Same message as a bad password: do not reveal that the account exists but
+    // lacks the tier.
+    return deny();
+  }
+
+  const payload = { id: user.id, scope: 'master' };
+  const access = signAccessToken(payload);
+  if (!access) {
+    return res.status(503).json({ message: 'Master console requires JWT_SECRET to be configured.' });
+  }
+  res.cookie('access_token', access, COOKIE_OPTS);
+  res.cookie('refresh_token', signRefreshToken(payload), { ...COOKIE_OPTS, maxAge: 7 * 24 * 60 * 60 * 1000 });
+
+  user.scope = 'master';
+  user.is_master = true;
+  // A master session is never subject to the EOD lock.
+  user.eod_locked = false;
+  user.eod_lock_date = null;
+
+  // Fire and forget: an audit write must never block or fail a valid sign-in.
+  db.dbCreateAuditLog({
+    userId: user.user_id,
+    action: 'master.login',
+    resource: 'auth',
+    resourceId: String(user.user_id),
+    ipAddress: req.ip,
+  }).catch(() => {});
+
+  res.json({ user });
+}));
 
 // ---- IT Updates API (JWT auth; any authenticated user can access — attach permissions for UI) ----
 const BASE_PATH = '/api/it-updates';
@@ -883,10 +950,41 @@ app.post(`${BASE_PATH}/projects/:projectId/comments/:commentId/like`, async (req
 });
 
 // Users — admin only (UI moved to Admin dashboard)
+// Master accounts are filtered out of every admin-facing user list, so an ordinary
+// admin can neither see them nor reach the edit/delete controls for them.
+async function isMasterUserId(userId) {
+  try {
+    const ids = await db.dbGetMasterAdminUserIds();
+    return ids.map(String).includes(String(userId));
+  } catch {
+    return false; // never fail closed on a lookup error for a read path
+  }
+}
+
+/** 404 (not 403) for master targets: an admin should not learn the account exists. */
+async function blockMasterTarget(req, res) {
+  if (await isMasterUserId(req.params.userId)) {
+    res.status(404).json({ message: 'User not found' });
+    return true;
+  }
+  return false;
+}
+
+async function withoutMasterAccounts(list) {
+  if (!Array.isArray(list) || list.length === 0) return list;
+  try {
+    const masterIds = new Set((await db.dbGetMasterAdminUserIds()).map(String));
+    if (masterIds.size === 0) return list;
+    return list.filter((u) => !masterIds.has(String(u.user_id ?? u.id)));
+  } catch {
+    return list;
+  }
+}
+
 app.get(`${BASE_PATH}/users`, requirePermission('admin.access'), async (req, res) => {
   try {
     if (db.useDb()) {
-      const list = await db.dbGetUsersWithRoles();
+      const list = await withoutMasterAccounts(await db.dbGetUsersWithRoles());
       return res.json(
         list.map((row) => ({
           user_id: row.user_id,
@@ -975,6 +1073,7 @@ app.post(`${BASE_PATH}/users`, requirePermission('admin.access'), async (req, re
 });
 
 app.put(`${BASE_PATH}/users/:userId`, requirePermission('admin.access'), async (req, res) => {
+  if (await blockMasterTarget(req, res)) return;
   try {
     const { userId } = req.params;
     const { username, email, password, is_it_developer, is_it_manager, branch, is_active } = req.body || {};
@@ -1018,6 +1117,7 @@ app.put(`${BASE_PATH}/users/:userId`, requirePermission('admin.access'), async (
 });
 
 app.delete(`${BASE_PATH}/users/:userId`, requirePermission('admin.access'), async (req, res) => {
+  if (await blockMasterTarget(req, res)) return;
   try {
     const { userId } = req.params;
     if (db.useDb()) {
@@ -1795,6 +1895,65 @@ app.delete(`${BASE_PATH}/tasks/:taskId/requirements/:reqId`, async (req, res) =>
 // Banking, tax identifiers, addresses and internal contacts are deliberately excluded.
 let brandingCache = null;
 
+/**
+ * Navigation customisation set from the master console.
+ *
+ * Three parts, all overrides only:
+ *   icons    - icon name per sector id (the top bar)
+ *   order    - display order, keyed by 'sectors' or by a sector id
+ *   bySector - names and icons for the sections inside one sector, so the same
+ *              section can be named differently in two sectors
+ *
+ * Validated tightly because this payload is public and drives rendering: icon names
+ * must look like catalogue keys (the client only resolves names it knows) and every
+ * key must look like a label id.
+ */
+function sanitiseNavigation(raw) {
+  const empty = { icons: {}, order: {}, bySector: {} };
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return empty;
+  const isLabelId = (k) => typeof k === 'string' && /^[A-Za-z0-9_.]{1,60}$/.test(k);
+  const isIconName = (n) => /^[A-Za-z][A-Za-z0-9]{0,40}$/.test(n);
+
+  const pickIcons = (src) => {
+    const out = {};
+    for (const [key, value] of Object.entries(src || {})) {
+      if (!isLabelId(key) || typeof value !== 'string') continue;
+      const name = value.trim();
+      if (name && isIconName(name)) out[key] = name;
+    }
+    return out;
+  };
+
+  const pickLabels = (src) => {
+    const out = {};
+    for (const [key, value] of Object.entries(src || {})) {
+      if (!isLabelId(key) || typeof value !== 'string') continue;
+      const text = value.trim();
+      if (text && text.length <= 60) out[key] = text;
+    }
+    return out;
+  };
+
+  const order = {};
+  for (const [group, value] of Object.entries(raw.order || {})) {
+    if (!isLabelId(group) || !Array.isArray(value)) continue;
+    const ids = [...new Set(value.filter(isLabelId))].slice(0, 100);
+    if (ids.length) order[group] = ids;
+  }
+
+  const bySector = {};
+  for (const [sector, cfg] of Object.entries(raw.bySector || {})) {
+    if (!isLabelId(sector) || !cfg || typeof cfg !== 'object' || Array.isArray(cfg)) continue;
+    const labels = pickLabels(cfg.labels);
+    const icons = pickIcons(cfg.icons);
+    if (Object.keys(labels).length || Object.keys(icons).length) {
+      bySector[sector] = { labels, icons };
+    }
+  }
+
+  return { icons: pickIcons(raw.icons), order, bySector };
+}
+
 function publicBranding(data = {}) {
   const assets = data.assets || {};
   return {
@@ -1812,6 +1971,7 @@ function publicBranding(data = {}) {
     // Module/section renames for whitelabeling. Overrides only — the client keeps
     // the coded defaults for anything not stored here.
     labels: sanitiseLabels(data.labels),
+    navigation: sanitiseNavigation(data.navigation),
   };
 }
 
@@ -1846,6 +2006,8 @@ async function loadBranding() {
   applyEmailBranding({
     ...branding,
     contact: data.contact || {},
+    // Per-mail subject/heading/body/button overrides, edited in the master console.
+    templates: data.email_templates_by_mail || {},
     signatures: {
       member: data.email_signature || '',
       admin: data.email_signature_admin || '',
@@ -1881,6 +2043,9 @@ app.use(ADMIN_PATH, requireAuth, asyncMw(attachUserPermissions), requirePermissi
 // ───────────────────────── Company Profile & Branding ─────────────────────────
 // Single source of truth for company identity, branding, compliance, banking, and
 // digital presence. `data` is published; `draft` is the auto-saved work-in-progress.
+
+// Mirrors CURRENCIES in frontend/src/utils/invoiceSettings.js.
+const INVOICE_CURRENCIES = ['INR', 'USD', 'EUR', 'GBP', 'AED'];
 
 const COMPANY_VALIDATORS = {
   email: /^[^\s@]+@[^\s@]+\.[^\s@]+$/,
@@ -1923,17 +2088,81 @@ function validateCompanyProfile(profile = {}) {
   ['linkedin', 'facebook', 'instagram', 'twitter', 'youtube', 'website'].forEach((k) => {
     check(social[k], 'url', `social.${k}`, `${k} URL`);
   });
+
+  // Invoice defaults, published from the master console's Billing & Legal
+  // section. Every field is optional — a blank one falls back to the value shipped in
+  // frontend/src/utils/invoiceSettings.js — so only a present-but-wrong value is an error.
+  const inv = profile.invoice || {};
+  if (inv.gst_rate != null && String(inv.gst_rate).trim() !== '') {
+    const rate = Number(inv.gst_rate);
+    if (!Number.isFinite(rate) || rate < 0 || rate > 100) {
+      errors.push({ field: 'invoice.gst_rate', message: 'GST rate must be between 0 and 100.' });
+    }
+  }
+  if (inv.currency != null && String(inv.currency).trim() !== ''
+      && !INVOICE_CURRENCIES.includes(String(inv.currency).trim())) {
+    errors.push({ field: 'invoice.currency', message: 'Unsupported invoice currency.' });
+  }
+  if (inv.sac_catalogue != null) {
+    if (!Array.isArray(inv.sac_catalogue)) {
+      errors.push({ field: 'invoice.sac_catalogue', message: 'SAC catalogue must be a list.' });
+    } else {
+      inv.sac_catalogue.forEach((row, i) => {
+        check(row?.code, 'sac', `invoice.sac_catalogue.${i}`, `SAC code ${i + 1}`);
+      });
+    }
+  }
   return errors;
 }
 
-const ASSET_ACTION = {
-  logo: 'Logo changed',
-  favicon: 'Favicon updated',
-  signature: 'Authorized signature updated',
-  digital_signature: 'Digital signature updated',
-  seal: 'Company seal updated',
+/** Display name per brand asset; also the set of asset types the API accepts. */
+const ASSET_LABEL = {
+  logo: 'Logo',
+  favicon: 'Favicon',
+  signature: 'Authorized signature',
+  digital_signature: 'Digital signature',
+  seal: 'Company seal',
 };
-const COMPANY_ASSET_TYPES = Object.keys(ASSET_ACTION);
+const COMPANY_ASSET_TYPES = Object.keys(ASSET_LABEL);
+const assetAction = (type, verb) => `${ASSET_LABEL[type] || 'Brand asset'} ${verb}`;
+
+/**
+ * Statutory identity, contact details, registered address, bank details and invoice
+ * defaults are owned by the master console's Billing & Legal section. For any
+ * non-master caller these keys are replaced with what is stored, whatever the request
+ * body claims — so no other screen or API client can overwrite them.
+ *
+ * They are replaced rather than deleted because the client prefers an unpublished
+ * draft over the published data; dropping them would blank the read-only display.
+ */
+const MASTER_OWNED_COMPANY_KEYS = ['compliance', 'contact', 'address', 'bank', 'invoice', 'social'];
+
+function isMasterSession(req) {
+  return (req.user?.permissions || []).includes('master.access') && req.user?.scope === 'master';
+}
+
+/**
+ * Brand assets (logo, favicon, signatures, seal) are uploaded from the master console's
+ * Appearance section. They are not part of the profile body — dbPublishCompanyProfile
+ * preserves the asset blob — so ownership has to be enforced on the write endpoints
+ * themselves. Reads stay open: the invoice renderer and the branding payload need them.
+ */
+function requireMasterSession(req, res, next) {
+  if (!isMasterSession(req)) {
+    return res.status(403).json({
+      message: 'Brand assets are managed in the master console under Appearance.',
+    });
+  }
+  return next();
+}
+
+async function keepMasterOwnedFields(body, req) {
+  const next = { ...(body || {}) };
+  if (isMasterSession(req)) return next;
+  const stored = (await db.dbGetCompanyProfile())?.data || {};
+  for (const k of MASTER_OWNED_COMPANY_KEYS) next[k] = stored[k];
+  return next;
+}
 
 app.get(`${ADMIN_PATH}/company`, asyncMw(async (req, res) => {
   if (!db.useDb()) return res.json({ data: {}, draft: null });
@@ -1943,27 +2172,155 @@ app.get(`${ADMIN_PATH}/company`, asyncMw(async (req, res) => {
 
 app.post(`${ADMIN_PATH}/company/draft`, asyncMw(async (req, res) => {
   if (!db.useDb()) return res.status(400).json({ message: 'A database connection is required.' });
-  const updatedAt = await db.dbSaveCompanyDraft(req.body || {}, req.user?.id ?? null);
+  const draft = await keepMasterOwnedFields(req.body, req);
+  const updatedAt = await db.dbSaveCompanyDraft(draft, req.user?.id ?? null);
   res.json({ status: 'saved', updated_at: updatedAt });
 }));
 
+/**
+ * What changed between two published company profiles, as a flat list of field paths.
+ *
+ * Written to audit_log.details so the master console can answer "who changed what, and
+ * when" rather than only "the profile was updated".
+ *
+ * Values are recorded for ordinary fields, but MASKED for the regulatory ones. The audit
+ * log is readable by any admin holding admin.audit, while bank and statutory details are
+ * deliberately master-only — echoing them into the log would hand them straight back.
+ * Long text and base64 blobs are reduced to a "changed" marker rather than stored twice.
+ */
+// String prefixes rather than a regex: the dots are literal, and a regex here has been
+// mis-escaped once already.
+const AUDIT_MASKED_PREFIXES = ['bank.', 'compliance.'];
+const AUDIT_MASKED_EXACT = [
+  'contact.official_email', 'contact.accounts_email', 'contact.contact_number',
+];
+const AUDIT_MAX_VALUE = 80;
+const AUDIT_MAX_FIELDS = 40;
+
+function auditMasked(path) {
+  return AUDIT_MASKED_PREFIXES.some((p) => path.startsWith(p))
+    || AUDIT_MASKED_EXACT.includes(path);
+}
+
+/** Friendly leading word per top-level key, so a row reads as prose not as a JSON path. */
+const AUDIT_LABELS = {
+  colors: 'Theme colour',
+  compliance: 'Statutory',
+  contact: 'Contact',
+  address: 'Address',
+  bank: 'Bank',
+  invoice: 'Invoice defaults',
+  social: 'Digital presence',
+  labels: 'Navigation name',
+  navigation: 'Navigation',
+  brand_values: 'Brand values',
+  brand_kit: 'Brand kit',
+  email_templates_by_mail: 'Mail template',
+  email_signatures_by_mail: 'Mail sign-off',
+  email_signature: 'Sign-off (team member mails)',
+  email_signature_admin: 'Sign-off (admin mails)',
+  company_name: 'Brand name',
+  legal_name: 'Legal name',
+};
+
+function auditLabel(path) {
+  const [head, ...rest] = path.split('.');
+  const friendly = AUDIT_LABELS[head] || head.replace(/_/g, ' ');
+  return rest.length ? `${friendly} · ${rest.join(' · ')}` : friendly;
+}
+
+function auditValue(path, v) {
+  if (v === undefined || v === null || v === '') return '(empty)';
+  if (auditMasked(path)) return '(hidden)';
+  if (Array.isArray(v)) return `[${v.length} item${v.length === 1 ? '' : 's'}]`;
+  if (typeof v === 'object') return '(updated)';
+  const str = String(v);
+  if (str.startsWith('data:')) return '(image)';
+  return str.length > AUDIT_MAX_VALUE ? `${str.slice(0, AUDIT_MAX_VALUE)}…` : str;
+}
+
+const isPlainObject = (v) => Boolean(v) && typeof v === 'object' && !Array.isArray(v);
+
+/**
+ * Describe an array change as what was added or removed, or as a pure reorder.
+ *
+ * "[3 items] → [3 items]" told the reader nothing, which is the whole point of the log.
+ */
+function auditArray(path, a, b) {
+  if (auditMasked(path)) return { from: '(hidden)', to: '(hidden)' };
+  const A = Array.isArray(a) ? a : [];
+  const B = Array.isArray(b) ? b : [];
+  const key = (v) => (typeof v === 'object' ? JSON.stringify(v) : String(v));
+  const ka = A.map(key);
+  const kb = B.map(key);
+  const added = kb.filter((x) => !ka.includes(x));
+  const removed = ka.filter((x) => !kb.includes(x));
+  const list = (xs) => xs.slice(0, 3).join(', ') + (xs.length > 3 ? ` +${xs.length - 3} more` : '');
+
+  if (!added.length && !removed.length) {
+    return { from: `${A.length} item${A.length === 1 ? '' : 's'}`, to: 'reordered' };
+  }
+  const parts = [];
+  if (added.length) parts.push(`added ${list(added)}`);
+  if (removed.length) parts.push(`removed ${list(removed)}`);
+  const summary = parts.join('; ');
+  return {
+    from: `${A.length} item${A.length === 1 ? '' : 's'}`,
+    to: summary.length > AUDIT_MAX_VALUE ? `${summary.slice(0, AUDIT_MAX_VALUE)}…` : summary,
+  };
+}
+
+function diffCompanyProfile(before = {}, after = {}, prefix = '', out = []) {
+  const keys = new Set([...Object.keys(before || {}), ...Object.keys(after || {})]);
+  for (const key of keys) {
+    if (out.length >= AUDIT_MAX_FIELDS) break;
+    const path = prefix ? `${prefix}.${key}` : key;
+    const a = before?.[key];
+    const b = after?.[key];
+    if (JSON.stringify(a ?? null) === JSON.stringify(b ?? null)) continue;
+
+    // Recurse when EITHER side is an object, treating the missing side as empty. Requiring
+    // both meant a newly added group — a first mail-template override, say — was reported
+    // only as "(updated)" instead of naming the fields inside it.
+    if (isPlainObject(a) || isPlainObject(b)) {
+      diffCompanyProfile(isPlainObject(a) ? a : {}, isPlainObject(b) ? b : {}, path, out);
+      continue;
+    }
+
+    const change = (Array.isArray(a) || Array.isArray(b))
+      ? auditArray(path, a, b)
+      : { from: auditValue(path, a), to: auditValue(path, b) };
+    out.push({ field: path, label: auditLabel(path), ...change });
+  }
+  return out;
+}
+
 app.put(`${ADMIN_PATH}/company`, asyncMw(async (req, res) => {
   if (!db.useDb()) return res.status(400).json({ message: 'A database connection is required.' });
-  const errors = validateCompanyProfile(req.body || {});
+  const incoming = await keepMasterOwnedFields(req.body, req);
+  const errors = validateCompanyProfile(incoming);
   if (errors.length) return res.status(400).json({ message: 'Please fix the highlighted fields.', errors });
-  const result = await db.dbPublishCompanyProfile(req.body || {}, req.user?.id ?? null);
+  const before = (await db.dbGetCompanyProfile())?.data || {};
+  const result = await db.dbPublishCompanyProfile(incoming, req.user?.id ?? null);
   if (!result) return res.status(500).json({ message: 'Failed to publish company profile.' });
   invalidateBranding();
+  // `assets` is managed by its own endpoints and never sent in this body; excluding it
+  // keeps a publish from reporting an asset change it did not make.
+  const { assets: _a, ...afterNoAssets } = result.data || {};
+  const { assets: _b, ...beforeNoAssets } = before;
+  const changes = diffCompanyProfile(beforeNoAssets, afterNoAssets);
   db.dbCreateAuditLog({
     userId: req.user?.id ?? null,
-    action: 'Company profile updated',
+    action: changes.length ? `Company profile updated (${changes.length} field${changes.length === 1 ? '' : 's'})` : 'Company profile published (no changes)',
     resource: 'company_profile',
     resourceId: '1',
+    details: { changes },
+    ipAddress: req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.socket?.remoteAddress,
   }).catch(() => {});
   res.json(result);
 }));
 
-app.post(`${ADMIN_PATH}/company/asset`, asyncMw(async (req, res) => {
+app.post(`${ADMIN_PATH}/company/asset`, requireMasterSession, asyncMw(async (req, res) => {
   if (!db.useDb()) return res.status(400).json({ message: 'A database connection is required.' });
   const { type, dataUrl } = req.body || {};
   if (!COMPANY_ASSET_TYPES.includes(type)) return res.status(400).json({ message: 'Unknown asset type.' });
@@ -1978,14 +2335,16 @@ app.post(`${ADMIN_PATH}/company/asset`, asyncMw(async (req, res) => {
   invalidateBranding();
   db.dbCreateAuditLog({
     userId: req.user?.id ?? null,
-    action: ASSET_ACTION[type] || 'Brand asset updated',
+    action: assetAction(type, 'updated'),
     resource: 'company_profile',
     resourceId: '1',
+    details: { changes: [{ field: `assets.${type}`, from: '(image)', to: '(image)' }] },
+    ipAddress: req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.socket?.remoteAddress,
   }).catch(() => {});
   res.json({ assets });
 }));
 
-app.delete(`${ADMIN_PATH}/company/asset/:type`, asyncMw(async (req, res) => {
+app.delete(`${ADMIN_PATH}/company/asset/:type`, requireMasterSession, asyncMw(async (req, res) => {
   if (!db.useDb()) return res.status(400).json({ message: 'A database connection is required.' });
   const { type } = req.params;
   if (!COMPANY_ASSET_TYPES.includes(type)) return res.status(400).json({ message: 'Unknown asset type.' });
@@ -1993,9 +2352,11 @@ app.delete(`${ADMIN_PATH}/company/asset/:type`, asyncMw(async (req, res) => {
   invalidateBranding();
   db.dbCreateAuditLog({
     userId: req.user?.id ?? null,
-    action: `${ASSET_ACTION[type] || 'Brand asset'} removed`,
+    action: assetAction(type, 'removed'),
     resource: 'company_profile',
     resourceId: '1',
+    details: { changes: [{ field: `assets.${type}`, from: '(image)', to: '(empty)' }] },
+    ipAddress: req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.socket?.remoteAddress,
   }).catch(() => {});
   res.json({ assets: assets || {} });
 }));
@@ -2049,7 +2410,7 @@ async function blockedForSignoff(status, res) {
   const missing = await missingInvoiceSignoff();
   if (!missing.length) return false;
   res.status(400).json({
-    message: `Upload the ${missing.join(' and ')} under Company Branding before issuing this invoice.`,
+    message: `Upload the ${missing.join(' and ')} from the master console (Appearance) before issuing this invoice.`,
     missing_assets: missing,
   });
   return true;
@@ -2063,7 +2424,10 @@ app.get(`${ADMIN_PATH}/invoices`, asyncMw(async (req, res) => {
 // Must be registered before `/invoices/:id` so it is not captured as an id.
 app.get(`${ADMIN_PATH}/invoices/next-number`, asyncMw(async (req, res) => {
   const year = new Date().getFullYear();
-  res.json({ invoice_number: await db.dbNextInvoiceNumber(year) });
+  // The series prefix is part of the master-owned invoice settings.
+  const profile = db.useDb() ? (await db.dbGetCompanyProfile())?.data : null;
+  const prefix = profile?.invoice?.number_prefix;
+  res.json({ invoice_number: await db.dbNextInvoiceNumber(year, prefix) });
 }));
 
 app.get(`${ADMIN_PATH}/invoices/:id`, asyncMw(async (req, res) => {
@@ -2226,7 +2590,7 @@ app.get(`${ADMIN_PATH}/departments`, async (req, res) => {
 app.get(`${ADMIN_PATH}/users`, async (req, res) => {
   try {
     if (db.useDb()) {
-      const list = await db.dbGetUsersWithRoles();
+      const list = await withoutMasterAccounts(await db.dbGetUsersWithRoles());
       return res.json(list);
     }
     const safe = users.map((u) => ({ user_id: u.id, username: u.name || u.email, email: u.email, role_names: [u.role], role_codes: [u.role === 'IT Admin' ? 'admin' : u.role === 'IT Manager' ? 'it_manager' : 'it_developer'] }));
@@ -2285,6 +2649,7 @@ app.post(`${ADMIN_PATH}/users`, async (req, res) => {
 });
 
 app.put(`${ADMIN_PATH}/users/:userId`, async (req, res) => {
+  if (await blockMasterTarget(req, res)) return;
   try {
     const { userId } = req.params;
     const { username, email, password, is_it_developer, is_it_manager, branch, is_active } = req.body || {};
@@ -2332,6 +2697,7 @@ app.put(`${ADMIN_PATH}/users/:userId`, async (req, res) => {
 });
 
 app.delete(`${ADMIN_PATH}/users/:userId`, async (req, res) => {
+  if (await blockMasterTarget(req, res)) return;
   try {
     const { userId } = req.params;
     if (db.useDb()) {
@@ -2363,6 +2729,7 @@ app.delete(`${ADMIN_PATH}/users/:userId`, async (req, res) => {
 });
 
 app.put(`${ADMIN_PATH}/users/:userId/roles`, async (req, res) => {
+  if (await blockMasterTarget(req, res)) return;
   try {
     const roleIds = Array.isArray(req.body.role_ids) ? req.body.role_ids.map((id) => parseInt(id, 10)).filter(Number.isFinite) : [];
     if (db.useDb()) {
@@ -2469,6 +2836,82 @@ app.get('/', (req, res) => {
   res.send('IT Updates backend is running');
 });
 
+// ---- Master control console API ----
+// Every route requires master.access AND a master-scoped session; see
+// middlewares/masterMiddleware.js for why requirePermission is not used here.
+const MASTER_PATH = '/api/master';
+app.use(MASTER_PATH, requireAuth, asyncMw(attachUserPermissions), requireMasterScope);
+
+/** Landing counts plus service health. */
+app.get(`${MASTER_PATH}/overview`, asyncMw(async (req, res) => {
+  const [counts, locked] = await Promise.all([
+    db.dbGetMasterOverview(),
+    db.dbGetLockedEodUsers(),
+  ]);
+  res.json({
+    counts: counts || {},
+    locked_users: locked || [],
+    health: {
+      database: db.useDb() ? 'connected' : 'disconnected',
+      mail: isMailConfigured() ? 'configured' : 'not configured',
+      jwt: process.env.JWT_SECRET ? 'configured' : 'missing',
+      eod_timezone_offset_minutes: Number(process.env.EOD_TZ_OFFSET_MINUTES ?? 330),
+      eod_reminder_times: process.env.EOD_REMINDER_TIMES || '17:30,19:30',
+      eod_director_report_hour: Number(process.env.EOD_REPORT_HOUR ?? 20),
+      app_url: appLink(),
+      node_version: process.version,
+      uptime_seconds: Math.round(process.uptime()),
+    },
+  });
+}));
+
+/** Every user with their roles. Unlike the admin list, master accounts are included. */
+app.get(`${MASTER_PATH}/users`, asyncMw(async (req, res) => {
+  res.json(await db.dbGetUsersWithRoles());
+}));
+
+app.get(`${MASTER_PATH}/roles`, asyncMw(async (req, res) => {
+  res.json(await db.dbGetRoles());
+}));
+
+app.get(`${MASTER_PATH}/permissions`, asyncMw(async (req, res) => {
+  res.json(await db.dbGetPermissions());
+}));
+
+/** Users currently locked out for a missed EOD report. */
+app.get(`${MASTER_PATH}/eod-locks`, asyncMw(async (req, res) => {
+  res.json(await db.dbGetLockedEodUsers());
+}));
+
+/** Clear one user's EOD lock and excuse them through the current due day. */
+app.post(`${MASTER_PATH}/eod-locks/:userId/unlock`, asyncMw(async (req, res) => {
+  const userId = Number(req.params.userId);
+  if (!Number.isInteger(userId)) return res.status(400).json({ message: 'Invalid user id' });
+  const ok = await db.dbUnlockUserEod(userId);
+  if (!ok) return res.status(404).json({ message: 'User not found or not locked' });
+  db.dbCreateAuditLog({
+    userId: req.user?.id ? Number(req.user.id) : null,
+    action: 'master.eod_unlock',
+    resource: 'user',
+    resourceId: String(userId),
+    ipAddress: req.ip,
+  }).catch(() => {});
+  res.json({ success: true });
+}));
+
+/**
+ * The console's change history.
+ *
+ * Scoped to `company_profile` on purpose: this section reports what was changed *from
+ * this console*, not everything the application records. User deletions, role edits,
+ * invoice creation, EOD unlocks and sign-ins all land in the same table and are not
+ * changes made here, so they would only be noise.
+ */
+app.get(`${MASTER_PATH}/audit`, asyncMw(async (req, res) => {
+  const limit = Math.min(Math.max(Number(req.query.limit) || 100, 1), 500);
+  res.json(await db.dbGetAuditLogs({ limit, resource: 'company_profile' }));
+}));
+
 // ---- Email notifications (Gmail API) ----
 function stripHtml(html) {
   return String(html || '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
@@ -2501,6 +2944,13 @@ function extractMentionUidsFromHtml(html) {
 }
 
 /** Email each mentioned user that they were tagged in a comment. Fire-and-forget. */
+/** The quoted-comment / task-description block a {quote} paragraph is replaced by. */
+function quoteBlock(inner) {
+  if (!inner) return '';
+  return '<blockquote style="margin:0;border-left:3px solid #6366f1;background:#f8fafc;'
+    + 'padding:14px 18px;border-radius:0 10px 10px 0;color:#475569;">' + inner + '</blockquote>';
+}
+
 async function notifyMentions({ taskId, team, mentionIds, commenterName, html, titleOverride }) {
   if (!isMailConfigured()) {
     console.warn('[mentions] skipped: email not configured (GMAIL_* env missing).');
@@ -2525,23 +2975,14 @@ async function notifyMentions({ taskId, team, mentionIds, commenterName, html, t
   const who = commenterName || 'Someone';
   for (const u of users) {
     if (!u.email) continue;
-    const ok = await sendMail({
-      to: u.email,
-      subject: `${who} mentioned you on "${title}"`,
-      html: renderEmail({
-        preheader: `${who} mentioned you on "${title}"`,
-        heading: 'You were mentioned in a comment',
-        ctaUrl: link,
-        ctaLabel: 'Open task',
-        // A real person triggered this, so {{sender_name}} can resolve.
-        sender: { name: who },
-        mailType: 'mention',
-        contentHtml:
-          `<p style="margin:0 0 16px;">Hi ${u.username || 'there'},</p>` +
-          `<p style="margin:0 0 16px;"><strong>${who}</strong> mentioned you in a comment on <strong>${title}</strong>:</p>` +
-          `<blockquote style="margin:0;border-left:3px solid #6366f1;background:#f8fafc;padding:14px 18px;border-radius:0 10px 10px 0;color:#475569;">${html || ''}</blockquote>`,
-      }),
+    const mail = renderMail('mention', {
+      values: { name: u.username || 'there', who, task: title },
+      blocks: { quote: quoteBlock(html) },
+      ctaUrl: link,
+      // A real person triggered this, so {{sender_name}} can resolve.
+      sender: { name: who },
     });
+    const ok = await sendMail({ to: u.email, subject: mail.subject, html: mail.html });
     console.log(`[mentions] email to user ${u.user_id}: ${ok ? 'sent' : 'FAILED'}`);
   }
 }
@@ -2562,24 +3003,13 @@ async function notifyAssignment({ task, assignerName }) {
   const title = task?.title || `Task #${task?.id}`;
   const link = appLink();
   const who = assignerName || 'Someone';
-  const ok = await sendMail({
-    to: assignee.email,
-    subject: `${who} assigned you a task: "${title}"`,
-    html: renderEmail({
-      preheader: `${who} assigned you a task: "${title}"`,
-      heading: 'A task was assigned to you',
-      ctaUrl: link,
-      ctaLabel: 'Open task',
-      sender: { name: who },
-      mailType: 'task_assigned',
-      contentHtml:
-        `<p style="margin:0 0 16px;">Hi ${assignee.username || 'there'},</p>` +
-        `<p style="margin:0 0 16px;"><strong>${who}</strong> assigned you a new task: <strong>${title}</strong>.</p>` +
-        (task?.task_description
-          ? `<blockquote style="margin:0;border-left:3px solid #6366f1;background:#f8fafc;padding:14px 18px;border-radius:0 10px 10px 0;color:#475569;">${stripHtml(task.task_description)}</blockquote>`
-          : ''),
-    }),
+  const mail = renderMail('task_assigned', {
+    values: { name: assignee.username || 'there', who, task: title },
+    blocks: { quote: quoteBlock(task?.task_description ? stripHtml(task.task_description) : '') },
+    ctaUrl: link,
+    sender: { name: who },
   });
+  const ok = await sendMail({ to: assignee.email, subject: mail.subject, html: mail.html });
   console.log(`[assignment] email to user ${assignee.user_id}: ${ok ? 'sent' : 'FAILED'}`);
 }
 
@@ -2592,27 +3022,16 @@ async function runDeadlineCheck() {
     for (const t of tasks) {
       if (await db.dbWasDeadlineNotified(t.task_id, t.team, t.kind)) continue;
       const dueStr = t.due_date ? new Date(t.due_date).toLocaleDateString() : '';
-      const subject = t.kind === 'overdue' ? `Overdue: "${t.title}"` : `Due soon: "${t.title}"`;
-      const intro =
-        t.kind === 'overdue'
-          ? `The task <strong>${t.title}</strong> is overdue (was due ${dueStr}).`
-          : `The task <strong>${t.title}</strong> is due on ${dueStr}.`;
+      const mailType = t.kind === 'overdue' ? 'task_overdue' : 'task_due_soon';
       let sentAny = false;
       for (const r of t.recipients) {
-        const ok = await sendMail({
-          to: r.email,
-          subject,
-          html: renderEmail({
-            preheader: subject,
-            heading: t.kind === 'overdue' ? 'Task overdue' : 'Task due soon',
-            mailType: t.kind === 'overdue' ? 'task_overdue' : 'task_due_soon',
-            ctaUrl: link,
-            ctaLabel: 'Open task',
-            contentHtml:
-              `<p style="margin:0 0 16px;">Hi ${r.name || 'there'},</p>` +
-              `<p style="margin:0 0 16px;">${intro}</p>`,
-          }),
+        // Rendered per recipient because {name} differs; the rest of the template is
+        // identical, and resolving it is cheap string work.
+        const mail = renderMail(mailType, {
+          values: { name: r.name || 'there', task: t.title, date: dueStr },
+          ctaUrl: link,
         });
+        const ok = await sendMail({ to: r.email, subject: mail.subject, html: mail.html });
         sentAny = sentAny || ok;
       }
       if (sentAny) await db.dbMarkDeadlineNotified(t.task_id, t.team, t.kind);
@@ -2640,6 +3059,7 @@ async function start() {
     console.warn('Database not connected:', result.error);
     console.warn('Using in-memory data. Fix .env (DB_USER, DB_PASSWORD, DB_DATABASE, DB_HOST) and run db/schema.sql to use PostgreSQL.');
   }
+
   app.listen(PORT, () => {
     console.log(`IT Updates backend listening on http://localhost:${PORT}`);
     if (isMailConfigured()) {

@@ -6,6 +6,9 @@ import { confirmDialog } from '../../utils/confirm';
 import { amountInWords } from '../../utils/amountInWords';
 import { formatPlaceOfSupply } from '../../utils/gstStates';
 import { BRANDING_EVENT } from '../../branding/BrandingContext';
+import {
+  FALLBACK_SAC, INVOICE_DEFAULTS, defaultSacFrom, invoiceSettingsFrom,
+} from '../../utils/invoiceSettings';
 import './Invoices.css';
 
 const CURRENCY_SYMBOL = { INR: '₹', USD: '$', EUR: '€', GBP: '£', AED: 'AED ' };
@@ -27,8 +30,6 @@ const fmtDate = (d) => {
   return `${p(dt.getDate())}/${p(dt.getMonth() + 1)}/${dt.getFullYear()}`;
 };
 
-// SAC 998314 — "IT design and development services" — covers the web build work we bill for.
-const DEFAULT_SAC = '998314';
 // Suggestions only; every field stays free-text so one-off engagements are still billable.
 const SERVICE_SUGGESTIONS = [
   'Website design & development',
@@ -48,28 +49,22 @@ const SERVICE_SUGGESTIONS = [
   'SEO setup & performance optimisation',
   'Technical consulting (hourly)',
 ];
-const SAC_SUGGESTIONS = [
-  { code: '998314', label: 'IT design & development services' },
-  { code: '998313', label: 'IT consulting & support services' },
-  { code: '998315', label: 'Hosting & IT infrastructure provisioning' },
-  { code: '998316', label: 'IT infrastructure & network management' },
-  { code: '998319', label: 'Other IT services' },
-  { code: '998361', label: 'Advertising services' },
-];
-
-const blankItem = () => ({ description: '', hsn_sac: DEFAULT_SAC, qty: 1, rate: 0 });
-const emptyInvoice = () => ({
+// The service code, tax rate, currency and terms below are whatever the master
+// console published under Billing & Legal; the arguments are only the
+// fallbacks used before the company profile has loaded.
+const blankItem = (sac = FALLBACK_SAC) => ({ description: '', hsn_sac: sac, qty: 1, rate: 0 });
+const emptyInvoice = (settings = INVOICE_DEFAULTS, sac = FALLBACK_SAC) => ({
   invoice_number: '',
   invoice_date: new Date().toISOString().slice(0, 10),
   due_date: '',
   client_name: '', client_address: '', client_email: '', client_gst: '', place_of_supply: '',
   is_inter_state: false,
-  gst_rate: 18,
-  currency: 'INR',
-  items: [blankItem()],
+  gst_rate: settings.gst_rate,
+  currency: settings.currency,
+  items: [blankItem(sac)],
   discount: 0,
   notes: '',
-  terms: 'Payment due within 15 days.',
+  terms: settings.payment_terms,
   status: 'draft',
 });
 
@@ -91,7 +86,7 @@ function missingSignoff(company) {
   return missing;
 }
 const signoffMessage = (missing) =>
-  `Upload the ${missing.join(' and ')} under Company Branding → Visual Identity before issuing this invoice.`;
+  `Ask a master administrator to upload the ${missing.join(' and ')} (master console → Appearance) before issuing this invoice.`;
 
 // Money math — mirrors the server's computeInvoiceTotals.
 function computeTotals(inv) {
@@ -153,8 +148,12 @@ export default function Invoices() {
     return () => window.removeEventListener(BRANDING_EVENT, loadCompany);
   }, [loadCompany]);
 
+  // Invoice defaults published under Billing & Legal in the master console.
+  const settings = useMemo(() => invoiceSettingsFrom(company), [company]);
+  const defaultSac = useMemo(() => defaultSacFrom(company), [company]);
+
   const startNew = async () => {
-    const inv = emptyInvoice();
+    const inv = emptyInvoice(settings, defaultSac);
     try {
       const { data } = await adminApi.getNextInvoiceNumber();
       inv.invoice_number = data?.invoice_number || '';
@@ -163,7 +162,7 @@ export default function Invoices() {
     setMode('edit');
   };
 
-  const startEdit = (inv) => { setDraft({ ...emptyInvoice(), ...inv, items: inv.items?.length ? inv.items : [blankItem()] }); setMode('edit'); };
+  const startEdit = (inv) => { setDraft({ ...emptyInvoice(settings, defaultSac), ...inv, items: inv.items?.length ? inv.items : [blankItem(defaultSac)] }); setMode('edit'); };
 
   const remove = async (inv) => {
     const ok = await confirmDialog({ title: 'Delete invoice', message: `Delete ${inv.invoice_number}? This cannot be undone.`, confirmLabel: 'Delete', danger: true });
@@ -224,6 +223,8 @@ export default function Invoices() {
         draft={draft}
         setDraft={setDraft}
         saving={saving}
+        settings={settings}
+        defaultSac={defaultSac}
         missingAssets={missingAssets}
         onCancel={() => { setDraft(null); setMode('list'); }}
         onSave={save}
@@ -274,11 +275,14 @@ export default function Invoices() {
   );
 }
 
-function InvoiceEditor({ draft, setDraft, saving, missingAssets = [], onCancel, onSave, onSaveAndPrint }) {
+function InvoiceEditor({
+  draft, setDraft, saving, settings = INVOICE_DEFAULTS, defaultSac = FALLBACK_SAC,
+  missingAssets = [], onCancel, onSave, onSaveAndPrint,
+}) {
   const blocked = missingAssets.length > 0;
   const set = (k, v) => setDraft((d) => ({ ...d, [k]: v }));
   const setItem = (i, k, v) => setDraft((d) => ({ ...d, items: d.items.map((it, idx) => (idx === i ? { ...it, [k]: v } : it)) }));
-  const addItem = () => setDraft((d) => ({ ...d, items: [...d.items, blankItem()] }));
+  const addItem = () => setDraft((d) => ({ ...d, items: [...d.items, blankItem(defaultSac)] }));
   const removeItem = (i) => setDraft((d) => ({ ...d, items: d.items.length > 1 ? d.items.filter((_, idx) => idx !== i) : d.items }));
   const t = useMemo(() => computeTotals(draft), [draft]);
 
@@ -333,7 +337,7 @@ function InvoiceEditor({ draft, setDraft, saving, missingAssets = [], onCancel, 
         {draft.items.map((it, i) => (
           <div className="inv-item-row" key={i}>
             <input list="inv-service-list" value={it.description} onChange={(e) => setItem(i, 'description', e.target.value)} placeholder="e.g. Website design & development" />
-            <input list="inv-sac-list" value={it.hsn_sac} onChange={(e) => setItem(i, 'hsn_sac', e.target.value)} placeholder={DEFAULT_SAC} />
+            <input list="inv-sac-list" value={it.hsn_sac} onChange={(e) => setItem(i, 'hsn_sac', e.target.value)} placeholder={defaultSac} />
             <input className="inv-num" type="number" min="0" value={it.qty} onChange={(e) => setItem(i, 'qty', e.target.value)} />
             <input className="inv-num" type="number" min="0" step="0.01" value={it.rate} onChange={(e) => setItem(i, 'rate', e.target.value)} />
             <span className="inv-num inv-amount">{money((Number(it.qty) || 0) * (Number(it.rate) || 0), draft.currency)}</span>
@@ -347,7 +351,7 @@ function InvoiceEditor({ draft, setDraft, saving, missingAssets = [], onCancel, 
         {SERVICE_SUGGESTIONS.map((s) => <option key={s} value={s} />)}
       </datalist>
       <datalist id="inv-sac-list">
-        {SAC_SUGGESTIONS.map((s) => <option key={s.code} value={s.code}>{s.label}</option>)}
+        {settings.sac_catalogue.map((s) => <option key={s.code} value={s.code}>{s.label}</option>)}
       </datalist>
 
       <div className="inv-bottom">
@@ -392,6 +396,8 @@ function InvoicePrint({ invoice, company, onBack }) {
   const bank = c.bank || {};
   const assets = c.assets || {};
   const signoff = signoffAssets(c);
+  // Same source as the editor: published under Billing & Legal.
+  const settings = invoiceSettingsFrom(c);
   const sellerName = c.legal_name || c.company_name || 'Your Company';
   const cur = invoice.currency || 'INR';
   const companyAddress = [addr.line1, addr.line2, [addr.city, addr.state].filter(Boolean).join(', '), [addr.country, addr.postal_code].filter(Boolean).join(' ')]
@@ -570,15 +576,24 @@ function InvoicePrint({ invoice, company, onBack }) {
           </div>
         )}
 
-        <div className="inv-doc-thanks">Thanks for your business.</div>
+        {settings.thanks_note && (
+          <div className="inv-doc-thanks">{settings.thanks_note}</div>
+        )}
+
+        {settings.declaration && (
+          <div className="inv-doc-declaration">
+            <div className="inv-doc-block-label">Declaration</div>
+            <p className="inv-doc-preline">{settings.declaration}</p>
+          </div>
+        )}
 
         <div className="inv-doc-signoff">
           {signoff.seal && <img src={signoff.seal} alt="Company seal" className="inv-doc-seal" />}
           <div className="inv-doc-sign">
-            {signoff.sign && <img src={signoff.sign} alt="Director signature" className="inv-doc-sig" />}
+            {signoff.sign && <img src={signoff.sign} alt="Authorised signature" className="inv-doc-sig" />}
             <div className="inv-doc-sign-label">
               <span className="inv-doc-sign-for">For {sellerName}</span>
-              <span className="inv-doc-sign-role">Director</span>
+              <span className="inv-doc-sign-role">{settings.signatory_role}</span>
             </div>
           </div>
         </div>

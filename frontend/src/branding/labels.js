@@ -48,7 +48,6 @@ export const ADMIN_SECTION_LABELS = [
   { id: 'section.users', default: 'Users' },
   { id: 'section.departments', default: 'Departments' },
   { id: 'section.locked_users', default: 'Locked Users' },
-  { id: 'section.company', default: 'Company & Branding' },
   { id: 'section.invoices', default: 'Invoices' },
   { id: 'section.credentials', default: 'UC Credentials' },
 ];
@@ -137,3 +136,138 @@ export const statusTextFor = (map, key, prefix = 'status') =>
  */
 export const applyLabels = (items, label) =>
   items.map((item) => (item.labelId ? { ...item, label: label(item.labelId, item.label) } : item));
+
+/* ── Navigation customisation (order + icons) ─────────────────────────────────
+ * The master console can rename an item, swap its icon, and reorder the list.
+ * All three key off the same `labelId` a nav item already carries, so a module
+ * only has to swap applyLabels for applyNav.
+ *
+ * Stored shape on the company profile:
+ *   navigation: {
+ *     icons: { 'section.users': 'MdGroup', ... },
+ *     order: { sectors: ['module.admin', 'module.it_updates', ...], ... }
+ *   }
+ * Overrides only. An absent entry keeps the coded default, so an unconfigured
+ * install renders exactly as it does today.
+ */
+/**
+ * The sidebar each sector actually renders, in coded order.
+ *
+ * Sectors do not share one sidebar: Internal Projects has Projects, Creative Team and
+ * Social Media have Calendar and Link Hub, External Projects has Client CRM and My
+ * Dashboard, and Management has an entirely separate set. The master console renders
+ * one accordion group per entry here, so the editor mirrors what a sector really shows.
+ *
+ * `sector` doubles as the order key: a saved order is per sector, because the same
+ * section sits in different positions in different sidebars.
+ *
+ * Keep in step with the TABS array in each module. A section listed here that the
+ * module does not render simply never appears; one the module renders but that is
+ * missing here is still shown, it just cannot be reordered from the console.
+ */
+export const SECTOR_SIDEBARS = [
+  {
+    sector: 'module.it_updates',
+    sections: [
+      'section.home', 'section.dashboard', 'section.my_tasks', 'section.all_tasks',
+      'section.projects', 'section.overview', 'section.eod_updates',
+    ],
+  },
+  {
+    sector: 'module.external_projects',
+    sections: [
+      'section.dashboard', 'section.my_dashboard', 'section.client_crm', 'section.my_tasks',
+      'section.all_tasks', 'section.projects', 'section.overview', 'section.eod_updates',
+    ],
+  },
+  {
+    sector: 'module.consultants',
+    sections: [
+      'section.home', 'section.dashboard', 'section.my_tasks', 'section.all_tasks',
+      'section.overview', 'section.eod_updates',
+    ],
+  },
+  {
+    sector: 'module.creative_team',
+    sections: [
+      'section.home', 'section.dashboard', 'section.my_tasks', 'section.all_tasks',
+      'section.overview', 'section.calendar', 'section.link_hub', 'section.eod_updates',
+    ],
+  },
+  {
+    sector: 'module.social_media',
+    sections: [
+      'section.home', 'section.dashboard', 'section.my_tasks', 'section.all_tasks',
+      'section.overview', 'section.calendar', 'section.link_hub', 'section.eod_updates',
+    ],
+  },
+  {
+    sector: 'module.legal_finance',
+    sections: [
+      'section.home', 'section.dashboard', 'section.my_tasks', 'section.all_tasks',
+      'section.overview', 'section.eod_updates',
+    ],
+  },
+  {
+    sector: 'module.admin',
+    sections: [
+      'section.admin_dashboard', 'section.review_tasks', 'section.overdue_tasks',
+      'section.admin_overview', 'section.users', 'section.departments',
+      'section.locked_users', 'section.invoices', 'section.credentials',
+    ],
+  },
+];
+
+/** Flat id → default for every section, whichever catalogue it came from. */
+const ALL_SECTION_ITEMS = [...SECTION_LABELS, ...ADMIN_SECTION_LABELS];
+
+/** The catalogue entry for a section id, for rendering a row. */
+export const sectionItem = (id) => ALL_SECTION_ITEMS.find((i) => i.id === id) || { id, default: id };
+
+/**
+ * Which sectors show a given section. Names and icons are stored once per section id
+ * and therefore shared, so the editor uses this to warn before a rename lands in
+ * more than one sidebar.
+ */
+export const sectorsUsingSection = (id) =>
+  SECTOR_SIDEBARS.filter((s) => s.sections.includes(id)).map((s) => s.sector);
+
+/**
+ * Sort nav items by a stored order of labelIds.
+ *
+ * Ids in `order` come first, in that sequence. Anything not mentioned — a newly
+ * shipped section the saved order predates — keeps its coded position and lands
+ * after the ordered ones, so a new feature is never hidden by a stale config.
+ */
+export function sortByStoredOrder(items, order) {
+  if (!Array.isArray(order) || order.length === 0) return items;
+  const rank = new Map(order.map((id, i) => [id, i]));
+  return items
+    .map((item, i) => ({ item, i, rank: rank.has(item.labelId) ? rank.get(item.labelId) : Infinity }))
+    .sort((a, b) => a.rank - b.rank || a.i - b.i)
+    .map((x) => x.item);
+}
+
+/**
+ * Rename, re-icon and reorder a list of nav items in one pass.
+ *
+ * @param {Array} items      module's coded nav items (each with labelId, label, icon)
+ * @param {object} opts
+ * @param {(id: string, fallback?: string) => string} opts.label   label resolver
+ * @param {(id: string) => any} [opts.iconFor]  returns a component, or null to keep the coded icon
+ * @param {string[]} [opts.order]               stored labelId sequence for this group
+ */
+export function applyNav(items, { label, iconFor, order } = {}) {
+  const named = items.map((item) => {
+    let next = item;
+    if (item.labelId && label) {
+      next = { ...next, label: label(item.labelId, item.label) };
+    }
+    if (item.labelId && iconFor) {
+      const icon = iconFor(item.labelId);
+      if (icon) next = { ...next, icon };
+    }
+    return next;
+  });
+  return sortByStoredOrder(named, order);
+}

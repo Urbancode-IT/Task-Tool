@@ -1,0 +1,250 @@
+/* Master console — only the few pieces the shared app stylesheets have no equivalent
+   for. Everything else (shell, sidebar, topbar, stat cards, panels, tables, buttons)
+   comes from ITUpdatesMain.css and AdminMain.css so the console matches the rest of
+   Seyal and follows any future restyle automatically. */
+
+/* The console now uses the workspace's .main-layout wrapper, which supplies the height
+   constraint .it-updates-shell needs (it sizes itself with "flex: 1"). Without that the
+   whole window scrolled instead of the content column, and every sticky Publish bar slid
+   out of view. .master-shell only has to fill the row it is given. */
+.master-shell.it-updates-shell {
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* The brand's right border divides it from the module nav in the workspace. The console
+   has no module nav, so the divider would hang off the end of nothing. */
+.master-layout .main-layout-brand {
+  border-right: none;
+  padding-right: 0;
+  margin-right: 0;
+}
+
+/* Definition list for the service-health readout. */
+.master-kv {
+  margin: 0;
+  border: 1px solid var(--clr-slate-200);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.master-kv-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.65rem 1rem;
+  border-bottom: 1px solid var(--clr-slate-100);
+  font-size: 0.85rem;
+}
+
+.master-kv-row:last-child {
+  border-bottom: none;
+}
+
+.master-kv-row:nth-child(odd) {
+  background: var(--clr-slate-50);
+}
+
+.master-kv-row dt {
+  color: var(--clr-slate-600);
+}
+
+.master-kv-row dd {
+  margin: 0;
+  text-align: right;
+  color: var(--clr-slate-800);
+  font-weight: 600;
+  word-break: break-word;
+}
+
+/* Role / module / action pills inside tables. */
+.master-badge {
+  display: inline-block;
+  padding: 0.1rem 0.55rem;
+  margin: 0.1rem 0.25rem 0.1rem 0;
+  border-radius: 999px;
+  background: var(--clr-slate-100);
+  color: var(--clr-slate-600);
+  font-size: 0.72rem;
+  white-space: nowrap;
+}
+
+/* The master tier is not a role, so it is called out rather than blending in. */
+.master-badge-tier {
+  background: var(--clr-primary-50);
+  color: var(--clr-primary-700);
+  font-weight: 600;
+}
+
+/* Two-state status pill: healthy or needs attention. */
+.master-status {
+  display: inline-block;
+  padding: 0.1rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.master-status-ok {
+  background: #dcfce7;
+  color: #15803d;
+}
+
+.master-status-bad {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+.master-mono {
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: 0.78rem;
+  color: var(--clr-slate-600);
+}
+
+.master-muted {
+  color: var(--clr-slate-400);
+  font-size: 0.8rem;
+}
+
+@media (max-width: 640px) {
+  .master-kv-row {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.15rem;
+  }
+  .master-kv-row dd {
+    text-align: left;
+  }
+}
+
+/* The app's .it-updates-stats-row is a hardcoded 2-column grid, which turned the
+   overview into six tall cards down three rows. This reuses the same card styling
+   in a denser auto-fitting grid, so the landing screen reads at a glance. */
+.master-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 1rem;
+  margin-bottom: 0.5rem;
+}
+
+.master-tiles .it-updates-stat-card {
+  padding: 1rem 1.1rem;
+}
+
+/* ── Audit log: what changed ──
+   One row per changed field. Regulatory values arrive already masked from the server
+   (see diffCompanyProfile), so nothing sensitive is rendered here. */
+
+.master-when {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.master-dim {
+  color: var(--clr-slate-400);
+}
+
+.master-changes {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  max-width: 46rem;
+}
+
+.master-changes li {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
+.master-changes .master-mono {
+  flex: none;
+  color: var(--clr-slate-700);
+  font-weight: 600;
+}
+
+.master-change-from,
+.master-change-to {
+  padding: 0.02rem 0.35rem;
+  border-radius: 5px;
+  word-break: break-word;
+}
+
+.master-change-from {
+  background: var(--clr-slate-100);
+  color: var(--clr-slate-500);
+  text-decoration: line-through;
+  text-decoration-color: var(--clr-slate-400);
+}
+
+.master-change-to {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.master-change-arrow {
+  flex: none;
+  color: var(--clr-slate-400);
+}
+
+/* ── Change history ──
+   A list of what was changed from this console, not a forensic table: one plain line
+   per entry, with the per-field detail beneath it. */
+
+.master-history {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  margin: 1rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.master-history-row {
+  padding: 0.75rem 0.9rem;
+  border: 1px solid var(--clr-slate-200);
+  border-radius: 10px;
+  background: #fff;
+}
+
+.master-history-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.master-history-what {
+  font-size: 0.86rem;
+  font-weight: 600;
+  color: var(--clr-slate-800);
+}
+
+.master-history-when {
+  flex: none;
+  font-size: 0.74rem;
+  color: var(--clr-slate-400);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* The field list sits under its heading rather than in its own table column. */
+.master-history-row .master-changes {
+  margin-top: 0.5rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--clr-slate-100);
+}
+
+/* An entry with no recorded detail should not leave a stray dash and a rule. */
+.master-history-row > .master-dim {
+  display: none;
+}

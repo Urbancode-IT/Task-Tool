@@ -49,8 +49,8 @@ import { sanitizeCommentHtml } from '../../utils/sanitizeHtml';
 import { BRANCHES } from '../Admin/AdminUserModals';
 import MemberDashboard from './MemberDashboard';
 import './ITUpdatesMain.css';
-import { useLabels } from '../../branding/BrandingContext';
-import { applyLabels, applyStatusLabels } from '../../branding/labels';
+import { useLabels, useNav } from '../../branding/BrandingContext';
+import { applyStatusLabels } from '../../branding/labels';
 
 // Adapter so the shared comment thread posts to project-comment endpoints
 // (@mention → email, same as tasks/EOD).
@@ -412,7 +412,13 @@ const ITUpdatesMain = ({ currentUser, onLogout, scope = 'internal' }) => {
 
   // Sidebar names are renameable from Company & Branding; keys are untouched.
   const label = useLabels();
-  const visibleTabs = useMemo(() => applyLabels(rawTabs, label), [rawTabs, label]);
+  const nav = useNav();
+  // Internal and External Projects share this component, so the order key follows
+  // the scope: the two sectors have different sidebars and separate saved orders.
+  const visibleTabs = useMemo(
+    () => nav.apply(rawTabs, isExternalScope ? 'module.external_projects' : 'module.it_updates'),
+    [rawTabs, nav, isExternalScope]
+  );
 
   // Task board column labels + order: freelancing flow (with Prospect) for External.
   // Only the Client CRM tab uses the freelancing headings (with Prospect). My Tasks /

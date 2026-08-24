@@ -17,7 +17,6 @@ import {
   MdLock,
   MdLockOpen,
   MdSupervisorAccount,
-  MdCorporateFare,
   MdReceiptLong,
   MdVpnKey,
 } from 'react-icons/md';
@@ -31,13 +30,12 @@ import ProjectSearchSelect from '../../components/ProjectSearchSelect';
 import SidebarUser from '../../components/SidebarUser';
 import useSidebarCollapsed from '../../utils/useSidebarCollapsed';
 import { AdminAddUserModal, AdminUserDetailModal } from './AdminUserModals';
-import CompanyBranding from './CompanyBranding';
 import Invoices from './Invoices';
 import { formatUserRowRole } from '../../utils/displayRole';
 import { escapeCloses } from '../../utils/formKeys';
 import Preloader from '../../components/Preloader';
-import { useLabels } from '../../branding/BrandingContext';
-import { applyLabels } from '../../branding/labels';
+import { useNav } from '../../branding/BrandingContext';
+// labels: nav names now come from useNav (see branding/BrandingContext)
 import '../ITUpdates/ITUpdatesMain.css';
 import './AdminMain.css';
 
@@ -49,7 +47,6 @@ const ADMIN_TABS = [
   { key: 'users', labelId: 'section.users', label: 'Users', icon: MdPeople },
   { key: 'departments', labelId: 'section.departments', label: 'Departments', icon: MdBusiness },
   { key: 'locked_users', labelId: 'section.locked_users', label: 'Locked Users', icon: MdLock },
-  { key: 'company', labelId: 'section.company', label: 'Company & Branding', icon: MdCorporateFare },
   { key: 'invoices', labelId: 'section.invoices', label: 'Invoices', icon: MdReceiptLong },
   { key: 'credentials', labelId: 'section.credentials', label: 'UC Credentials', icon: MdVpnKey },
 ];
@@ -204,7 +201,7 @@ export default function AdminMain({ currentUser, onLogout }) {
   const closeDirectorTask = () => setDirectorModal({ open: false, task: null });
 
   // Sidebar names are renameable from Company & Branding; keys are untouched.
-  const label = useLabels();
+  const nav = useNav();
   const visibleTabs = useMemo(() => {
     const tabs = (() => {
       if (!isAdmin) {
@@ -215,8 +212,8 @@ export default function AdminMain({ currentUser, onLogout }) {
       if (canViewDirectorTasks) list.splice(1, 0, DIRECTOR_TASK_TAB);
       return list;
     })();
-    return applyLabels(tabs, label);
-  }, [isAdmin, canViewDirectorTasks, label]);
+    return nav.apply(tabs, 'module.admin');
+  }, [isAdmin, canViewDirectorTasks, nav]);
 
   const loadDirectors = () => {
     itUpdatesApi
@@ -1520,7 +1517,6 @@ export default function AdminMain({ currentUser, onLogout }) {
             </section>
           )}
 
-          {activeTab === 'company' && <CompanyBranding currentUser={user} />}
 
           {activeTab === 'invoices' && <Invoices currentUser={user} />}
 

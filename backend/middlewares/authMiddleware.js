@@ -77,6 +77,18 @@ export async function attachUserPermissions(req, res, next) {
     req.user.roleIds = await db.dbGetUserRoleIds(userId);
   } catch (_) {}
 
+  // The master tier lives on users.is_master_admin, never in role_permissions, so it
+  // has to be read from the row. master implies admin.
+  try {
+    const dbUser = await db.dbGetUserById(userId);
+    req.user.is_master_admin = Boolean(dbUser?.is_master_admin);
+    if (req.user.is_master_admin) {
+      req.user.permissions = [...new Set([...req.user.permissions, 'master.access', 'admin.access'])];
+    }
+  } catch (_) {
+    req.user.is_master_admin = false;
+  }
+
   next();
 }
 

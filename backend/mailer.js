@@ -3,6 +3,8 @@
 //   GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET, GMAIL_REFRESH_TOKEN, EMAIL_FROM (or GMAIL_USER)
 // If not configured, sendMail() is a safe no-op so the app keeps working.
 
+import { resolveMail, DEFAULT_SIGNATURES } from './mailTemplates.js';
+
 let cachedToken = { value: null, expiresAt: 0 };
 
 export function isMailConfigured() {
@@ -50,8 +52,11 @@ const DEFAULT_BRAND = {
   footer: 'Seyal Task Tool · Urbancode',
   // `member`/`admin` are the per-audience defaults; `byMail` holds per-mail overrides
   // keyed by MAIL_TYPE (see below). A mail with no override uses its audience default.
-  signatures: { member: '', admin: '', byMail: {} },
+  signatures: { ...DEFAULT_SIGNATURES, byMail: {} },
   vars: { company_name: '', phone: '', website: '' },
+  // Per-mail subject/heading/body/button overrides; empty means every mail uses the
+  // shipped default in mailTemplates.js.
+  templates: {},
 };
 
 /**
@@ -87,8 +92,10 @@ export function applyEmailBranding(b = {}) {
     accent: b.colors?.accent || DEFAULT_BRAND.accent,
     footer: b.legal_name || name,
     signatures: {
-      member: b.signatures?.member || '',
-      admin: b.signatures?.admin || '',
+      // Fall back to the shipped wording: the audience sign-off is no longer editable on
+      // its own, so an empty stored value must not mean "no sign-off at all".
+      member: b.signatures?.member || DEFAULT_SIGNATURES.member,
+      admin: b.signatures?.admin || DEFAULT_SIGNATURES.admin,
       byMail: b.signatures?.byMail || {},
     },
     vars: {
@@ -96,6 +103,36 @@ export function applyEmailBranding(b = {}) {
       phone: b.contact?.contact_number || '',
       website: b.contact?.website || b.website || '',
     },
+    // Per-mail subject/heading/body/button overrides from the company profile. Held
+    // here so the EOD scheduler can render a mail without reaching for the database.
+    templates: b.templates || {},
+  };
+}
+
+/**
+ * Render one mail from its template: the single entry point for every send site.
+ *
+ * Returns `{ subject, html }` ready for sendMail, or null for an unknown mail key so a
+ * caller can fall back to its own wording.
+ *
+ * `values` fills the {token}s, `blocks` supplies HTML for {quote} / {table} / {list}.
+ * Everything else is passed through to renderEmail.
+ */
+export function renderMail(mailType, { values = {}, blocks = {}, ctaUrl = '', preheader = '', audience = 'member', sender = null } = {}) {
+  const parts = resolveMail(mailType, brand.templates, { values, blocks });
+  if (!parts) return null;
+  return {
+    subject: parts.subject,
+    html: renderEmail({
+      heading: parts.heading,
+      contentHtml: parts.contentHtml,
+      ctaUrl,
+      ctaLabel: parts.ctaLabel,
+      preheader: preheader || parts.subject,
+      audience,
+      sender,
+      mailType,
+    }),
   };
 }
 

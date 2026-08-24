@@ -1,0 +1,1447 @@
+/* Master console → Company & Branding.
+   Three columns: pick a list, edit it, see the result. Built on the app's tokens so
+   it matches the rest of Seyal; only the sidebar, rows, picker and preview are new. */
+
+.mb-shell {
+  padding-top: 0;
+}
+
+/* ── Sticky action bar ── */
+/* .admin-panel is transparent over the page ground, so the sticky bar must paint
+   --surface-bg to match rather than a white card that floats. */
+.mb-bar {
+  position: sticky;
+  top: 0;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.25rem;
+  flex-wrap: wrap;
+  padding: 0.35rem 0 0.85rem;
+  background: var(--surface-bg, #f4f5f9);
+  border-bottom: 1px solid var(--clr-slate-200);
+}
+
+.mb-bar-text p {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--clr-slate-500);
+}
+
+.mb-bar-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+}
+
+.mb-count {
+  padding: 0.15rem 0.6rem;
+  border-radius: 999px;
+  background: var(--clr-slate-100);
+  color: var(--clr-slate-600);
+  font-size: 0.74rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.mb-discard {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.4rem 0.75rem;
+  border: 1px solid var(--clr-slate-200);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--clr-slate-600);
+  font: inherit;
+  font-size: 0.8rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.mb-discard:hover:not(:disabled) {
+  border-color: #fca5a5;
+  color: #b91c1c;
+}
+
+/* ── Three columns ── */
+.mb-split {
+  display: grid;
+  grid-template-columns: 214px minmax(0, 1fr) 208px;
+  gap: 1.5rem;
+  margin-top: 1.15rem;
+  align-items: start;
+}
+
+/* ── Nested sidebar ── */
+.mb-side {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  position: sticky;
+  top: 4.75rem;
+}
+
+.mb-side-label {
+  padding: 0.5rem 0.5rem 0.25rem;
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--clr-slate-400);
+}
+
+.mb-side-label:not(:first-child) {
+  margin-top: 0.55rem;
+  border-top: 1px solid var(--clr-slate-100);
+  padding-top: 0.7rem;
+}
+
+.mb-side-item {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  width: 100%;
+  padding: 0.5rem 0.6rem;
+  border: none;
+  border-radius: 8px;
+  background: none;
+  font: inherit;
+  font-size: 0.84rem;
+  color: var(--clr-slate-600);
+  text-align: left;
+  cursor: pointer;
+}
+
+.mb-side-item:hover {
+  background: var(--clr-slate-50);
+  color: var(--clr-slate-800);
+}
+
+.mb-side-item.active {
+  background: var(--clr-primary-50);
+  color: var(--clr-primary-700);
+  font-weight: 600;
+}
+
+.mb-side-icon { flex-shrink: 0; opacity: 0.85; }
+
+.mb-side-name {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Marks a list holding at least one override. */
+.mb-side-dot {
+  width: 6px;
+  height: 6px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--clr-primary-500);
+}
+
+.mb-side-count {
+  flex-shrink: 0;
+  min-width: 19px;
+  padding: 0.05rem 0.3rem;
+  border-radius: 999px;
+  background: var(--clr-slate-100);
+  color: var(--clr-slate-500);
+  font-size: 0.69rem;
+  font-weight: 600;
+  text-align: center;
+}
+
+.mb-side-item.active .mb-side-count {
+  background: #fff;
+  color: var(--clr-primary-700);
+}
+
+/* ── Editor column ── */
+.mb-editor { min-width: 0; }
+
+.mb-editor-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.mb-editor-head h3 {
+  margin: 0;
+  font-size: 0.98rem;
+  font-weight: 700;
+  color: var(--clr-slate-800);
+}
+
+.mb-editor-head p {
+  margin: 0.1rem 0 0;
+  font-size: 0.76rem;
+  color: var(--clr-slate-400);
+}
+
+.mb-filter {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.3rem 0.55rem;
+  border: 1px solid var(--clr-slate-200);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--clr-slate-400);
+}
+
+.mb-filter:focus-within { border-color: var(--clr-primary-400); }
+
+.mb-filter input {
+  width: 120px;
+  border: none;
+  outline: none;
+  background: none;
+  font: inherit;
+  font-size: 0.8rem;
+  color: var(--clr-slate-800);
+}
+
+.mb-filter button {
+  display: grid;
+  place-items: center;
+  border: none;
+  background: none;
+  padding: 0;
+  color: var(--clr-slate-400);
+  cursor: pointer;
+}
+
+.mb-filter button:hover { color: var(--clr-slate-700); }
+
+.mb-filter-note {
+  margin: 0 0 0.6rem;
+  font-size: 0.75rem;
+  color: var(--clr-slate-400);
+}
+
+/* ── Rows ── */
+.mb-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.mb-row {
+  border: 1px solid var(--clr-slate-200);
+  border-radius: var(--radius-md);
+  background: #fff;
+}
+
+.mb-row:hover { border-color: var(--clr-slate-300); }
+.mb-row.open { border-color: var(--clr-primary-300); }
+
+.mb-row.dragging {
+  box-shadow: var(--shadow-md, 0 8px 24px rgba(15, 23, 42, 0.14));
+  border-color: var(--clr-primary-400);
+}
+
+.mb-row-head { display: flex; align-items: stretch; }
+
+/* A wide, obvious handle: the previous 6-dot glyph at slate-300 was easy to miss. */
+.mb-grip {
+  display: flex;
+  align-items: center;
+  padding: 0 0.4rem 0 0.5rem;
+  border-radius: var(--radius-md) 0 0 var(--radius-md);
+  color: var(--clr-slate-400);
+  cursor: grab;
+}
+
+.mb-grip:hover {
+  background: var(--clr-slate-50);
+  color: var(--clr-primary-600);
+}
+
+.mb-grip:active { cursor: grabbing; }
+
+.mb-row-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  flex: 1;
+  min-width: 0;
+  padding: 0.6rem 0.8rem 0.6rem 0.15rem;
+  border: none;
+  background: none;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.mb-row-icon {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  flex-shrink: 0;
+  border-radius: 8px;
+  background: var(--clr-primary-50);
+  color: var(--clr-primary-600);
+}
+
+.mb-row-noicon {
+  width: 15px;
+  height: 15px;
+  border: 1px dashed var(--clr-slate-300);
+  border-radius: 4px;
+}
+
+.mb-row-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.87rem;
+  font-weight: 600;
+  color: var(--clr-slate-800);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mb-row-tag {
+  padding: 0.05rem 0.45rem;
+  border-radius: 999px;
+  background: var(--clr-primary-50);
+  color: var(--clr-primary-700);
+  font-size: 0.68rem;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.mb-row-chev {
+  flex-shrink: 0;
+  color: var(--clr-slate-400);
+  transition: transform var(--transition-base, 0.2s ease);
+}
+
+.mb-row.open .mb-row-chev { transform: rotate(180deg); }
+
+.mb-row-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+  gap: 0.9rem 1.1rem;
+  padding: 0.5rem 0.9rem 0.9rem 2.55rem;
+  border-top: 1px solid var(--clr-slate-100);
+}
+
+/* The label id is developer detail: kept for reference, out of the way. */
+.mb-row-meta {
+  grid-column: 1 / -1;
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: 0.7rem;
+  color: var(--clr-slate-300);
+}
+
+.mb-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.28rem;
+  min-width: 0;
+}
+
+.mb-field > span {
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--clr-slate-500);
+}
+
+.mb-field input {
+  font: inherit;
+  font-size: 0.85rem;
+  padding: 0.45rem 0.6rem;
+  border: 1px solid var(--clr-slate-200);
+  border-radius: 8px;
+  color: var(--clr-slate-800);
+  background: #fff;
+  outline: none;
+  box-sizing: border-box;
+  width: 100%;
+}
+
+.mb-field input:focus { border-color: var(--clr-primary-400); }
+
+.mb-field small {
+  font-size: 0.71rem;
+  color: var(--clr-slate-400);
+}
+
+.mb-icon-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.mb-icon-current {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.35rem 0.7rem;
+  border: 1px solid var(--clr-slate-200);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--clr-slate-700);
+  font: inherit;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.mb-icon-current:hover { border-color: var(--clr-primary-400); }
+
+.mb-link-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.28rem;
+  border: none;
+  background: none;
+  padding: 0.2rem 0;
+  color: var(--clr-primary-600);
+  font: inherit;
+  font-size: 0.78rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.mb-link-btn:hover { text-decoration: underline; }
+.mb-link-danger { color: var(--clr-slate-400); }
+.mb-link-danger:hover { color: #b91c1c; }
+
+.mb-editor-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-top: 0.9rem;
+  padding-top: 0.7rem;
+  border-top: 1px solid var(--clr-slate-100);
+  font-size: 0.75rem;
+  color: var(--clr-slate-400);
+  flex-wrap: wrap;
+}
+/* ── Icon picker (floating popover) ──
+   Portalled to <body> with position: fixed, so opening it neither grows the row it
+   belongs to nor gets clipped by the editor's scroll container. The inline coordinates
+   come from the trigger's bounding rect; see IconPicker.place(). */
+.mb-picker {
+  position: fixed;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  max-height: 336px;
+  border: 1px solid var(--clr-slate-200);
+  border-radius: var(--radius-lg, 12px);
+  background: #fff;
+  box-shadow: 0 16px 40px rgba(15, 23, 42, 0.16), 0 2px 6px rgba(15, 23, 42, 0.06);
+  overflow: hidden;
+}
+
+.mb-picker-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.55rem 0.5rem 0.55rem 0.8rem;
+  border-bottom: 1px solid var(--clr-slate-100);
+  font-size: 0.76rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--clr-slate-500);
+}
+
+.mb-picker-head button {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: var(--clr-slate-400);
+  cursor: pointer;
+}
+
+.mb-picker-head button:hover {
+  background: var(--clr-slate-100);
+  color: var(--clr-slate-700);
+}
+
+.mb-picker-search {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.5rem 0.8rem;
+  border-bottom: 1px solid var(--clr-slate-100);
+  color: var(--clr-slate-400);
+}
+
+.mb-picker-search input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  outline: none;
+  font: inherit;
+  font-size: 0.84rem;
+  color: var(--clr-slate-800);
+  background: none;
+}
+
+/* A fixed 7-column grid keeps the rows aligned at every panel size, rather than
+   reflowing to an odd last row as auto-fit did. */
+.mb-picker-grid {
+  flex: 1;
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 4px;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0.6rem 0.8rem;
+  align-content: start;
+}
+
+.mb-picker-item {
+  display: grid;
+  place-items: center;
+  aspect-ratio: 1;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: none;
+  color: var(--clr-slate-600);
+  cursor: pointer;
+}
+
+.mb-picker-item:hover {
+  background: var(--clr-slate-100);
+  color: var(--clr-slate-800);
+}
+
+.mb-picker-item.selected {
+  border-color: var(--clr-primary-400);
+  background: var(--clr-primary-50);
+  color: var(--clr-primary-700);
+}
+
+.mb-picker-empty {
+  grid-column: 1 / -1;
+  padding: 1.1rem 0.5rem;
+  text-align: center;
+  font-size: 0.8rem;
+  color: var(--clr-slate-400);
+}
+
+.mb-picker-foot {
+  padding: 0.45rem 0.8rem;
+  border-top: 1px solid var(--clr-slate-100);
+  font-size: 0.71rem;
+  color: var(--clr-slate-400);
+}
+
+/* The trigger stays highlighted while its panel is open. */
+.mb-icon-current.open {
+  border-color: var(--clr-primary-400);
+  background: var(--clr-primary-50);
+  color: var(--clr-primary-700);
+}
+
+/* ── Live preview ── */
+.mb-preview {
+  position: sticky;
+  top: 4.75rem;
+}
+
+.mb-preview-label {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  margin-bottom: 0.5rem;
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--clr-slate-400);
+}
+
+.mb-preview-box {
+  border: 1px solid var(--clr-slate-200);
+  border-radius: var(--radius-md);
+  background: var(--clr-slate-50);
+  padding: 0.45rem;
+  max-height: 60vh;
+  overflow-y: auto;
+}
+
+/* Sectors read left to right in the real product, so preview them as a wrapped bar. */
+.mb-preview-box.topbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.mb-preview-box.topbar .mb-preview-item {
+  background: #fff;
+  border: 1px solid var(--clr-slate-200);
+  border-radius: 999px;
+}
+
+.mb-preview-item {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.4rem 0.55rem;
+  border-radius: 7px;
+  font-size: 0.78rem;
+  color: var(--clr-slate-700);
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.mb-preview-box.sidebar .mb-preview-item + .mb-preview-item {
+  margin-top: 2px;
+}
+
+.mb-preview-item span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mb-preview-item svg {
+  flex-shrink: 0;
+  color: var(--clr-primary-600);
+}
+
+.mb-preview-note {
+  margin: 0.5rem 0 0;
+  font-size: 0.71rem;
+  line-height: 1.45;
+  color: var(--clr-slate-400);
+}
+
+/* ── Responsive ── */
+@media (max-width: 1180px) {
+  /* Preview drops under the editor before the columns get cramped. */
+  .mb-split {
+    grid-template-columns: 200px minmax(0, 1fr);
+  }
+  .mb-preview {
+    position: static;
+    grid-column: 1 / -1;
+  }
+  .mb-preview-box {
+    max-height: none;
+  }
+  .mb-preview-box.sidebar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+  .mb-preview-box.sidebar .mb-preview-item {
+    background: #fff;
+    border: 1px solid var(--clr-slate-200);
+    border-radius: 999px;
+  }
+  .mb-preview-box.sidebar .mb-preview-item + .mb-preview-item {
+    margin-top: 0;
+  }
+}
+
+@media (max-width: 820px) {
+  .mb-split {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .mb-side {
+    position: static;
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 4px;
+    padding-bottom: 0.6rem;
+    border-bottom: 1px solid var(--clr-slate-100);
+  }
+  .mb-side-label {
+    width: 100%;
+    padding: 0.15rem 0 0.1rem;
+  }
+  .mb-side-label:not(:first-child) {
+    margin-top: 0.3rem;
+    border-top: none;
+    padding-top: 0.3rem;
+  }
+  .mb-side-item { width: auto; }
+}
+
+@media (max-width: 640px) {
+  .mb-row-body {
+    grid-template-columns: minmax(0, 1fr);
+    padding-left: 0.9rem;
+  }
+}
+
+/* ── Brand identity form ──
+   The identity view has no preview column, so its editor spans the detail area. */
+.mb-editor-wide {
+  grid-column: 2 / -1;
+}
+
+.bi-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 1.6rem;
+  max-width: 860px;
+}
+
+.bi-block {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.bi-h3 {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid var(--clr-slate-100);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--clr-slate-500);
+}
+
+.bi-h3-count {
+  padding: 0.05rem 0.45rem;
+  border-radius: 999px;
+  background: var(--clr-slate-100);
+  color: var(--clr-slate-600);
+  font-size: 0.7rem;
+  letter-spacing: 0;
+}
+
+.bi-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 0.85rem 1.1rem;
+}
+
+.bi-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  min-width: 0;
+}
+
+.bi-field-top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.bi-label {
+  font-size: 0.74rem;
+  font-weight: 700;
+  color: var(--clr-slate-700);
+}
+
+.bi-count {
+  font-size: 0.7rem;
+  color: var(--clr-slate-400);
+}
+
+.bi-count.over {
+  color: #b91c1c;
+  font-weight: 600;
+}
+
+.bi-field input,
+.bi-field textarea {
+  font: inherit;
+  font-size: 0.86rem;
+  padding: 0.5rem 0.65rem;
+  border: 1px solid var(--clr-slate-200);
+  border-radius: 8px;
+  color: var(--clr-slate-800);
+  background: #fff;
+  outline: none;
+  box-sizing: border-box;
+  width: 100%;
+  resize: vertical;
+  line-height: 1.55;
+}
+
+.bi-field input:focus,
+.bi-field textarea:focus {
+  border-color: var(--clr-primary-400);
+}
+
+.bi-field small {
+  font-size: 0.72rem;
+  line-height: 1.45;
+  color: var(--clr-slate-400);
+}
+
+.bi-note {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin: -0.3rem 0 0;
+  font-size: 0.76rem;
+  color: var(--clr-slate-400);
+}
+
+.bi-note svg { flex-shrink: 0; }
+
+/* ── Brand value chips ── */
+.bi-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.bi-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.28rem 0.4rem 0.28rem 0.7rem;
+  border: 1px solid var(--clr-primary-200);
+  border-radius: 999px;
+  background: var(--clr-primary-50);
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--clr-primary-700);
+}
+
+.bi-chip button {
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border: none;
+  border-radius: 50%;
+  background: none;
+  color: var(--clr-primary-600);
+  cursor: pointer;
+}
+
+.bi-chip button:hover {
+  background: #fff;
+  color: #b91c1c;
+}
+
+.bi-picker-row {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  flex-wrap: wrap;
+}
+
+.bi-picker-row select {
+  min-width: 220px;
+  padding: 0.45rem 0.6rem;
+  border: 1px solid var(--clr-slate-200);
+  border-radius: 8px;
+  background: #fff;
+  font: inherit;
+  font-size: 0.85rem;
+  color: var(--clr-slate-800);
+  cursor: pointer;
+}
+
+.bi-picker-row select:focus { outline: none; border-color: var(--clr-primary-400); }
+.bi-picker-row select:disabled { color: var(--clr-slate-400); cursor: not-allowed; }
+
+.bi-custom {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.bi-custom input {
+  width: 180px;
+  padding: 0.45rem 0.6rem;
+  border: 1px solid var(--clr-slate-200);
+  border-radius: 8px;
+  font: inherit;
+  font-size: 0.85rem;
+  color: var(--clr-slate-800);
+  outline: none;
+}
+
+.bi-custom input:focus { border-color: var(--clr-primary-400); }
+
+.bi-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.28rem;
+  border: none;
+  background: none;
+  padding: 0.2rem 0;
+  color: var(--clr-primary-600);
+  font: inherit;
+  font-size: 0.8rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.bi-link:hover:not(:disabled) { text-decoration: underline; }
+.bi-link:disabled { color: var(--clr-slate-300); cursor: not-allowed; }
+.bi-link-muted { color: var(--clr-slate-400); }
+
+/* ── Digital presence ──
+   Public profile URLs. Matches the .bi-* identity form so the two panes in this
+   console read as one form, with an inline validity affordance per link. */
+
+.dp-head h3 {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--clr-slate-800);
+}
+
+.dp-head p {
+  margin: 0.25rem 0 1.1rem;
+  max-width: 68ch;
+  font-size: 0.78rem;
+  line-height: 1.5;
+  color: var(--clr-slate-500);
+}
+
+.dp-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 0.85rem 1.1rem;
+}
+
+.dp-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  min-width: 0;
+}
+
+.dp-field-top {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  /* Fixed height so the "set" badge appearing next to the label cannot push that one
+     field's input below its neighbours in the row. */
+  min-height: 1.15rem;
+}
+
+.dp-label {
+  font-size: 0.74rem;
+  font-weight: 700;
+  color: var(--clr-slate-700);
+}
+
+.dp-ok {
+  flex: none;
+  display: block;
+  color: #15803d;
+}
+
+/* The icon and the open-link button sit inside the field's border, so the row owns
+   the frame and the input itself is transparent. */
+.dp-input-row {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0 0.55rem;
+  border: 1px solid var(--clr-slate-200);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.dp-input-row:focus-within {
+  border-color: var(--clr-primary-400);
+}
+
+.dp-field.invalid .dp-input-row {
+  border-color: #dc2626;
+}
+
+.dp-input-icon {
+  flex: none;
+  color: var(--clr-slate-400);
+}
+
+.dp-input-row input {
+  flex: 1;
+  min-width: 0;
+  padding: 0.5rem 0;
+  border: 0;
+  background: none;
+  outline: none;
+  font: inherit;
+  font-size: 0.86rem;
+  color: var(--clr-slate-800);
+}
+
+.dp-open {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  border-radius: 6px;
+  color: var(--clr-slate-400);
+}
+
+.dp-open:hover {
+  background: var(--clr-slate-100);
+  color: var(--clr-primary-600, #0054c4);
+}
+
+.dp-msg {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: #dc2626;
+}
+
+/* ── Email signatures ──
+   Migrated from the retired Admin → Company & Branding screen. Editor on the left, a
+   live preview of the selected mail pinned on the right. */
+
+.es-head h3 {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--clr-slate-800);
+}
+
+.es-head h3 svg { color: var(--clr-primary-600, #0054c4); }
+
+.es-head p {
+  margin: 0.3rem 0 0;
+  max-width: 74ch;
+  font-size: 0.78rem;
+  line-height: 1.55;
+  color: var(--clr-slate-500);
+}
+
+.es-merge {
+  font-size: 0.74rem !important;
+  color: var(--clr-slate-400) !important;
+}
+
+.es-split {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 250px;
+  gap: 1.5rem;
+  margin-top: 1.1rem;
+  align-items: start;
+}
+
+.es-main { min-width: 0; }
+
+.es-h4 {
+  margin: 0 0 0.2rem;
+  padding-bottom: 0.4rem;
+  border-bottom: 1px solid var(--clr-slate-100);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--clr-slate-500);
+}
+
+.es-h4:not(:first-child) { margin-top: 1.5rem; }
+
+.es-note {
+  margin: 0.45rem 0 0.2rem;
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: var(--clr-slate-400);
+}
+
+.es-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  margin-top: 0.9rem;
+  padding: 0.6rem 0.7rem;
+  border: 1px solid transparent;
+  border-radius: 10px;
+}
+
+/* Marks which mail the preview is showing. */
+.es-field.active {
+  border-color: var(--clr-primary-200, #a3c3ec);
+  background: var(--clr-primary-50);
+}
+
+.es-label {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--clr-slate-700);
+}
+
+.es-tag {
+  padding: 0.02rem 0.35rem;
+  border-radius: 999px;
+  font-size: 0.63rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.es-tag.member { background: var(--clr-slate-100); color: var(--clr-slate-600); }
+.es-tag.admin { background: #fef3c7; color: #92400e; }
+
+.es-hint {
+  font-size: 0.72rem;
+  line-height: 1.45;
+  color: var(--clr-slate-400);
+}
+
+.es-subject {
+  margin-top: 0.3rem;
+  font-size: 0.72rem;
+  color: var(--clr-slate-500);
+}
+
+.es-subject em {
+  font-style: normal;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-size: 0.64rem;
+  color: var(--clr-slate-400);
+}
+
+.es-field textarea {
+  margin-top: 0.35rem;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0.5rem 0.65rem;
+  border: 1px solid var(--clr-slate-200);
+  border-radius: 8px;
+  background: #fff;
+  outline: none;
+  resize: vertical;
+  font: inherit;
+  font-size: 0.82rem;
+  line-height: 1.55;
+  color: var(--clr-slate-800);
+}
+
+.es-field textarea:focus { border-color: var(--clr-primary-400); }
+
+/* ── Preview ── */
+.es-preview { position: sticky; top: 4.75rem; }
+
+.es-preview-label {
+  margin-bottom: 0.5rem;
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--clr-slate-400);
+}
+
+.es-card {
+  padding: 0.85rem;
+  border: 1px solid var(--clr-slate-200);
+  border-radius: var(--radius-md);
+  background: #fff;
+  font-size: 0.76rem;
+  line-height: 1.5;
+  color: var(--clr-slate-600);
+}
+
+.es-card-subject {
+  padding-bottom: 0.45rem;
+  margin-bottom: 0.55rem;
+  border-bottom: 1px solid var(--clr-slate-100);
+  font-size: 0.72rem;
+  color: var(--clr-slate-400);
+  word-break: break-word;
+}
+
+.es-card-heading {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--clr-slate-800);
+}
+
+.es-card-line { margin: 0.4rem 0 0; }
+
+.es-card-cta {
+  display: inline-block;
+  margin: 0.65rem 0 0;
+  padding: 0.3rem 0.7rem;
+  border-radius: 7px;
+  background: var(--clr-primary-600, #0054c4);
+  color: #fff;
+  font-size: 0.73rem;
+  font-weight: 600;
+}
+
+.es-card-sign {
+  display: flex;
+  flex-direction: column;
+  margin-top: 0.8rem;
+  padding-top: 0.6rem;
+  border-top: 1px solid var(--clr-slate-100);
+  font-size: 0.74rem;
+  color: var(--clr-slate-500);
+  white-space: pre-wrap;
+}
+
+.es-card-empty { font-style: italic; color: var(--clr-slate-400); }
+
+.es-preview-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.3rem;
+  margin: 0.6rem 0 0;
+  font-size: 0.72rem;
+  line-height: 1.45;
+  color: var(--clr-slate-400);
+}
+
+.es-preview-note svg { flex: none; margin-top: 0.1rem; }
+
+@media (max-width: 1100px) {
+  .es-split { grid-template-columns: minmax(0, 1fr); }
+  .es-preview { position: static; }
+}
+
+/* Whether a per-mail box carries its own wording or is showing the inherited default.
+   The box is pre-filled either way, so this badge is what distinguishes them. */
+.es-state {
+  padding: 0.02rem 0.35rem;
+  border-radius: 999px;
+  background: var(--clr-slate-100);
+  color: var(--clr-slate-500);
+  font-size: 0.63rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.es-state.custom {
+  background: var(--clr-primary-50);
+  color: var(--clr-primary-700);
+}
+
+.es-reset {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  margin-left: auto;
+  padding: 0.1rem 0.4rem;
+  border: 1px solid var(--clr-slate-200);
+  border-radius: 7px;
+  background: #fff;
+  color: var(--clr-slate-500);
+  font: inherit;
+  font-size: 0.7rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.es-reset:hover {
+  border-color: var(--clr-primary-400);
+  color: var(--clr-primary-700);
+}
+
+/* ── Email templates ──
+   Mail picker across the top, then the selected mail's subject/heading/body/button and
+   its sign-off. Every box is pre-filled with what currently goes out. */
+
+.mt-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin: 0 0 1.1rem;
+  padding-bottom: 0.9rem;
+  border-bottom: 1px solid var(--clr-slate-100);
+}
+
+.mt-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.35rem 0.6rem;
+  border: 1px solid var(--clr-slate-200);
+  border-radius: 999px;
+  background: #fff;
+  font: inherit;
+  font-size: 0.78rem;
+  color: var(--clr-slate-600);
+  cursor: pointer;
+}
+
+.mt-tab:hover { border-color: var(--clr-slate-300); }
+
+.mt-tab.active {
+  border-color: var(--clr-primary-400);
+  background: var(--clr-primary-50);
+  color: var(--clr-primary-700);
+  font-weight: 600;
+}
+
+.mt-tab-count {
+  min-width: 1.05rem;
+  padding: 0 0.25rem;
+  border-radius: 999px;
+  background: var(--clr-primary-600, #0054c4);
+  color: #fff;
+  font-size: 0.62rem;
+  font-weight: 700;
+  text-align: center;
+}
+
+.mt-editor-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.mt-tokens {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  margin: 0.75rem 0 0.2rem;
+  font-size: 0.73rem;
+  color: var(--clr-slate-400);
+}
+
+.mt-tokens code {
+  padding: 0.05rem 0.3rem;
+  border-radius: 5px;
+  background: var(--clr-slate-100);
+  color: var(--clr-slate-600);
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: 0.72rem;
+  cursor: help;
+}
+
+.mt-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin-top: 0.9rem;
+}
+
+.mt-field-top {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-height: 1.15rem;
+}
+
+.mt-field-label {
+  font-size: 0.76rem;
+  font-weight: 700;
+  color: var(--clr-slate-700);
+}
+
+/* Marks a field that differs from the wording the code ships. */
+.mt-edited {
+  padding: 0.02rem 0.35rem;
+  border-radius: 999px;
+  background: var(--clr-primary-50);
+  color: var(--clr-primary-700);
+  font-size: 0.62rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.mt-field input,
+.mt-field textarea {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0.5rem 0.65rem;
+  border: 1px solid var(--clr-slate-200);
+  border-radius: 8px;
+  background: #fff;
+  outline: none;
+  resize: vertical;
+  font: inherit;
+  font-size: 0.83rem;
+  line-height: 1.55;
+  color: var(--clr-slate-800);
+}
+
+.mt-field.overridden input,
+.mt-field.overridden textarea {
+  border-color: var(--clr-primary-200, #a3c3ec);
+}
+
+.mt-field input:focus,
+.mt-field textarea:focus { border-color: var(--clr-primary-400); }
+
+.mt-field small {
+  font-size: 0.71rem;
+  line-height: 1.45;
+  color: var(--clr-slate-400);
+}
+
+.mt-sig-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.mt-sig-row textarea {
+  flex: 1;
+  min-width: 0;
+  box-sizing: border-box;
+  padding: 0.5rem 0.65rem;
+  border: 1px solid var(--clr-slate-200);
+  border-radius: 8px;
+  background: #fff;
+  outline: none;
+  resize: vertical;
+  font: inherit;
+  font-size: 0.83rem;
+  line-height: 1.55;
+  color: var(--clr-slate-800);
+}
+
+.mt-sig-row textarea:focus { border-color: var(--clr-primary-400); }
+
+/* Stands in for a table or list the server generates at send time. */
+.mt-block {
+  margin: 0.4rem 0 0;
+  padding: 0.45rem 0.6rem;
+  border: 1px dashed var(--clr-slate-300);
+  border-radius: 7px;
+  background: var(--clr-slate-50);
+  color: var(--clr-slate-500);
+  font-size: 0.72rem;
+  font-style: italic;
+}
