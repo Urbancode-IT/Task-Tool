@@ -54,13 +54,13 @@ export const MAIL_TEMPLATE_DEFAULTS = {
   },
   task_due_soon: {
     subject: 'Due soon: "{task}"',
-    heading: 'Task due soon',
+    heading: '{task} is due soon',
     body: 'Hi {name},\n\nThe task **{task}** is due on {date}.',
     cta: 'Open task',
   },
   task_overdue: {
     subject: 'Overdue: "{task}"',
-    heading: 'Task overdue',
+    heading: '{task} is overdue',
     body: 'Hi {name},\n\nThe task **{task}** is overdue (was due {date}).',
     cta: 'Open task',
   },

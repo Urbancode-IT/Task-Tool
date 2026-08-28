@@ -3072,7 +3072,7 @@ async function start() {
     }
     // 5:30pm / 7:30pm nudges to members who are present and still owe today's EOD.
     startEodMemberReminders(db);
-    // Daily 8pm report of IT members who missed their EOD, sent to the directors.
+    // Daily report of members who missed their EOD, sent to the directors at the day
     startEodDirectorReport(db);
     // Midnight: lock everyone who missed the working day that just closed and email
     // the list to admins. Not gated on email config — the lock must happen regardless.

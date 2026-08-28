@@ -3,12 +3,12 @@
 //
 //   1. Member reminders (default 17:30 and 19:30) — nudge each member who is present
 //      today and has not filed their own EOD report yet.
-//   2. Director report (default 20:00) — summarise who is still missing.
+//   2. Director report (default 00:00) — summarise who missed the day that just closed.
 //
 // Configure with:
 //   EOD_TZ_OFFSET_MINUTES  (default 330)
-//   EOD_REPORT_HOUR        (default 20 = 8pm)   — director report
-//   EOD_REPORT_MINUTE      (default 0)          — director report
+//   EOD_REPORT_HOUR        (default 0 = midnight) — director report
+//   EOD_REPORT_MINUTE      (default 0)            — director report
 //   EOD_REMINDER_TIMES     (default '17:30,19:30', comma-separated HH:MM) — member nudges
 //   EOD_REMINDER_SCOPE     ('all' default, or 'it' to remind IT members only)
 //   APP_URL                (optional link in the email)
@@ -23,8 +23,9 @@
 import { sendMail, isMailConfigured, renderMail } from './mailer.js';
 
 const EOD_TZ_OFFSET_MIN = Number(process.env.EOD_TZ_OFFSET_MINUTES ?? 330);
-const REPORT_HOUR = Number(process.env.EOD_REPORT_HOUR ?? 20);
+const REPORT_HOUR = Number(process.env.EOD_REPORT_HOUR ?? 0);
 const REPORT_MINUTE = Number(process.env.EOD_REPORT_MINUTE ?? 0);
+const REPORT_AT = `${String(REPORT_HOUR).padStart(2, '0')}:${String(REPORT_MINUTE).padStart(2, '0')}`;
 const REMINDER_SCOPE = String(process.env.EOD_REMINDER_SCOPE ?? 'all').toLowerCase();
 
 // "Now" expressed as a Date whose UTC fields read as the EOD-timezone wall clock.
@@ -47,16 +48,32 @@ function escapeHtml(s) {
     .replace(/>/g, '&gt;');
 }
 
-async function runReport(db) {
-  const now = eodNow();
-  const dow = now.getUTCDay(); // 0 Sun … 6 Sat
-  // Saturday is a working day; only Sunday is off, so skip the report only on Sunday.
-  if (dow === 0) return;
+/**
+ * The working day this run is reporting on.
+ *
+ * An evening run is a warning about the day still in progress. A run at or after the
+ * day boundary is a post-mortem on the day that just closed — reporting on "today"
+ * then would list everyone as missing a report for a day that has barely started.
+ * @returns {string|null} 'YYYY-MM-DD', or null when there is nothing to report on
+ */
+function reportDay() {
+  if (REPORT_HOUR >= 12) {
+    const now = eodNow();
+    // Saturday is a working day; only Sunday is off.
+    return now.getUTCDay() === 0 ? null : now.toISOString().slice(0, 10);
+  }
+  return closedWorkingDay();
+}
 
-  const dateStr = now.toISOString().slice(0, 10);
+async function runReport(db) {
+  const dateStr = reportDay();
+  if (!dateStr) {
+    console.log('[eodReminder] no working day to report on right now.');
+    return;
+  }
 
   if (!isMailConfigured()) {
-    console.warn('[eodReminder] Gmail not configured; skipping the 8pm director report.');
+    console.warn('[eodReminder] Gmail not configured; skipping the director report.');
     return;
   }
 
@@ -108,7 +125,7 @@ async function runReport(db) {
     </table>`;
 
   const mail = renderMail('eod_pending_report', {
-    values: { date: dateStr, count: missing.length, time: `${REPORT_HOUR}:00` },
+    values: { date: dateStr, count: missing.length, time: REPORT_AT },
     blocks: { table: tableHtml },
     ctaUrl: process.env.APP_URL || '',
     preheader: `${missing.length} member(s) missing their EOD report for ${dateStr}.`,
@@ -378,7 +395,7 @@ export function startEodMidnightLock(db) {
 }
 
 /**
- * Start the daily 8pm director report. Self-reschedules each run so it keeps firing
+ * Start the daily director report. Self-reschedules each run so it keeps firing
  * once per day at the configured hour in the EOD timezone.
  */
 export function startEodDirectorReport(db) {

@@ -11,7 +11,8 @@
     "db:rbac": "node db/run-rbac.js",
     "db:seed-users": "node db/seed-users.js",
     "test": "echo \"Error: no test specified\" && exit 1",
-    "db:seed-master-admin": "node db/seed-master-admin.js"
+    "db:seed-master-admin": "node db/seed-master-admin.js",
+    "db:check-master-admin": "node db/check-master-admin.js"
   },
   "keywords": [],
   "author": "",

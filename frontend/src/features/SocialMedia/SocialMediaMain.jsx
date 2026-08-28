@@ -39,6 +39,7 @@ import MemberDashboard from '../ITUpdates/MemberDashboard';
 import Preloader from '../../components/Preloader';
 import { sanitizeCommentHtml } from '../../utils/sanitizeHtml';
 import '../ITUpdates/ITUpdatesMain.css';
+import DueTasksPanel from '../../components/DueTasksPanel';
 import { useNav } from '../../branding/BrandingContext';
 import { statusTextFor } from '../../branding/labels';
 
@@ -769,6 +770,10 @@ export default function SocialMediaMain({ currentUser, onLogout }) {
                   <div className="it-updates-stat-value">{myTasks.length}</div>
                 </div>
               </section>
+
+              {/* What the signed-in user owes today and this week. Fed from myTasks, so
+                  it needs no request of its own. */}
+              <DueTasksPanel tasks={myTasks} onOpenTask={openTaskModal} />
 
               <section className="it-updates-dashboard-sections">
                 <div className="it-updates-panel it-updates-panel-full">

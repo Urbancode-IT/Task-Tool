@@ -241,14 +241,19 @@
 }
 
 .mb-row:hover { border-color: var(--clr-slate-300); }
-.mb-row.open { border-color: var(--clr-primary-300); }
+.mb-row.editing { border-color: var(--clr-primary-400); }
 
 .mb-row.dragging {
   box-shadow: var(--shadow-md, 0 8px 24px rgba(15, 23, 42, 0.14));
   border-color: var(--clr-primary-400);
 }
 
-.mb-row-head { display: flex; align-items: stretch; }
+.mb-row-head {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.5rem 0.7rem 0.5rem 0.15rem;
+}
 
 /* A wide, obvious handle: the previous 6-dot glyph at slate-300 was easy to miss. */
 .mb-grip {
@@ -267,29 +272,62 @@
 
 .mb-grip:active { cursor: grabbing; }
 
-.mb-row-btn {
-  display: flex;
-  align-items: center;
-  gap: 0.65rem;
-  flex: 1;
-  min-width: 0;
-  padding: 0.6rem 0.8rem 0.6rem 0.15rem;
-  border: none;
-  background: none;
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-
+/* Clicking the icon opens the picker, so it has to read as a button. */
 .mb-row-icon {
   display: grid;
   place-items: center;
   width: 30px;
   height: 30px;
   flex-shrink: 0;
+  padding: 0;
+  border: 1px solid transparent;
   border-radius: 8px;
   background: var(--clr-primary-50);
   color: var(--clr-primary-600);
+  cursor: pointer;
+}
+
+.mb-row-icon:hover,
+.mb-row-icon.open {
+  border-color: var(--clr-primary-400);
+}
+
+/* Sits exactly where the static name sits, so the row does not shift on edit. */
+.mb-row-input {
+  flex: 1;
+  min-width: 0;
+  padding: 0.25rem 0.45rem;
+  border: 1px solid var(--clr-primary-400);
+  border-radius: 7px;
+  background: #fff;
+  outline: none;
+  font: inherit;
+  font-size: 0.87rem;
+  font-weight: 600;
+  color: var(--clr-slate-800);
+}
+
+.mb-row-editbtn {
+  display: inline-grid;
+  place-items: center;
+  width: 1.9rem;
+  height: 1.9rem;
+  flex-shrink: 0;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: none;
+  color: var(--clr-slate-300);
+  cursor: pointer;
+  transition: color var(--transition-base, 0.2s ease);
+}
+
+.mb-row:hover .mb-row-editbtn { color: var(--clr-slate-500); }
+
+.mb-row-editbtn:hover,
+.mb-row.editing .mb-row-editbtn {
+  border-color: var(--clr-slate-200);
+  color: var(--clr-primary-600, #0054c4);
 }
 
 .mb-row-noicon {
@@ -320,29 +358,7 @@
   flex-shrink: 0;
 }
 
-.mb-row-chev {
-  flex-shrink: 0;
-  color: var(--clr-slate-400);
-  transition: transform var(--transition-base, 0.2s ease);
-}
 
-.mb-row.open .mb-row-chev { transform: rotate(180deg); }
-
-.mb-row-body {
-  display: grid;
-  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
-  gap: 0.9rem 1.1rem;
-  padding: 0.5rem 0.9rem 0.9rem 2.55rem;
-  border-top: 1px solid var(--clr-slate-100);
-}
-
-/* The label id is developer detail: kept for reference, out of the way. */
-.mb-row-meta {
-  grid-column: 1 / -1;
-  font-family: ui-monospace, Menlo, Consolas, monospace;
-  font-size: 0.7rem;
-  color: var(--clr-slate-300);
-}
 
 .mb-field {
   display: flex;
@@ -378,29 +394,6 @@
   font-size: 0.71rem;
   color: var(--clr-slate-400);
 }
-
-.mb-icon-row {
-  display: flex;
-  align-items: center;
-  gap: 0.6rem;
-  flex-wrap: wrap;
-}
-
-.mb-icon-current {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.45rem;
-  padding: 0.35rem 0.7rem;
-  border: 1px solid var(--clr-slate-200);
-  border-radius: 8px;
-  background: #fff;
-  color: var(--clr-slate-700);
-  font: inherit;
-  font-size: 0.8rem;
-  cursor: pointer;
-}
-
-.mb-icon-current:hover { border-color: var(--clr-primary-400); }
 
 .mb-link-btn {
   display: inline-flex;
@@ -543,6 +536,22 @@
   color: var(--clr-slate-400);
 }
 
+.mb-picker-reset {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.1rem 0.4rem;
+  border: 1px solid var(--clr-slate-200);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--clr-slate-600);
+  font: inherit;
+  font-size: 0.72rem;
+  cursor: pointer;
+}
+
+.mb-picker-reset:hover { border-color: var(--clr-primary-400); color: var(--clr-primary-700); }
+
 .mb-picker-foot {
   padding: 0.45rem 0.8rem;
   border-top: 1px solid var(--clr-slate-100);
@@ -551,12 +560,6 @@
 }
 
 /* The trigger stays highlighted while its panel is open. */
-.mb-icon-current.open {
-  border-color: var(--clr-primary-400);
-  background: var(--clr-primary-50);
-  color: var(--clr-primary-700);
-}
-
 /* ── Live preview ── */
 .mb-preview {
   position: sticky;
@@ -681,13 +684,6 @@
     padding-top: 0.3rem;
   }
   .mb-side-item { width: auto; }
-}
-
-@media (max-width: 640px) {
-  .mb-row-body {
-    grid-template-columns: minmax(0, 1fr);
-    padding-left: 0.9rem;
-  }
 }
 
 /* ── Brand identity form ──

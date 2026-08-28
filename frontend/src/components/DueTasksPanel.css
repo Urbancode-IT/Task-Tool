@@ -1,0 +1,144 @@
+/* Due now / Upcoming, shown on every sector dashboard. Built on the app's tokens so it
+   re-themes with everything else. */
+
+.dtp-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 1rem;
+}
+
+.dtp-bucket {
+  min-width: 0;
+  padding: 0.9rem 1rem 1rem;
+  border: 1px solid var(--clr-slate-200);
+  border-radius: var(--radius-md, 10px);
+  background: #fff;
+}
+
+/* A left edge carries the urgency, so the two buckets are distinguishable at a glance
+   without colouring the whole card.
+
+   An empty bucket is "calm" instead: a red edge over "nothing overdue" reads as an
+   alarm when the news is good, and it trains people to ignore the colour. */
+.dtp-bucket.calm { border-left: 3px solid var(--clr-slate-200); }
+.dtp-bucket.urgent { border-left: 3px solid #dc2626; }
+.dtp-bucket.soon { border-left: 3px solid var(--clr-primary-500, #0054c4); }
+
+.dtp-bucket.calm .dtp-head svg { color: var(--clr-slate-400); }
+.dtp-bucket.calm .dtp-head h3 { color: var(--clr-slate-500); }
+
+.dtp-head {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.dtp-head h3 {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-size: 0.86rem;
+  font-weight: 700;
+  color: var(--clr-slate-800);
+}
+
+.dtp-bucket.urgent .dtp-head svg { color: #dc2626; }
+.dtp-bucket.soon .dtp-head svg { color: var(--clr-primary-600, #0054c4); }
+
+.dtp-count {
+  flex: none;
+  min-width: 1.35rem;
+  padding: 0.05rem 0.4rem;
+  border-radius: 999px;
+  background: var(--clr-slate-100);
+  color: var(--clr-slate-600);
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-align: center;
+}
+
+.dtp-bucket.urgent .dtp-count { background: #fee2e2; color: #b91c1c; }
+
+.dtp-empty {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin: 0.85rem 0 0.15rem;
+  font-size: 0.79rem;
+  color: var(--clr-slate-400);
+}
+
+.dtp-empty svg { flex: none; color: #16a34a; }
+
+.dtp-list {
+  display: flex;
+  flex-direction: column;
+  margin-top: 0.6rem;
+}
+
+.dtp-row {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  width: 100%;
+  padding: 0.5rem 0.25rem;
+  border: 0;
+  border-top: 1px solid var(--clr-slate-100);
+  background: none;
+  font: inherit;
+  text-align: left;
+}
+
+.dtp-row:first-child { border-top: 0; }
+
+.dtp-row.clickable { cursor: pointer; }
+.dtp-row.clickable:hover { background: var(--clr-slate-50); }
+
+.dtp-dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+
+/* min-width:0 lets the long title ellipsis instead of pushing the date off the card. */
+.dtp-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.05rem;
+}
+
+.dtp-title {
+  font-size: 0.83rem;
+  font-weight: 600;
+  color: var(--clr-slate-800);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dtp-project {
+  font-size: 0.71rem;
+  color: var(--clr-slate-400);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dtp-when {
+  flex: none;
+  font-size: 0.73rem;
+  font-weight: 600;
+  color: var(--clr-slate-500);
+  white-space: nowrap;
+}
+
+.dtp-when.overdue { color: #b91c1c; }
+
+.dtp-more {
+  margin: 0.55rem 0 0;
+  font-size: 0.73rem;
+  color: var(--clr-slate-400);
+}

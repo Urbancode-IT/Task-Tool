@@ -86,11 +86,11 @@ export const MAIL_TYPES = [
   },
   {
     key: 'eod_pending_report', audience: 'admin', label: 'EOD pending summary',
-    when: '8pm list of members still missing an EOD',
+    when: 'Midnight list of members who missed the day that just closed',
     subject: 'EOD not submitted ({count}) — {date}',
     heading: 'EOD not submitted — {date}',
     body: [
-      'The following IT team members have not submitted an EOD report for {date} as of 20:00:',
+      'The following team members did not submit an EOD report for {date}:',
       'table of #, Name, Email',
       'Total pending: {count}.',
     ],

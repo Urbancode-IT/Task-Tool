@@ -49,6 +49,7 @@ import { sanitizeCommentHtml } from '../../utils/sanitizeHtml';
 import { BRANCHES } from '../Admin/AdminUserModals';
 import MemberDashboard from './MemberDashboard';
 import './ITUpdatesMain.css';
+import DueTasksPanel from '../../components/DueTasksPanel';
 import { useLabels, useNav } from '../../branding/BrandingContext';
 import { applyStatusLabels } from '../../branding/labels';
 
@@ -1283,6 +1284,10 @@ const ITUpdatesMain = ({ currentUser, onLogout, scope = 'internal' }) => {
                   </div>
                 </div>
               </section>
+
+              {/* What the signed-in user owes today and this week. Fed from myTasks, so
+                  it needs no request of its own. */}
+              <DueTasksPanel tasks={myTasks} onOpenTask={openTaskModal} />
 
               {isExternalScope && (
                 <section className="it-updates-panel it-updates-panel-full">

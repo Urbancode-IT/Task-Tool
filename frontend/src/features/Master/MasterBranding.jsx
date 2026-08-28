@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import {
-  MdExpandMore, MdDragIndicator, MdSave, MdRestartAlt, MdSearch, MdViewSidebar,
+  MdEdit, MdDragIndicator, MdSave, MdRestartAlt, MdSearch, MdViewSidebar,
   MdSpaceDashboard, MdClose, MdVisibility, MdBadge, MdPublic, MdMarkEmailRead,
 } from 'react-icons/md';
 import adminApi from '../../api/adminApi';
@@ -120,7 +120,7 @@ function placeFor(el) {
  * `pos` is measured by the parent's click handler and kept there, so this component
  * never reads a ref during render.
  */
-function IconPicker({ anchorRef, pos, onMove, value, onPick, onClose }) {
+function IconPicker({ anchorRef, pos, onMove, value, onPick, onUseDefault, onClose }) {
   const [query, setQuery] = useState('');
   const panelRef = useRef(null);
 
@@ -194,7 +194,12 @@ function IconPicker({ anchorRef, pos, onMove, value, onPick, onClose }) {
         {shown.length === 0 && <div className="mb-picker-empty">No icon matches “{query}”.</div>}
       </div>
       <div className="mb-picker-foot">
-        {shown.length} of {NAV_ICON_NAMES.length} icons
+        <span>{shown.length} of {NAV_ICON_NAMES.length} icons</span>
+        {onUseDefault && (
+          <button type="button" className="mb-picker-reset" onClick={onUseDefault}>
+            <MdRestartAlt size={14} /> Use default
+          </button>
+        )}
       </div>
     </div>,
     document.body
@@ -202,10 +207,18 @@ function IconPicker({ anchorRef, pos, onMove, value, onPick, onClose }) {
 }
 
 /** One row in the editor: collapsed by default, expands to reveal the fields. */
+/**
+ * One draggable row: its icon, its display name, and nothing else.
+ *
+ * Both edits happen in place rather than in a panel that unfolds below the row. The
+ * pencil turns the name into a text box; the icon opens the picker directly. The old
+ * disclosure body meant two clicks and a jumping list to rename one item.
+ */
 function NavRow({ item, index, draft, expanded, onToggle, onChange, fallbackName }) {
   // Null when closed; the measured {top,left} when open.
   const [pickerPos, setPickerPos] = useState(null);
   const iconBtnRef = useRef(null);
+  const inputRef = useRef(null);
   const pickerOpen = pickerPos !== null;
   const togglePicker = () => setPickerPos(pickerOpen ? null : placeFor(iconBtnRef.current));
   const closePicker = useCallback(() => setPickerPos(null), []);
@@ -217,82 +230,93 @@ function NavRow({ item, index, draft, expanded, onToggle, onChange, fallbackName
   const fallback = fallbackName || LABEL_DEFAULTS[item.id] || item.default;
   const customised = Boolean(name.trim() || iconName);
 
+  // Focus and select on open, so the pencil lands the caret in the box ready to type.
+  useEffect(() => {
+    if (!expanded) return;
+    const el = inputRef.current;
+    if (!el) return;
+    el.focus();
+    el.select();
+  }, [expanded]);
+
   return (
     <Draggable draggableId={item.id} index={index}>
       {(drag, snap) => (
         <div
           ref={drag.innerRef}
           {...drag.draggableProps}
-          className={`mb-row ${expanded ? 'open' : ''} ${snap.isDragging ? 'dragging' : ''}`}
+          className={'mb-row ' + (expanded ? 'editing ' : '') + (snap.isDragging ? 'dragging' : '')}
+          title={item.id}
         >
           <div className="mb-row-head">
             <span
               className="mb-grip"
               {...drag.dragHandleProps}
               title="Drag to reorder"
-              aria-label={`Reorder ${fallback}`}
+              aria-label={'Reorder ' + fallback}
             >
               <MdDragIndicator size={20} />
             </span>
-            <button type="button" className="mb-row-btn" onClick={onToggle} aria-expanded={expanded}>
-              <span className="mb-row-icon">
-                {Ico ? <Ico size={18} /> : <span className="mb-row-noicon" />}
-              </span>
+
+            <button
+              ref={iconBtnRef}
+              type="button"
+              className={'mb-row-icon ' + (pickerOpen ? 'open' : '')}
+              onClick={togglePicker}
+              aria-expanded={pickerOpen}
+              title={'Change the icon for ' + fallback}
+            >
+              {Ico ? <Ico size={18} /> : <span className="mb-row-noicon" />}
+            </button>
+
+            {expanded ? (
+              <input
+                ref={inputRef}
+                className="mb-row-input"
+                value={name}
+                placeholder={fallback}
+                aria-label={'Display name for ' + fallback}
+                onChange={(e) => onChange({ label: e.target.value })}
+                // Enter and Escape both just leave the box: every keystroke is already
+                // in the draft, and Publish is what actually applies it.
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === 'Escape') {
+                    e.preventDefault();
+                    onToggle();
+                  }
+                }}
+                onBlur={onToggle}
+              />
+            ) : (
               <span className="mb-row-name">{name.trim() || fallback}</span>
-              {customised && <span className="mb-row-tag">edited</span>}
-              <MdExpandMore size={20} className="mb-row-chev" />
+            )}
+
+            {customised && !expanded && <span className="mb-row-tag">edited</span>}
+
+            <button
+              type="button"
+              className="mb-row-editbtn"
+              // Blur fires before click, so by the time this runs the row has already
+              // closed — which reads as a plain toggle either way.
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={onToggle}
+              title={expanded ? 'Done' : 'Rename ' + fallback}
+              aria-label={expanded ? 'Done editing' : 'Rename ' + fallback}
+            >
+              <MdEdit size={17} />
             </button>
           </div>
 
-          {expanded && (
-            <div className="mb-row-body">
-              <label className="mb-field">
-                <span>Display name</span>
-                <input
-                  value={name}
-                  onChange={(e) => onChange({ label: e.target.value })}
-                  placeholder={fallback}
-                />
-                <small>Blank uses “{fallback}”. Applies to this sector only.</small>
-              </label>
-
-              <div className="mb-field">
-                <span>Icon</span>
-                <div className="mb-icon-row">
-                  <button
-                    ref={iconBtnRef}
-                    type="button"
-                    className={`mb-icon-current ${pickerOpen ? 'open' : ''}`}
-                    onClick={togglePicker}
-                    aria-expanded={pickerOpen}
-                  >
-                    {Ico ? <Ico size={20} /> : <span className="mb-row-noicon" />}
-                    <span>{iconName || 'Default'}</span>
-                  </button>
-                  {iconName && (
-                    <button
-                      type="button"
-                      className="mb-link-btn"
-                      onClick={() => { onChange({ icon: '' }); closePicker(); }}
-                    >
-                      Reset
-                    </button>
-                  )}
-                </div>
-                {pickerOpen && (
-                  <IconPicker
-                    anchorRef={iconBtnRef}
-                    pos={pickerPos}
-                    onMove={movePicker}
-                    value={iconName || codedIcon}
-                    onPick={(n) => { onChange({ icon: n }); closePicker(); }}
-                    onClose={closePicker}
-                  />
-                )}
-              </div>
-
-              <div className="mb-row-meta">{item.id}</div>
-            </div>
+          {pickerOpen && (
+            <IconPicker
+              anchorRef={iconBtnRef}
+              pos={pickerPos}
+              onMove={movePicker}
+              value={iconName || codedIcon}
+              onPick={(n) => { onChange({ icon: n }); closePicker(); }}
+              onUseDefault={iconName ? () => { onChange({ icon: '' }); closePicker(); } : null}
+              onClose={closePicker}
+            />
           )}
         </div>
       )}
