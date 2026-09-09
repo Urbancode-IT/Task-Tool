@@ -61,6 +61,12 @@
 /* ── Printable invoice document ──
    Fixed light palette and absolute units: this block is a paper document, so it must
    not inherit app theming or a user's root font scale. */
+/* The sheet is portalled onto <body> (see InvoicePrint), so on screen it needs to
+   cover the app as a preview surface; in print it is the only thing left standing. */
+.inv-print-portal {
+  position: fixed; inset: 0; z-index: 3500; overflow: auto;
+  padding: 1rem; background: #eef1f5;
+}
 .inv-print-bar { display: flex; justify-content: flex-end; gap: 0.5rem; margin-bottom: 1rem; }
 /* A4 portrait. The on-screen preview is the same sheet that prints: 210 x 297mm with
    the same margins, so what is laid out here is what comes out of the printer. The
@@ -69,28 +75,31 @@
 .inv-print {
   background: #fff; color: #000;
   width: 210mm; max-width: 100%; min-height: 297mm;
+  /* Deliberately NOT a flex column. Pinning the closing matter to the foot with
+     `margin-top: auto` needs one, and Chrome does not fragment a flex container
+     across printed pages: on any invoice that runs past one page the notes, the
+     declaration and the signature were dropped from the printout entirely. Normal
+     block flow paginates, so the closing matter always reaches the paper. */
   margin: 0 auto; padding: 12mm 14mm;
   border: 1px solid #e2e8f0; border-radius: 8px;
   font-size: 12px; line-height: 1.45;
   font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
 }
 
-/* Header: brand left, document title right */
+/* Header: the organisation's letterhead on the left, document title on the right */
 .inv-doc-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; }
-.inv-doc-logo { max-width: 210px; max-height: 54px; object-fit: contain; display: block; }
-/* Text letterhead, used when no logo has been uploaded. */
-.inv-doc-brand-name { font-size: 17px; font-weight: 700; letter-spacing: 0.01em; color: #111; }
-.inv-doc-tagline { margin-top: 4px; font-size: 10px; letter-spacing: 0.02em; color: #555; }
-.inv-doc-title { text-align: right; }
+.inv-doc-brand { max-width: 62%; }
+.inv-doc-logo { max-width: 210px; max-height: 54px; object-fit: contain; display: block; margin-bottom: 8px; }
+.inv-doc-tagline { font-size: 10px; letter-spacing: 0.02em; color: #555; }
+.inv-doc-title { text-align: right; white-space: nowrap; }
 .inv-doc-title h1 { margin: 0; font-size: 27px; font-weight: 400; letter-spacing: 0.01em; color: #222; }
 .inv-doc-number { margin-top: 2px; font-size: 11px; font-weight: 700; color: #222; }
 
-/* Seller block + prominent balance due */
-.inv-doc-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; margin-top: 18px; }
+/* The letterhead's own name / address lines, and the balance under the title */
 .inv-doc-seller, .inv-doc-client { display: flex; flex-direction: column; font-style: normal; }
 .inv-doc-seller { font-size: 11px; color: #333; }
-.inv-doc-seller-name { font-size: 12px; font-weight: 700; color: #000; }
-.inv-doc-balance { text-align: right; white-space: nowrap; }
+.inv-doc-seller-name { font-size: 14px; font-weight: 700; color: #000; margin-bottom: 2px; }
+.inv-doc-balance { margin-top: 16px; text-align: right; white-space: nowrap; }
 .inv-doc-balance-label { font-size: 10px; font-weight: 700; color: #444; }
 .inv-doc-balance-value { font-size: 15px; font-weight: 700; color: #000; }
 
@@ -136,45 +145,65 @@
 .inv-doc-words-value { max-width: 230px; font-weight: 700; color: #000; text-align: left; }
 
 /* Notes / bank details */
-.inv-doc-extra { display: flex; gap: 40px; margin-top: 26px; font-size: 11px; color: #444; }
+/* Closing matter: notes, bank details, declaration and sign-off. It follows the
+   totals after a clear gap rather than being pushed to the foot of the sheet — see the
+   note on .inv-print about flex containers and printing. */
+.inv-doc-foot { margin-top: 26px; padding-top: 10px; }
+.inv-doc-extra { display: flex; gap: 40px; margin-top: 16px; font-size: 11px; color: #444; }
 .inv-doc-block { flex: 1; }
 .inv-doc-block-label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: #777; margin-bottom: 3px; }
 .inv-doc-block p { margin: 0; }
 
-.inv-doc-thanks { margin-top: 34px; font-size: 11px; color: #444; }
+.inv-doc-thanks { margin-top: 14px; font-size: 11px; color: #444; }
 /* Statutory declaration, published from the master console. Omitted when blank. */
 /* No max-width: 78ch capped this at 455px and broke the default declaration onto a
    second line, with ~280px of the page still free beside it. It runs the full content
    width now; a longer custom declaration wraps naturally. */
-.inv-doc-declaration { margin-top: 18px; font-size: 10.5px; line-height: 1.5; color: #444; }
+.inv-doc-declaration { margin-top: 12px; font-size: 10.5px; line-height: 1.5; color: #444; }
 
-.inv-doc-signoff { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; margin-top: 46px; }
-.inv-doc-seal { width: 88px; height: 88px; object-fit: contain; }
-.inv-doc-sign { margin-left: auto; text-align: center; min-width: 190px; }
-.inv-doc-sig { display: block; max-width: 160px; max-height: 56px; object-fit: contain; margin: 0 auto 4px; }
-/* Always drawn, so an unsigned print still leaves a line to sign on. */
-.inv-doc-sign-label { border-top: 1px solid #999; padding-top: 4px; font-size: 10px; color: #444; }
-.inv-doc-sign-for, .inv-doc-sign-role { display: block; }
-.inv-doc-sign-for { font-weight: 600; color: #222; }
-.inv-doc-sign-role { margin-top: 1px; }
+/* Seal on the left, signature on the right: two fields of equal width, bottom
+   aligned, so their rules land on the same line. */
+.inv-doc-signoff { display: flex; align-items: flex-end; justify-content: space-between; gap: 32px; margin-top: 22px; }
+.inv-doc-signfield { flex: 0 0 44%; max-width: 44%; }
+/* A fixed art box holds the image clear of the rule whatever its proportions are, and
+   leaves an empty space to stamp or sign when no image is uploaded. */
+.inv-doc-signfield-art { height: 64px; display: flex; align-items: flex-end; justify-content: center; }
+.inv-doc-seal { max-width: 96px; max-height: 64px; object-fit: contain; }
+.inv-doc-sig { max-width: 150px; max-height: 60px; object-fit: contain; }
+.inv-doc-signfield-label {
+  border-top: 1px solid #999; padding-top: 4px;
+  text-align: center; font-size: 10px; font-weight: 600; color: #222;
+}
 
 @media print {
-  /* Without this the paper size is whatever the print dialog happens to default to —
-     Letter in some locales — and the invoice reflows. */
-  @page { size: A4 portrait; margin: 12mm 14mm; }
+  /* Without a size the paper is whatever the print dialog defaults to — Letter in
+     some locales — and the invoice reflows. A zero margin serves a second purpose:
+     it leaves the browser no margin area in which to stamp its own header and footer
+     (the page URL and "1/1"), and the sheet supplies the real margins itself through
+     the padding below. */
+  @page { size: A4 portrait; margin: 0; }
 
-  body * { visibility: hidden !important; }
-  .inv-print, .inv-print * { visibility: visible !important; }
+  /* Hide the app with display, not visibility: an invisible shell still occupies
+     space and would print blank leading pages. The sheet stays in normal flow so it
+     paginates properly. */
+  body.inv-printing > *:not(.inv-print-portal) { display: none !important; }
+  .inv-print-portal {
+    position: static; inset: auto; z-index: auto;
+    overflow: visible; padding: 0; background: none;
+  }
   .inv-print {
-    position: absolute; left: 0; top: 0; width: 100%; max-width: none;
-    /* @page owns the margins now, and min-height would push a blank second page. */
-    min-height: 0; margin: 0; padding: 0; border: none; border-radius: 0;
+    width: 100%; max-width: none;
+    /* No forced height: the sheet is exactly as tall as the invoice, and the page box
+       from @page decides where it breaks. A minimum height here would only risk a
+       blank trailing page. */
+    min-height: 0; margin: 0; padding: 12mm 14mm; border: none; border-radius: 0;
   }
   .inv-no-print { display: none !important; }
   .inv-doc-table { page-break-inside: auto; }
   .inv-doc-table tr { page-break-inside: avoid; }
   .inv-doc-table thead { display: table-header-group; }
   .inv-doc-table tfoot { display: table-row-group; }
+  .inv-doc-foot { page-break-inside: avoid; }
   .inv-doc-signoff { page-break-inside: avoid; }
   .inv-doc-declaration { page-break-inside: avoid; page-break-after: avoid; }
   /* Keep the dark header band and shaded due row in the PDF. */
@@ -184,7 +213,9 @@
 
 @media (max-width: 700px) {
   .inv-print { padding: 24px 20px; }
-  .inv-doc-head, .inv-doc-top, .inv-doc-parties { flex-direction: column; }
+  .inv-doc-head, .inv-doc-parties { flex-direction: column; }
+  .inv-doc-brand { max-width: none; }
+  .inv-doc-title { white-space: normal; }
   .inv-doc-title, .inv-doc-balance { text-align: left; }
   .inv-doc-meta { align-self: stretch; min-width: 0; }
   .inv-doc-words { justify-content: flex-start; }

@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { MdAdd, MdArrowBack, MdPrint, MdDelete, MdEdit, MdContentCopy, MdWarning } from 'react-icons/md';
 import adminApi from '../../api/adminApi';
 import { toastSuccess, toastError } from '../../utils/toast';
@@ -421,6 +422,30 @@ function InvoiceEditor({
 }
 
 function InvoicePrint({ invoice, company, onBack }) {
+  /**
+   * The sheet is mounted straight onto <body> instead of inside the admin shell.
+   *
+   * Printing used to be isolated with `visibility: hidden` on everything else plus
+   * `position: absolute` on the sheet. An out-of-flow box does not paginate: whatever
+   * fell past the first page — the notes, the declaration, the signature — was dropped
+   * from the printout instead of continuing onto page two. In normal flow at the top
+   * of the document, the browser can break the sheet across pages, and the app is
+   * hidden with `display: none` so it occupies no pages of its own.
+   */
+  const host = useMemo(() => {
+    const el = document.createElement('div');
+    el.className = 'inv-print-portal';
+    return el;
+  }, []);
+  useEffect(() => {
+    document.body.appendChild(host);
+    document.body.classList.add('inv-printing');
+    return () => {
+      document.body.classList.remove('inv-printing');
+      host.remove();
+    };
+  }, [host]);
+
   const t = computeTotals(invoice);
   const lines = computeLines(invoice);
   const c = company || {};
@@ -449,7 +474,7 @@ function InvoicePrint({ invoice, company, onBack }) {
   const taxCols = interState ? 1 : 2;
   const hasBank = bank.account_name || bank.bank_name || bank.account_number;
 
-  return (
+  return createPortal(
     <div className="inv-print-root">
       <div className="inv-no-print inv-print-bar">
         <button type="button" className="admin-btn admin-btn-secondary" onClick={onBack}><MdArrowBack size={18} /> Back</button>
@@ -457,37 +482,34 @@ function InvoicePrint({ invoice, company, onBack }) {
       </div>
 
       <div className="inv-print">
+        {/* Letterhead. The organisation's identity belongs in the top-left corner and
+            nowhere else on the sheet: the logo, the registered name, the address and the
+            statutory numbers, as one block. The document title and the amount due face
+            it from the right. */}
         <header className="inv-doc-head">
           <div className="inv-doc-brand">
             {letterheadLogo ? (
               <img src={letterheadLogo} alt={sellerName} className="inv-doc-logo" />
-            ) : (
-              // Never leave the letterhead blank: with no logo uploaded the document
-              // still has to say whose invoice it is.
-              <div className="inv-doc-brand-name">{sellerName}</div>
-            )}
-            {c.tagline && <div className="inv-doc-tagline">{c.tagline}</div>}
+            ) : null}
+            <address className="inv-doc-seller">
+              <span className="inv-doc-seller-name">{sellerName}</span>
+              {c.tagline && <span className="inv-doc-tagline">{c.tagline}</span>}
+              {companyAddress.map((l, i) => <span key={i}>{l}</span>)}
+              {comp.gst && <span>GSTIN {comp.gst}</span>}
+              {comp.pan && <span>PAN {comp.pan}</span>}
+              {contact.official_email && <span>{contact.official_email}</span>}
+              {contact.contact_number && <span>{contact.contact_number}</span>}
+            </address>
           </div>
           <div className="inv-doc-title">
             <h1>{title}</h1>
             <div className="inv-doc-number"># {invoice.invoice_number}</div>
+            <div className="inv-doc-balance">
+              <div className="inv-doc-balance-label">Balance Due</div>
+              <div className="inv-doc-balance-value">{money(balanceDue, cur)}</div>
+            </div>
           </div>
         </header>
-
-        <div className="inv-doc-top">
-          <address className="inv-doc-seller">
-            <span className="inv-doc-seller-name">{sellerName}</span>
-            {companyAddress.map((l, i) => <span key={i}>{l}</span>)}
-            {comp.gst && <span>GSTIN {comp.gst}</span>}
-            {comp.pan && <span>PAN {comp.pan}</span>}
-            {contact.official_email && <span>{contact.official_email}</span>}
-            {contact.contact_number && <span>{contact.contact_number}</span>}
-          </address>
-          <div className="inv-doc-balance">
-            <div className="inv-doc-balance-label">Balance Due</div>
-            <div className="inv-doc-balance-value">{money(balanceDue, cur)}</div>
-          </div>
-        </div>
 
         <div className="inv-doc-parties">
           <address className="inv-doc-client">
@@ -597,6 +619,11 @@ function InvoicePrint({ invoice, company, onBack }) {
           <em className="inv-doc-words-value">{amountInWords(t.total, cur)}</em>
         </div>
 
+        {/* Everything below is the closing matter of the invoice: notes, bank details,
+            the declaration and the sign-off. It is pushed to the foot of the sheet so the
+            seal and signature sit at the bottom of the page, not directly under the
+            table on a short invoice. */}
+        <div className="inv-doc-foot">
         {(invoice.notes || hasBank) && (
           <div className="inv-doc-extra">
             {invoice.notes && (
@@ -630,17 +657,30 @@ function InvoicePrint({ invoice, company, onBack }) {
           </div>
         )}
 
+        {/* Seal and signature are the same field twice: the image sits on a ruled line
+            with its caption beneath. Both are always drawn, so a printed copy has
+            somewhere to stamp and sign even when neither image is uploaded. The
+            signature caption follows the signatory role from the master console, which
+            is "Director" unless it has been changed. */}
         <div className="inv-doc-signoff">
-          {signoff.seal && <img src={signoff.seal} alt="Company seal" className="inv-doc-seal" />}
-          <div className="inv-doc-sign">
-            {signoff.sign && <img src={signoff.sign} alt="Authorised signature" className="inv-doc-sig" />}
-            <div className="inv-doc-sign-label">
-              <span className="inv-doc-sign-for">For {sellerName}</span>
-              <span className="inv-doc-sign-role">{settings.signatory_role}</span>
+          <div className="inv-doc-signfield">
+            <div className="inv-doc-signfield-art">
+              {signoff.seal ? <img src={signoff.seal} alt="Seal" className="inv-doc-seal" /> : null}
             </div>
+            <div className="inv-doc-signfield-label">Seal</div>
+          </div>
+          <div className="inv-doc-signfield">
+            <div className="inv-doc-signfield-art">
+              {signoff.sign ? (
+                <img src={signoff.sign} alt={`${settings.signatory_role} signature`} className="inv-doc-sig" />
+              ) : null}
+            </div>
+            <div className="inv-doc-signfield-label">{settings.signatory_role} Signature</div>
           </div>
         </div>
+        </div>
       </div>
-    </div>
+    </div>,
+    host
   );
 }
