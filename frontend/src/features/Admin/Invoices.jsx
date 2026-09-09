@@ -5,6 +5,9 @@ import { toastSuccess, toastError } from '../../utils/toast';
 import { confirmDialog } from '../../utils/confirm';
 import { amountInWords } from '../../utils/amountInWords';
 import { formatPlaceOfSupply } from '../../utils/gstStates';
+import {
+  allocatePaise, fromPaise, multiplyPaise, percentOfPaise, sanitizeDecimalInput, toPaise,
+} from '../../utils/money';
 import { BRANDING_EVENT } from '../../branding/BrandingContext';
 import {
   FALLBACK_SAC, INVOICE_DEFAULTS, defaultSacFrom, invoiceSettingsFrom,
@@ -68,7 +71,10 @@ const emptyInvoice = (settings = INVOICE_DEFAULTS, sac = FALLBACK_SAC) => ({
   status: 'draft',
 });
 
-const lineGross = (it) => (Number(it?.qty) || 0) * (Number(it?.rate) || 0);
+// A line's amount is what the document prints, so it is fixed at whole paise here:
+// the subtotal is then the sum of the printed amounts and the two always reconcile.
+const lineGrossPaise = (it) => multiplyPaise(it?.qty, it?.rate);
+const lineGross = (it) => fromPaise(lineGrossPaise(it));
 
 /**
  * The company seal and the director's signature are mandatory on an issued invoice.
@@ -89,12 +95,19 @@ const signoffMessage = (missing) =>
   `Ask a master administrator to upload the ${missing.join(' and ')} (master console → Appearance) before issuing this invoice.`;
 
 // Money math — mirrors the server's computeInvoiceTotals.
+// Everything is computed in whole paise, so nothing is truncated and no floating-point
+// error creeps in: a subtotal of 16,399.49 is taxed as 16,399.49 and gives 19,351.40.
 function computeTotals(inv) {
-  const raw = (inv.items || []).reduce((s, it) => s + lineGross(it), 0);
-  const subtotal = Math.max(0, raw - (Number(inv.discount) || 0));
-  const taxTotal = +(subtotal * ((Number(inv.gst_rate) || 0) / 100)).toFixed(2);
-  const half = +(taxTotal / 2).toFixed(2);
-  return { subtotal: +subtotal.toFixed(2), taxTotal, half, total: +(subtotal + taxTotal).toFixed(2) };
+  const grossPaise = (inv.items || []).reduce((sum, it) => sum + lineGrossPaise(it), 0);
+  const subtotalPaise = Math.max(0, grossPaise - toPaise(inv.discount));
+  const taxPaise = percentOfPaise(subtotalPaise, inv.gst_rate);
+  return {
+    subtotal: fromPaise(subtotalPaise),
+    taxTotal: fromPaise(taxPaise),
+    // CGST and SGST are half each; the odd paisa goes to CGST so the two add up.
+    half: fromPaise(Math.round(taxPaise / 2)),
+    total: fromPaise(subtotalPaise + taxPaise),
+  };
 }
 
 /**
@@ -104,14 +117,20 @@ function computeTotals(inv) {
  */
 function computeLines(inv) {
   const items = inv.items || [];
-  const rate = Number(inv.gst_rate) || 0;
-  const gross = items.reduce((s, it) => s + lineGross(it), 0);
-  const discount = Math.min(Math.max(0, Number(inv.discount) || 0), gross);
-  return items.map((it) => {
-    const amount = lineGross(it);
-    const taxable = gross > 0 ? amount - (amount / gross) * discount : 0;
-    const tax = +(taxable * (rate / 100)).toFixed(2);
-    return { ...it, taxable: +taxable.toFixed(2), tax, half: +(tax / 2).toFixed(2) };
+  const amounts = items.map((it) => lineGrossPaise(it));
+  // The invoice-level discount is spread across the lines in proportion to their
+  // value, to the paisa, so the printed columns add up to the summary exactly.
+  const shares = allocatePaise(toPaise(inv.discount), amounts);
+  return items.map((it, i) => {
+    const taxablePaise = Math.max(0, amounts[i] - (shares[i] || 0));
+    const taxPaise = percentOfPaise(taxablePaise, inv.gst_rate);
+    return {
+      ...it,
+      amount: fromPaise(amounts[i]),
+      taxable: fromPaise(taxablePaise),
+      tax: fromPaise(taxPaise),
+      half: fromPaise(Math.round(taxPaise / 2)),
+    };
   });
 }
 
@@ -338,9 +357,24 @@ function InvoiceEditor({
           <div className="inv-item-row" key={i}>
             <input list="inv-service-list" value={it.description} onChange={(e) => setItem(i, 'description', e.target.value)} placeholder="e.g. Website design & development" />
             <input list="inv-sac-list" value={it.hsn_sac} onChange={(e) => setItem(i, 'hsn_sac', e.target.value)} placeholder={defaultSac} />
-            <input className="inv-num" type="number" min="0" value={it.qty} onChange={(e) => setItem(i, 'qty', e.target.value)} />
-            <input className="inv-num" type="number" min="0" step="0.01" value={it.rate} onChange={(e) => setItem(i, 'rate', e.target.value)} />
-            <span className="inv-num inv-amount">{money((Number(it.qty) || 0) * (Number(it.rate) || 0), draft.currency)}</span>
+            {/* Text, not type="number": a pasted "10,169.49" or "₹10,169.49" would be
+                rejected by a number field and the line would silently bill 0.00.
+                sanitizeDecimalInput keeps the paise and drops the formatting. */}
+            <input
+              className="inv-num"
+              type="text"
+              inputMode="decimal"
+              value={it.qty}
+              onChange={(e) => setItem(i, 'qty', sanitizeDecimalInput(e.target.value))}
+            />
+            <input
+              className="inv-num"
+              type="text"
+              inputMode="decimal"
+              value={it.rate}
+              onChange={(e) => setItem(i, 'rate', sanitizeDecimalInput(e.target.value))}
+            />
+            <span className="inv-num inv-amount">{money(lineGross(it), draft.currency)}</span>
             <button type="button" className="inv-item-del" onClick={() => removeItem(i)} title="Remove"><MdDelete size={16} /></button>
           </div>
         ))}
@@ -366,8 +400,8 @@ function InvoiceEditor({
                 {Object.keys(CURRENCY_SYMBOL).map((c) => <option key={c} value={c}>{c}</option>)}
               </select>
             </label>
-            <label>Discount<input type="number" min="0" step="0.01" value={draft.discount} onChange={(e) => set('discount', e.target.value)} /></label>
-            <label>GST %<input type="number" min="0" step="0.01" value={draft.gst_rate} onChange={(e) => set('gst_rate', e.target.value)} /></label>
+            <label>Discount<input type="text" inputMode="decimal" value={draft.discount} onChange={(e) => set('discount', sanitizeDecimalInput(e.target.value))} /></label>
+            <label>GST %<input type="text" inputMode="decimal" value={draft.gst_rate} onChange={(e) => set('gst_rate', sanitizeDecimalInput(e.target.value))} /></label>
             <label className="inv-check"><input type="checkbox" checked={draft.is_inter_state} onChange={(e) => set('is_inter_state', e.target.checked)} /> Inter-state (IGST)</label>
           </div>
           <div className="inv-total-line"><span>Subtotal</span><span>{money(t.subtotal, draft.currency)}</span></div>

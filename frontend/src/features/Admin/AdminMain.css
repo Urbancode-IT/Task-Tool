@@ -768,3 +768,50 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* ── Deletion log ────────────────────────────────────────────────────────── */
+.admin-delete-log-filters {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.admin-delete-log-filters label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--clr-slate-500, #64748b);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.admin-delete-log-filters select,
+.admin-delete-log-filters input {
+  padding: 0.4rem 0.5rem;
+  border: 1px solid var(--clr-slate-200, #e2e8f0);
+  border-radius: 8px;
+  font-size: 0.85rem;
+  font-weight: 500;
+  text-transform: none;
+  letter-spacing: normal;
+  color: var(--clr-slate-700, #334155);
+  background: #fff;
+}
+
+/* The project a deleted task belonged to, under its title. */
+.admin-delete-log-project {
+  display: block;
+  margin-top: 0.15rem;
+  font-size: 0.74rem;
+  color: var(--clr-slate-500, #64748b);
+}
+
+/* Reasons are free text; keep the column readable rather than one long line. */
+.admin-delete-log-reason {
+  max-width: 26rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+}

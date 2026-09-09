@@ -12,7 +12,7 @@ import * as db from './db/index.js';
 import { sendMail, isMailConfigured, renderMail, applyEmailBranding } from './mailer.js';
 import { startEodDirectorReport, startEodMemberReminders, startEodMidnightLock } from './eodReminder.js';
 import { requireMasterScope } from './middlewares/masterMiddleware.js';
-import { requireAuth, attachUserPermissions, requirePermission, signAccessToken, signRefreshToken, verifyRefreshToken } from './middlewares/authMiddleware.js';
+import { JWT_SECRET, requireAuth, attachUserPermissions, requirePermission, signAccessToken, signRefreshToken, verifyRefreshToken } from './middlewares/authMiddleware.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.join(__dirname, '.env') });
@@ -378,12 +378,8 @@ app.post('/auth/login', async (req, res) => {
     const payload = { id: user.id, scope: 'app' };
     const access = signAccessToken(payload);
     const refresh = signRefreshToken(payload);
-    if (access) {
-      res.cookie('access_token', access, COOKIE_OPTS);
-      res.cookie('refresh_token', refresh, { ...COOKIE_OPTS, maxAge: 7 * 24 * 60 * 60 * 1000 });
-    } else {
-      res.cookie('access_token', 'demo-token', COOKIE_OPTS);
-    }
+    res.cookie('access_token', access, COOKIE_OPTS);
+    res.cookie('refresh_token', refresh, { ...COOKIE_OPTS, maxAge: 7 * 24 * 60 * 60 * 1000 });
     return res.json({ user });
   }
 
@@ -394,12 +390,8 @@ app.post('/auth/login', async (req, res) => {
   const payload = { id: user.id };
   const access = signAccessToken(payload);
   const refresh = signRefreshToken(payload);
-  if (access) {
-    res.cookie('access_token', access, COOKIE_OPTS);
-    res.cookie('refresh_token', refresh, { ...COOKIE_OPTS, maxAge: 7 * 24 * 60 * 60 * 1000 });
-  } else {
-    res.cookie('access_token', 'demo-token', COOKIE_OPTS);
-  }
+  res.cookie('access_token', access, COOKIE_OPTS);
+  res.cookie('refresh_token', refresh, { ...COOKIE_OPTS, maxAge: 7 * 24 * 60 * 60 * 1000 });
   const { password: _pw, ...safeUser } = user;
   safeUser.permissions = ['it_updates.view', 'it_updates.manage', 'it_updates.users', 'admin.access'];
   safeUser.roleIds = [];
@@ -408,18 +400,7 @@ app.post('/auth/login', async (req, res) => {
 
 /** Resolve session from access cookie, or refresh cookie if access expired (one round-trip for the client). */
 function resolveSessionFromCookies(req, res) {
-  const JWT_SECRET = process.env.JWT_SECRET;
-  if (!JWT_SECRET) {
-    const token = req.cookies?.access_token;
-    if (!token) return { ok: false, status: 401, message: 'Not authenticated' };
-    return { ok: true, decoded: { id: users[0]?.id, email: users[0]?.email }, demo: true };
-  }
-
   const accessToken = req.cookies?.access_token;
-  if (accessToken === 'demo-token') {
-    const u = users[0];
-    return { ok: true, decoded: { id: u?.id, email: u?.email }, demo: true };
-  }
 
   if (accessToken) {
     try {
@@ -442,30 +423,16 @@ function resolveSessionFromCookies(req, res) {
   // Preserve the scope, or a master session would silently downgrade to app scope
   // the first time its 15-minute access token expired.
   const newAccess = signAccessToken({ id: refreshDecoded.id, scope: refreshDecoded.scope || 'app' });
-  if (newAccess) {
-    res.cookie('access_token', newAccess, COOKIE_OPTS);
-  } else {
-    res.cookie('access_token', 'demo-token', COOKIE_OPTS);
-  }
+  res.cookie('access_token', newAccess, COOKIE_OPTS);
 
   return { ok: true, decoded: refreshDecoded, refreshed: true };
 }
 
 /** Current session (cookies). Used on app load — do not trust localStorage alone. */
 app.get('/auth/me', asyncMw(async (req, res) => {
-  const JWT_SECRET = process.env.JWT_SECRET;
-
   const session = resolveSessionFromCookies(req, res);
   if (!session.ok) {
     return res.status(session.status || 401).json({ message: session.message || 'Not authenticated' });
-  }
-
-  if (!JWT_SECRET || session.demo) {
-    const u = users[0];
-    const { password: _pw, ...safeUser } = u;
-    safeUser.permissions = ['it_updates.view', 'it_updates.manage', 'it_updates.users', 'admin.access'];
-    safeUser.roleIds = [];
-    return res.json({ user: safeUser });
   }
 
   const decoded = session.decoded;
@@ -493,7 +460,7 @@ app.put('/auth/me/avatar', asyncMw(async (req, res) => {
   if (!session.ok) {
     return res.status(session.status || 401).json({ message: session.message || 'Not authenticated' });
   }
-  if (!db.useDb() || session.demo) {
+  if (!db.useDb()) {
     return res.status(400).json({ message: 'Profile updates require a database connection.' });
   }
   const image = req.body?.profile_image ?? req.body?.image ?? null;
@@ -509,27 +476,17 @@ app.post('/auth/refresh', (req, res) => {
   const decoded = verifyRefreshToken(token);
   if (!decoded) return res.status(401).json({ message: 'Invalid or expired refresh token' });
   const access = signAccessToken({ id: decoded.id, scope: decoded.scope || 'app' });
-  if (access) {
-    res.cookie('access_token', access, COOKIE_OPTS);
-    return res.json({ success: true });
-  }
-  res.cookie('access_token', 'demo-token', COOKIE_OPTS);
+  res.cookie('access_token', access, COOKIE_OPTS);
   res.json({ success: true });
 });
 
 app.post('/auth/refresh-token', (req, res) => {
   const token = req.cookies?.refresh_token;
-  if (token) {
-    const decoded = verifyRefreshToken(token);
-    if (decoded) {
-      const access = signAccessToken({ id: decoded.id, scope: decoded.scope || 'app' });
-      if (access) {
-        res.cookie('access_token', access, COOKIE_OPTS);
-        return res.json({ success: true });
-      }
-    }
-  }
-  res.cookie('access_token', 'demo-token', COOKIE_OPTS);
+  if (!token) return res.status(401).json({ message: 'Refresh token required' });
+  const decoded = verifyRefreshToken(token);
+  if (!decoded) return res.status(401).json({ message: 'Invalid or expired refresh token' });
+  const access = signAccessToken({ id: decoded.id, scope: decoded.scope || 'app' });
+  res.cookie('access_token', access, COOKIE_OPTS);
   res.json({ success: true });
 });
 
@@ -561,9 +518,6 @@ app.post('/auth/master-login', asyncMw(async (req, res) => {
 
   const payload = { id: user.id, scope: 'master' };
   const access = signAccessToken(payload);
-  if (!access) {
-    return res.status(503).json({ message: 'Master console requires JWT_SECRET to be configured.' });
-  }
   res.cookie('access_token', access, COOKIE_OPTS);
   res.cookie('refresh_token', signRefreshToken(payload), { ...COOKIE_OPTS, maxAge: 7 * 24 * 60 * 60 * 1000 });
 
@@ -1249,16 +1203,61 @@ app.put(`${BASE_PATH}/tasks/:taskId`, async (req, res) => {
   }
 });
 
+// Deleting a task is irreversible, so it is recorded: the caller must state a reason,
+// and the task snapshot plus that reason land in task_delete_log in the same
+// transaction as the delete. Admins can delete any task; everyone else may delete only
+// a task they own — assignee, assigner or creator. The deleter is always taken from the
+// session, never from the request body.
+const DELETE_REASON_MIN = 5;
+const DELETE_REASON_MAX = 500;
+
+function deleteReasonFrom(req) {
+  const raw = req.body?.reason ?? req.body?.delete_reason ?? req.query?.reason ?? '';
+  return String(raw).replace(/\s+/g, ' ').trim();
+}
+
+function canDeleteTaskRow(req, task) {
+  const perms = req.user?.permissions || [];
+  if (perms.includes('admin.access') || perms.includes('master.access')) return true;
+  const me = req.user?.id;
+  if (me == null || !task) return false;
+  return (
+    String(task.assigned_to) === String(me) ||
+    String(task.assigned_by) === String(me) ||
+    String(task.created_by) === String(me)
+  );
+}
+
 app.delete(`${BASE_PATH}/tasks/:taskId`, async (req, res) => {
   try {
+    const reason = deleteReasonFrom(req);
+    if (reason.length < DELETE_REASON_MIN) {
+      return res.status(400).json({
+        message: `Please give a reason of at least ${DELETE_REASON_MIN} characters for deleting this task.`,
+      });
+    }
+    if (reason.length > DELETE_REASON_MAX) {
+      return res.status(400).json({ message: `Keep the reason under ${DELETE_REASON_MAX} characters.` });
+    }
+
     if (db.useDb()) {
       const hintTeam = req.query?.team || null;
       const existing = await db.dbGetTaskById(req.params.taskId, hintTeam);
-      if (existing?.team === 'legal_finance' && !requireLegalFinanceAccess(req, res)) return;
+      if (!existing) return res.status(404).json({ message: 'Task not found' });
+      if (existing.team === 'legal_finance' && !requireLegalFinanceAccess(req, res)) return;
       if (isLegalFinanceTeamString(hintTeam) && !requireLegalFinanceAccess(req, res)) return;
-      if ((existing?.team === 'director' || isDirectorTeamString(hintTeam)) && !requireDirectorManage(req, res)) return;
-      const ok = await db.dbDeleteTask(req.params.taskId, hintTeam);
-      if (!ok) return res.status(404).json({ message: 'Task not found' });
+      if ((existing.team === 'director' || isDirectorTeamString(hintTeam)) && !requireDirectorManage(req, res)) return;
+      if (!canDeleteTaskRow(req, existing)) {
+        return res.status(403).json({
+          message: 'You can delete only tasks assigned to you, assigned by you, or created by you.',
+        });
+      }
+      const logged = await db.dbDeleteTaskWithLog(req.params.taskId, existing.team || hintTeam, existing, {
+        reason,
+        deletedBy: req.user?.id ?? null,
+        ipAddress: req.ip,
+      });
+      if (!logged) return res.status(404).json({ message: 'Task not found' });
       return res.status(204).send();
     }
     const { taskId } = req.params;
@@ -2754,6 +2753,20 @@ app.put(`${ADMIN_PATH}/users/:userId/roles`, async (req, res) => {
   }
 });
 
+// Task deletion log. Admin-only by virtue of the ADMIN_PATH guard above.
+app.get(`${ADMIN_PATH}/task-delete-log`, asyncMw(async (req, res) => {
+  if (!db.useDb()) return res.json([]);
+  const rows = await db.dbGetTaskDeleteLogs({
+    team: req.query?.team || undefined,
+    deletedBy: req.query?.deleted_by || undefined,
+    from: req.query?.from || undefined,
+    to: req.query?.to || undefined,
+    limit: req.query?.limit,
+    offset: req.query?.offset,
+  });
+  res.json(rows);
+}));
+
 app.get(`${ADMIN_PATH}/audit-log`, async (req, res) => {
   try {
     if (db.useDb()) {
@@ -2854,7 +2867,7 @@ app.get(`${MASTER_PATH}/overview`, asyncMw(async (req, res) => {
     health: {
       database: db.useDb() ? 'connected' : 'disconnected',
       mail: isMailConfigured() ? 'configured' : 'not configured',
-      jwt: process.env.JWT_SECRET ? 'configured' : 'missing',
+      jwt: process.env.JWT_SECRET ? 'configured' : 'ephemeral development secret',
       eod_timezone_offset_minutes: Number(process.env.EOD_TZ_OFFSET_MINUTES ?? 330),
       eod_reminder_times: process.env.EOD_REMINDER_TIMES || '17:30,19:30',
       eod_director_report_hour: Number(process.env.EOD_REPORT_HOUR ?? 20),

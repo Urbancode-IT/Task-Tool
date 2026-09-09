@@ -112,3 +112,55 @@
   from { opacity: 0; transform: translateY(10px) scale(0.97); }
   to { opacity: 1; transform: translateY(0) scale(1); }
 }
+
+/* Mandatory-reason variant (see reasonDialog): a short text area between the
+   message and the buttons. Left-aligned, since the dialog itself is centred. */
+.confirm-reason {
+  margin: 0 0 1.1rem;
+  text-align: left;
+}
+
+.confirm-reason-label {
+  display: block;
+  margin-bottom: 0.35rem;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #334155;
+}
+
+.confirm-reason-required {
+  font-weight: 500;
+  color: #ef4444;
+}
+
+.confirm-reason-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0.55rem 0.65rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 9px;
+  font: inherit;
+  font-size: 0.88rem;
+  line-height: 1.4;
+  color: #1e293b;
+  background: #ffffff;
+  resize: vertical;
+}
+
+.confirm-reason-input:focus-visible {
+  outline: 2px solid var(--clr-primary-600, #0054c4);
+  outline-offset: 1px;
+  border-color: var(--clr-primary-600, #0054c4);
+}
+
+.confirm-reason-hint {
+  margin: 0.35rem 0 0;
+  font-size: 0.74rem;
+  line-height: 1.35;
+  color: #64748b;
+}
+
+.confirm-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

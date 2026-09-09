@@ -689,6 +689,37 @@ export async function dbEnsureTables() {
     console.warn('dbEnsureTables: task_deadline_notifications failed:', err.message);
   }
 
+  // Task deletion log: who deleted which task, when, and the reason they gave.
+  // A snapshot of the task is stored because the task row is removed — the log has
+  // to stand on its own. No FK to the task tables for the same reason.
+  try {
+    await p.query(`
+      CREATE TABLE IF NOT EXISTS task_delete_log (
+        log_id SERIAL PRIMARY KEY,
+        task_id INT,
+        team VARCHAR(40),
+        task_title TEXT,
+        task_description TEXT,
+        task_status VARCHAR(40),
+        priority VARCHAR(20),
+        project_id INT,
+        project_name TEXT,
+        assigned_to INT,
+        assigned_by INT,
+        task_date DATE,
+        due_date DATE,
+        requirement_count INT DEFAULT 0,
+        reason TEXT NOT NULL,
+        deleted_by INT REFERENCES users(user_id) ON DELETE SET NULL,
+        ip_address VARCHAR(64),
+        deleted_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+    await p.query('CREATE INDEX IF NOT EXISTS idx_task_delete_log_deleted_at ON task_delete_log(deleted_at DESC);');
+  } catch (err) {
+    console.warn('dbEnsureTables: task_delete_log failed:', err.message);
+  }
+
   // Per-requirement time tracking (start/pause/resume timer).
   for (const tbl of [
     'it_task_requirements',
@@ -2238,6 +2269,10 @@ export async function dbGetTaskById(taskId, teamInput = null) {
     priority: row.priority,
     assignee: row.assigned_to ? String(row.assigned_to) : 'Unassigned',
     assigned_to: row.assigned_to,
+    // Needed by the delete guard and the deletion log: who owns this task.
+    assigned_by: row.assigned_by ?? null,
+    created_by: row.created_by ?? null,
+    project_id: row.project_id ?? null,
     projectId: row.project_id ? String(row.project_id) : null,
     dueDate: row.due_date,
     task_date: row.task_date,
@@ -2259,23 +2294,122 @@ export async function dbGetTaskById(taskId, teamInput = null) {
   };
 }
 
-export async function dbDeleteTask(taskId, teamInput = null) {
-  const p = getPool();
-  if (!p) return false;
-  const team = resolveTeamFromInput(teamInput || await detectTaskTeamById(taskId));
+
+/**
+ * Delete a task and record why, in one transaction: either both happen or neither
+ * does. A task must never disappear without a log entry, which is the whole point of
+ * the deletion log, so the two writes cannot be separate statements.
+ *
+ * `snapshot` is the task as it looked before deletion (the caller already loaded it).
+ * Returns the log row on success, null when the task no longer exists.
+ */
+export async function dbDeleteTaskWithLog(taskId, teamInput, snapshot = {}, meta = {}) {
+  const pool = getPool();
+  if (!pool) return null;
+  const team = resolveTeamFromInput(teamInput || (await detectTaskTeamById(taskId)));
   const taskTable = taskTableForTeam(team);
-  // Remove this task's comments (namespaced by team). comment_likes cascade via their
-  // FK to task_comments. Done explicitly because task_comments no longer has an FK to
-  // the task tables to cascade on delete.
+  const client = await pool.connect();
   try {
-    await p.query(`DELETE FROM task_comments WHERE task_id = $1 AND COALESCE(team, 'it') = $2`, [taskId, team]);
+    await client.query('BEGIN');
+
+    const { rowCount } = await client.query(`DELETE FROM ${taskTable} WHERE task_id = $1`, [taskId]);
+    if (rowCount === 0) {
+      await client.query('ROLLBACK');
+      return null;
+    }
+
+    // Comments are namespaced by team and have no FK to cascade on.
+    await client.query(`DELETE FROM task_comments WHERE task_id = $1 AND COALESCE(team, 'it') = $2`, [taskId, team]);
+
+    const { rows } = await client.query(
+      `INSERT INTO task_delete_log
+         (task_id, team, task_title, task_description, task_status, priority, project_id,
+          project_name, assigned_to, assigned_by, task_date, due_date, requirement_count,
+          reason, deleted_by, ip_address)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+       RETURNING log_id, deleted_at`,
+      [
+        Number.isFinite(Number(taskId)) ? Number(taskId) : null,
+        team,
+        snapshot.title ?? snapshot.task_title ?? null,
+        snapshot.task_description ?? snapshot.description ?? null,
+        snapshot.status ?? null,
+        snapshot.priority ?? null,
+        snapshot.project_id ?? snapshot.projectId ?? null,
+        snapshot.project_name ?? null,
+        snapshot.assigned_to ?? null,
+        snapshot.assigned_by ?? null,
+        snapshot.task_date ?? null,
+        snapshot.due_date ?? snapshot.dueDate ?? null,
+        Number(snapshot.req_total ?? 0) || 0,
+        meta.reason,
+        meta.deletedBy ?? null,
+        meta.ipAddress ?? null,
+      ]
+    );
+
+    await client.query('COMMIT');
+    return rows[0] || null;
   } catch (err) {
-    console.warn('dbDeleteTask: comment cleanup failed:', err.message);
+    try {
+      await client.query('ROLLBACK');
+    } catch {
+      /* the connection is being released anyway */
+    }
+    console.error('dbDeleteTaskWithLog:', err.message);
+    throw err;
+  } finally {
+    client.release();
   }
-  const { rowCount } = await p.query(`DELETE FROM ${taskTable} WHERE task_id = $1`, [
-    taskId,
-  ]);
-  return rowCount > 0;
+}
+
+/** Deletion log, newest first. Filters: team, deletedBy, from, to (ISO dates). */
+export async function dbGetTaskDeleteLogs(filters = {}) {
+  const p = getPool();
+  if (!p) return [];
+  const { team, deletedBy, from, to } = filters;
+  const limit = Math.min(Math.max(parseInt(filters.limit, 10) || 100, 1), 500);
+  const offset = Math.max(parseInt(filters.offset, 10) || 0, 0);
+  try {
+    const params = [];
+    let i = 1;
+    let sql = `
+      SELECT l.*,
+             COALESCE(l.project_name, pr.project_name) AS project_name,
+             u_del.username AS deleted_by_username,
+             u_to.username AS assigned_to_username,
+             u_by.username AS assigned_by_username
+      FROM task_delete_log l
+      LEFT JOIN users u_del ON l.deleted_by = u_del.user_id
+      LEFT JOIN users u_to ON l.assigned_to = u_to.user_id
+      LEFT JOIN users u_by ON l.assigned_by = u_by.user_id
+      LEFT JOIN it_projects pr ON pr.project_id = l.project_id
+      WHERE 1=1`;
+    if (team) {
+      sql += ` AND l.team = $${i++}`;
+      params.push(resolveTeamFromInput(team));
+    }
+    if (deletedBy) {
+      sql += ` AND l.deleted_by = $${i++}`;
+      params.push(deletedBy);
+    }
+    if (from) {
+      sql += ` AND l.deleted_at >= $${i++}`;
+      params.push(from);
+    }
+    if (to) {
+      // Inclusive of the whole "to" day.
+      sql += ` AND l.deleted_at < ($${i++}::date + INTERVAL '1 day')`;
+      params.push(to);
+    }
+    sql += ` ORDER BY l.deleted_at DESC LIMIT $${i++} OFFSET $${i}`;
+    params.push(limit, offset);
+    const { rows } = await p.query(sql, params);
+    return rows;
+  } catch (err) {
+    console.error('dbGetTaskDeleteLogs:', err.message);
+    return [];
+  }
 }
 
 function mapCommentRow(r) {
@@ -4259,20 +4393,68 @@ const mapInvoiceRow = (r) => ({
   updated_at: r.updated_at,
 });
 
-// Recompute money fields server-side so stored totals never drift from the items.
+/**
+ * Recompute money fields server-side so stored totals never drift from the items.
+ *
+ * Amounts arrive as strings from the editor's fields, so each one is parsed leniently
+ * (a stray separator must not silently zero a line) and every step is rounded to
+ * paise — never truncated. GST is charged on the exact taxable value: a subtotal of
+ * 16,399.49 is taxed as 16,399.49, not as 16,399.
+ *
+ * Mirrors computeTotals in frontend/src/features/Admin/Invoices.jsx.
+ */
+/**
+ * Read a money field the way the editor writes it. Values reach the API as the text
+ * the user typed or pasted, so "10,169.49", "₹10,169.49" and "Rs. 10,169.49" must all
+ * keep their paise instead of collapsing to 0 and silently under-billing the line.
+ * Mirrors sanitizeDecimalInput in frontend/src/utils/money.js.
+ */
+function invoiceAmount(raw) {
+  let s = String(raw ?? '').trim();
+  if (!s) return 0;
+  // A currency word carries its own dot, which is not the decimal mark.
+  const firstDigit = s.search(/[0-9]/);
+  if (firstDigit > 0 && /[A-Za-z]/.test(s.slice(0, firstDigit))) s = s.slice(firstDigit);
+  s = s.replace(/[^\d.,]/g, '');
+  if (!s) return 0;
+  const dots = (s.match(/\./g) || []).length;
+  const commas = (s.match(/,/g) || []).length;
+  if (dots === 0 && commas === 1 && /,\d{1,2}$/.test(s)) s = s.replace(',', '.');
+  else s = s.replace(/,/g, '');
+  const firstDot = s.indexOf('.');
+  if (firstDot !== -1) s = s.slice(0, firstDot + 1) + s.slice(firstDot + 1).replace(/\./g, '');
+  const n = Number(s);
+  return Number.isFinite(n) ? n : 0;
+}
+
+// Rupees are not representable in binary floating point (7.5 * 1333.33 evaluates to
+// 9999.974999999999, half a paisa below the true 9999.975), so every amount is held
+// as whole paise and each rounding step is half-up on the exact value.
+const toPaise = (raw) => Math.round(invoiceAmount(raw) * 100);
+const fromPaise = (paise) => Math.round(Number(paise) || 0) / 100;
+
+/**
+ * Recompute money fields server-side so stored totals never drift from the items.
+ * GST is charged on the exact taxable value: a subtotal of 16,399.49 is taxed as
+ * 16,399.49, never as 16,399.
+ *
+ * Mirrors computeTotals in frontend/src/features/Admin/Invoices.jsx.
+ */
 function computeInvoiceTotals(data) {
   const items = Array.isArray(data.items) ? data.items : [];
-  const rawSubtotal = items.reduce((sum, it) => {
-    const qty = Number(it?.qty) || 0;
-    const rate = Number(it?.rate) || 0;
-    return sum + qty * rate;
+  const grossPaise = items.reduce((sum, it) => {
+    // qty may carry decimals, so it is scaled too and the product taken exactly.
+    const qtyHundredths = toPaise(it?.qty);
+    const ratePaise = toPaise(it?.rate);
+    return sum + Math.round((qtyHundredths * ratePaise) / 100);
   }, 0);
-  const discount = Number(data.discount) || 0;
-  const subtotal = Math.max(0, rawSubtotal - discount);
-  const gstRate = Number(data.gst_rate) || 0;
-  const taxTotal = +(subtotal * (gstRate / 100)).toFixed(2);
-  const total = +(subtotal + taxTotal).toFixed(2);
-  return { subtotal: +subtotal.toFixed(2), tax_total: taxTotal, total };
+  const subtotalPaise = Math.max(0, grossPaise - toPaise(data.discount));
+  const taxPaise = Math.round((subtotalPaise * toPaise(data.gst_rate)) / 10000);
+  return {
+    subtotal: fromPaise(subtotalPaise),
+    tax_total: fromPaise(taxPaise),
+    total: fromPaise(subtotalPaise + taxPaise),
+  };
 }
 
 /** Suggest the next invoice number: INV-<year>-<zero-padded sequence>. */

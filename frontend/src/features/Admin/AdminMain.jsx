@@ -19,13 +19,15 @@ import {
   MdSupervisorAccount,
   MdReceiptLong,
   MdVpnKey,
+  MdDeleteSweep,
 } from 'react-icons/md';
 import adminApi from '../../api/adminApi';
 import itUpdatesApi from '../../api/itUpdatesApi';
 import { TaskModal, TaskBoard } from '../ITUpdates/ITUpdatesMain';
 import { getDisplayRole } from '../../utils/displayRole';
 import { toastSuccess, toastError } from '../../utils/toast';
-import { confirmDialog } from '../../utils/confirm';
+import { confirmDialog, reasonDialog } from '../../utils/confirm';
+import { makeTaskDuplicate } from '../../utils/taskDuplicate';
 import ProjectSearchSelect from '../../components/ProjectSearchSelect';
 import SidebarUser from '../../components/SidebarUser';
 import useSidebarCollapsed from '../../utils/useSidebarCollapsed';
@@ -49,7 +51,29 @@ const ADMIN_TABS = [
   { key: 'locked_users', labelId: 'section.locked_users', label: 'Locked Users', icon: MdLock },
   { key: 'invoices', labelId: 'section.invoices', label: 'Invoices', icon: MdReceiptLong },
   { key: 'credentials', labelId: 'section.credentials', label: 'UC Credentials', icon: MdVpnKey },
+  { key: 'deleted_tasks', labelId: 'section.deleted_tasks', label: 'Deleted Tasks', icon: MdDeleteSweep },
 ];
+
+// Modules a task can belong to, for the deletion log filter. The values are the
+// team codes the backend stores on each log row.
+const DELETE_LOG_TEAMS = [
+  { value: 'it', label: 'Internal / External Projects' },
+  { value: 'consultant', label: 'Consultants' },
+  { value: 'creative_team', label: 'Creative Team' },
+  { value: 'social_media', label: 'Social Media' },
+  { value: 'legal_finance', label: 'Legal & Finance' },
+  { value: 'director', label: 'Director Tasks' },
+];
+
+function deleteLogTeamLabel(team) {
+  return DELETE_LOG_TEAMS.find((t) => t.value === team)?.label || team || '—';
+}
+
+function formatDeletedAt(value) {
+  if (!value) return '—';
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? String(value) : d.toLocaleString();
+}
 
 const IT_TEAM_ROLE_CODES = new Set(['it_developer', 'it_manager', 'admin']);
 
@@ -139,6 +163,10 @@ export default function AdminMain({ currentUser, onLogout }) {
   const [overdueTasks, setOverdueTasks] = useState([]);
   const [lockedUsers, setLockedUsers] = useState([]);
   const [lockedLoading, setLockedLoading] = useState(false);
+  // Deletion log: who deleted which task, when, and why.
+  const [deleteLog, setDeleteLog] = useState([]);
+  const [deleteLogLoading, setDeleteLogLoading] = useState(false);
+  const [deleteLogFilters, setDeleteLogFilters] = useState({ team: '', from: '', to: '' });
   const [loading, setLoading] = useState(false);
   const [booted, setBooted] = useState(false);
   const [reviewLoading, setReviewLoading] = useState(false);
@@ -198,6 +226,9 @@ export default function AdminMain({ currentUser, onLogout }) {
   const [directorModal, setDirectorModal] = useState({ open: false, task: null });
 
   const openDirectorTask = (task = null) => setDirectorModal({ open: true, task });
+  // Duplicate a director task: the prefilled form is a new task, not an edit.
+  const duplicateDirectorTask = (task) =>
+    setDirectorModal({ open: true, task: makeTaskDuplicate(task) });
   const closeDirectorTask = () => setDirectorModal({ open: false, task: null });
 
   // Sidebar names are renameable from Company & Branding; keys are untouched.
@@ -362,17 +393,18 @@ export default function AdminMain({ currentUser, onLogout }) {
     const id = task?.task_id ?? task?.id;
     if (id == null) return false;
     const label = task.task_title || task.title || 'this task';
-    if (
-      !(await confirmDialog({
-        title: 'Delete director task?',
-        message: `"${label}" will be permanently removed. This cannot be undone.`,
-        confirmLabel: 'Delete',
-        danger: true,
-      }))
-    )
-      return false;
+    // Mandatory reason: it is written to the deletion log with the deleter and time.
+    const reason = await reasonDialog({
+      title: 'Delete director task?',
+      message: `"${label}" will be permanently removed. This cannot be undone.`,
+      confirmLabel: 'Delete',
+      danger: true,
+      reasonLabel: 'Why are you deleting this task?',
+      placeholder: 'e.g. duplicate, raised in error, no longer required',
+    });
+    if (!reason) return false;
     try {
-      await itUpdatesApi.deleteTask(id, { team: 'director' });
+      await itUpdatesApi.deleteTask(id, { team: 'director' }, reason);
       setDirectorTasks((prev) => prev.filter((t) => String(t.task_id ?? t.id) !== String(id)));
       toastSuccess('Director task deleted');
       return true;
@@ -406,6 +438,19 @@ export default function AdminMain({ currentUser, onLogout }) {
       .then((res) => setLockedUsers(Array.isArray(res.data) ? res.data : []))
       .catch(() => setLockedUsers([]))
       .finally(() => setLockedLoading(false));
+  };
+
+  const loadDeleteLog = (filters = deleteLogFilters) => {
+    setDeleteLogLoading(true);
+    const params = {};
+    if (filters.team) params.team = filters.team;
+    if (filters.from) params.from = filters.from;
+    if (filters.to) params.to = filters.to;
+    adminApi
+      .getTaskDeleteLog(params)
+      .then((res) => setDeleteLog(Array.isArray(res.data) ? res.data.filter(Boolean) : []))
+      .catch(() => setDeleteLog([]))
+      .finally(() => setDeleteLogLoading(false));
   };
 
   const handleUnlockUser = async (u) => {
@@ -523,6 +568,7 @@ export default function AdminMain({ currentUser, onLogout }) {
     if (activeTab === 'review_tasks') loadReviewTasks();
     if (activeTab === 'overdue_tasks') loadOverdueTasks();
     if (activeTab === 'locked_users') loadLockedUsers();
+    if (activeTab === 'deleted_tasks') loadDeleteLog();
     if (activeTab === 'credentials' && isAdmin) loadCredentialProjects();
     if (activeTab === 'director_tasks' && canViewDirectorTasks) {
       loadDirectors();
@@ -1511,12 +1557,113 @@ export default function AdminMain({ currentUser, onLogout }) {
                   tasks={directorTasks}
                   onDragEnd={canManageDirectorTasks ? handleDirectorDragEnd : () => {}}
                   onCardClick={canManageDirectorTasks ? openDirectorTask : undefined}
+                  onCardDuplicate={canManageDirectorTasks ? duplicateDirectorTask : undefined}
                   projectById={EMPTY_PROJECT_MAP}
                 />
               )}
             </section>
           )}
 
+
+          {activeTab === 'deleted_tasks' && (
+            <section className="admin-panel admin-panel-inline">
+              <div className="admin-panel-header">
+                <div className="admin-delete-log-filters">
+                  <label>
+                    Module
+                    <select
+                      value={deleteLogFilters.team}
+                      onChange={(e) => {
+                        const next = { ...deleteLogFilters, team: e.target.value };
+                        setDeleteLogFilters(next);
+                        loadDeleteLog(next);
+                      }}
+                    >
+                      <option value="">All modules</option>
+                      {DELETE_LOG_TEAMS.map((t) => (
+                        <option key={t.value} value={t.value}>
+                          {t.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    From
+                    <input
+                      type="date"
+                      value={deleteLogFilters.from}
+                      onChange={(e) => {
+                        const next = { ...deleteLogFilters, from: e.target.value };
+                        setDeleteLogFilters(next);
+                        loadDeleteLog(next);
+                      }}
+                    />
+                  </label>
+                  <label>
+                    To
+                    <input
+                      type="date"
+                      value={deleteLogFilters.to}
+                      onChange={(e) => {
+                        const next = { ...deleteLogFilters, to: e.target.value };
+                        setDeleteLogFilters(next);
+                        loadDeleteLog(next);
+                      }}
+                    />
+                  </label>
+                </div>
+                <button
+                  type="button"
+                  className="it-updates-btn it-updates-btn-secondary"
+                  style={{ marginLeft: 'auto' }}
+                  onClick={() => loadDeleteLog()}
+                >
+                  <MdRefresh size={16} /> Refresh
+                </button>
+              </div>
+              <p className="admin-panel-subtitle">
+                Every deleted task, with the reason its deleter gave. Entries are permanent —
+                deleting a task cannot happen without one.
+              </p>
+              {deleteLogLoading ? (
+                <div className="admin-loading">Loading…</div>
+              ) : deleteLog.length === 0 ? (
+                <div className="it-updates-empty">No task deletions recorded for these filters.</div>
+              ) : (
+                <div className="admin-table-wrap">
+                  <table className="admin-table">
+                    <thead>
+                      <tr>
+                        <th>Deleted at</th>
+                        <th>Task</th>
+                        <th>Module</th>
+                        <th>Assigned to</th>
+                        <th>Deleted by</th>
+                        <th>Reason</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {deleteLog.map((row) => (
+                        <tr key={row.log_id}>
+                          <td>{formatDeletedAt(row.deleted_at)}</td>
+                          <td>
+                            {row.task_title || '(untitled)'}
+                            {row.project_name ? (
+                              <span className="admin-delete-log-project">{row.project_name}</span>
+                            ) : null}
+                          </td>
+                          <td>{deleteLogTeamLabel(row.team)}</td>
+                          <td>{row.assigned_to_username || '—'}</td>
+                          <td>{row.deleted_by_username || '—'}</td>
+                          <td className="admin-delete-log-reason">{row.reason}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </section>
+          )}
 
           {activeTab === 'invoices' && <Invoices currentUser={user} />}
 

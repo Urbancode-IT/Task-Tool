@@ -68,8 +68,13 @@ const itUpdatesApi = {
     });
   },
 
-  deleteTask: (taskId, params = {}) => {
-    return apiClient.delete(`${BASE_PATH}/tasks/${taskId}`, { params });
+  // The reason travels in the request body: the server refuses a delete without one
+  // and records it in the deletion log.
+  deleteTask: (taskId, params = {}, reason) => {
+    return apiClient.delete(`${BASE_PATH}/tasks/${taskId}`, {
+      params,
+      data: { reason },
+    });
   },
 
   getTaskComments: (taskId, params = {}) => {

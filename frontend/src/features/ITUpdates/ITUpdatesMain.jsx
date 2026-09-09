@@ -32,6 +32,8 @@ import ProjectSearchSelect from '../../components/ProjectSearchSelect';
 import PeriodFilter from '../../components/PeriodFilter';
 import TaskComments from '../../components/TaskComments';
 import ProjectLogo from '../../components/ProjectLogo';
+import DuplicateTaskButton from '../../components/DuplicateTaskButton';
+import { makeTaskDuplicate, toSubtaskDrafts } from '../../utils/taskDuplicate';
 import ProjectRequirements from '../../components/ProjectRequirements';
 import MemberPicker from '../../components/MemberPicker';
 import Preloader from '../../components/Preloader';
@@ -40,7 +42,7 @@ import ModalKebabMenu from '../../components/ModalKebabMenu';
 import SidebarUser from '../../components/SidebarUser';
 import useSidebarCollapsed from '../../utils/useSidebarCollapsed';
 import usePersistedState from '../../utils/usePersistedState';
-import { confirmDialog } from '../../utils/confirm';
+import { confirmDialog, reasonDialog } from '../../utils/confirm';
 import RequirementTimer from '../../components/RequirementTimer';
 import RequirementManualTime from '../../components/RequirementManualTime';
 import CommentEditor from '../../components/CommentEditor';
@@ -173,9 +175,10 @@ function Avatar({ user, size = 'md' }) {
  *   tasks       — flat task array (grouped by status internally)
  *   onDragEnd   — @hello-pangea/dnd drag handler (move card → new status)
  *   onCardClick — open the task (edit/requirements)
+ *   onCardDuplicate — open a prefilled copy of the card (omit to hide the action)
  *   projectById — Map of projectId → project (pass an empty Map when N/A)
  */
-export function TaskBoard({ tasks = [], onDragEnd, onCardClick, projectById, statusLabels = STATUS_LABELS, statuses = DEFAULT_STATUSES }) {
+export function TaskBoard({ tasks = [], onDragEnd, onCardClick, onCardDuplicate, projectById, statusLabels = STATUS_LABELS, statuses = DEFAULT_STATUSES }) {
   const groups = useMemo(() => groupTasksByStatus(tasks), [tasks]);
   const pById = projectById || new Map();
 
@@ -219,6 +222,9 @@ export function TaskBoard({ tasks = [], onDragEnd, onCardClick, projectById, sta
                       onClick={() => onCardClick?.(task)}
                     >
                       <div className="it-updates-task-card-toprow">
+                        {onCardDuplicate ? (
+                          <DuplicateTaskButton onDuplicate={() => onCardDuplicate(task)} />
+                        ) : null}
                         <div
                           className="it-updates-task-card-priority"
                           style={{
@@ -891,6 +897,9 @@ const ITUpdatesMain = ({ currentUser, onLogout, scope = 'internal' }) => {
 
   const openProjectModal = (project = null) => setProjectModal({ open: true, project });
   const openTaskModal = (task = null) => setTaskModal({ open: true, task });
+  // Duplicate: open the create form prefilled from the card, so nothing has to be
+  // retyped. Saving creates a new task; the original is untouched.
+  const duplicateTask = (task) => setTaskModal({ open: true, task: makeTaskDuplicate(task) });
   const [leadModal, setLeadModal] = useState({ open: false, lead: null });
   const openLeadModal = (lead = null) => setLeadModal({ open: true, lead });
   const closeLeadModal = () => setLeadModal({ open: false, lead: null });
@@ -938,27 +947,33 @@ const ITUpdatesMain = ({ currentUser, onLogout, scope = 'internal' }) => {
   const closeTaskModal = () => setTaskModal({ open: false, task: null });
 
 
-  // Delete is available to admins and the task's creator/assigner.
+  // Delete is available to admins and to the people the task belongs to: the person
+  // it is assigned to, the person who assigned it, and its creator. The server
+  // enforces the same rule, and every delete is written to the deletion log.
   const myId = user?.id ?? user?.user_id ?? null;
   const canDeleteTask = (task) =>
     isAdmin ||
     (myId != null &&
-      (String(task?.assigned_by) === String(myId) || String(task?.created_by) === String(myId)));
+      (String(task?.assigned_to) === String(myId) ||
+        String(task?.assigned_by) === String(myId) ||
+        String(task?.created_by) === String(myId)));
 
   const handleDeleteTask = async (task) => {
     if (!task) return false;
     const label = task.title || task.task_title || 'this task';
-    if (
-      !(await confirmDialog({
-        title: 'Delete task?',
-        message: `"${label}" and its requirements will be permanently removed. This cannot be undone.`,
-        confirmLabel: 'Delete',
-        danger: true,
-      }))
-    )
-      return false;
+    // A deletion cannot be undone, so the reason is mandatory: it is stored in the
+    // deletion log together with who deleted the task and when.
+    const reason = await reasonDialog({
+      title: 'Delete task?',
+      message: `"${label}" and its requirements will be permanently removed. This cannot be undone.`,
+      confirmLabel: 'Delete',
+      danger: true,
+      reasonLabel: 'Why are you deleting this task?',
+      placeholder: 'e.g. duplicate of an existing task, created by mistake, cancelled by the client',
+    });
+    if (!reason) return false;
     try {
-      await itUpdatesApi.deleteTask(task.id, { team: MODULE_TEAM });
+      await itUpdatesApi.deleteTask(task.id, { team: MODULE_TEAM }, reason);
       setTasks((prev) => prev.filter((t) => String(t.id) !== String(task.id)));
       toastSuccess('Task deleted');
       return true;
@@ -1420,6 +1435,7 @@ const ITUpdatesMain = ({ currentUser, onLogout, scope = 'internal' }) => {
               tasks={myTasks}
               onDragEnd={handleDragEnd}
               onCardClick={openTaskModal}
+              onCardDuplicate={duplicateTask}
               projectById={projectById}
               statusLabels={boardStatusLabels}
               statuses={boardStatuses}
@@ -1509,6 +1525,7 @@ const ITUpdatesMain = ({ currentUser, onLogout, scope = 'internal' }) => {
                 )}
                 onDragEnd={handleDragEnd}
                 onCardClick={activeTab === 'Tasks' ? openLeadModal : openTaskModal}
+                onCardDuplicate={activeTab === 'Tasks' ? undefined : duplicateTask}
                 projectById={projectById}
                 statusLabels={boardStatusLabels}
                 statuses={boardStatuses}
@@ -2437,15 +2454,19 @@ export function TaskModal({ task, currentUser, projects, developers, managers, o
   const [saveState, setSaveState] = useState({ saving: false, saved: false });
   const [reviewNote, setReviewNote] = useState('');
 
-  // Load requirements when modal opens for existing task
+  // An existing task loads its own requirements. A duplicate has no id yet, so it
+  // copies the source card's requirements in as drafts, which the create path writes
+  // once the new task exists.
   useEffect(() => {
-    if (!isExistingTask) return;
+    const sourceId = isExistingTask ? task.id : task?.duplicated_from;
+    if (!sourceId) return;
     let cancelled = false;
     void (async () => {
       setReqLoading(true);
       try {
-        const res = await itUpdatesApi.getRequirements(task.id, { team: MODULE_TEAM });
-        if (!cancelled) setRequirements(Array.isArray(res.data) ? res.data.filter(Boolean) : []);
+        const res = await itUpdatesApi.getRequirements(sourceId, { team: MODULE_TEAM });
+        const rows = Array.isArray(res.data) ? res.data.filter(Boolean) : [];
+        if (!cancelled) setRequirements(isExistingTask ? rows : toSubtaskDrafts(rows));
       } catch {
         if (!cancelled) setRequirements([]);
       } finally {
@@ -2455,7 +2476,7 @@ export function TaskModal({ task, currentUser, projects, developers, managers, o
     return () => {
       cancelled = true;
     };
-  }, [isExistingTask, task?.id]);
+  }, [isExistingTask, task?.id, task?.duplicated_from]);
 
   const completedReqs = requirements.filter((r) => r.status === 'completed').length;
   const totalReqs = requirements.length;
@@ -2718,7 +2739,7 @@ export function TaskModal({ task, currentUser, projects, developers, managers, o
     <div className="it-updates-modal-backdrop">
       <div className="it-updates-modal it-updates-modal-wide" onClick={(e) => e.stopPropagation()}>
         <div className="it-updates-modal-header">
-          <h2>{task ? 'Edit task' : 'New task'}</h2>
+          <h2>{isExistingTask ? 'Edit task' : task?.duplicated_from ? 'Duplicate task' : 'New task'}</h2>
           <div className="it-updates-modal-header-actions">
             {isExistingTask && canDelete && onDelete && (
               <ModalKebabMenu
@@ -2820,14 +2841,14 @@ export function TaskModal({ task, currentUser, projects, developers, managers, o
             )}
 
             {/* Requirements list */}
-            {isExistingTask && reqLoading && (
+            {reqLoading && (
               <p className="req-note">Loading requirements…</p>
             )}
-            {(!reqLoading || !isExistingTask) && requirements.length === 0 && !showAddReq && (
+            {!reqLoading && requirements.length === 0 && !showAddReq && (
               <p className="req-note">No requirements yet. Click "Add" to create one.</p>
             )}
 
-            {(!reqLoading || !isExistingTask) && requirements.length > 0 && (
+            {!reqLoading && requirements.length > 0 && (
               <div className="req-table-box" role="table" aria-label="Requirements table">
                 <div className="req-table-header" role="row">
                   <div className="req-th req-th-done" role="columnheader">Done</div>

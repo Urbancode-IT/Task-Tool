@@ -11,7 +11,7 @@
 //   EOD_REPORT_MINUTE      (default 0)            — director report
 //   EOD_REMINDER_TIMES     (default '17:30,19:30', comma-separated HH:MM) — member nudges
 //   EOD_REMINDER_SCOPE     ('all' default, or 'it' to remind IT members only)
-//   APP_URL                (optional link in the email)
+//   EOD_APP_URL            (optional EOD-email destination; defaults to Seyal)
 //
 // A third job runs at the day boundary:
 //   3. Midnight lock (default 00:00) — lock everyone who missed the working day that
@@ -27,6 +27,12 @@ const REPORT_HOUR = Number(process.env.EOD_REPORT_HOUR ?? 0);
 const REPORT_MINUTE = Number(process.env.EOD_REPORT_MINUTE ?? 0);
 const REPORT_AT = `${String(REPORT_HOUR).padStart(2, '0')}:${String(REPORT_MINUTE).padStart(2, '0')}`;
 const REMINDER_SCOPE = String(process.env.EOD_REMINDER_SCOPE ?? 'all').toLowerCase();
+
+// The EOD emails must take recipients back to Seyal rather than the parent company
+// website. A deployment can override this only with the EOD-specific setting.
+function seyalLink() {
+  return (process.env.EOD_APP_URL || 'https://seyal.urbancode.in').trim().replace(/\/+$/, '');
+}
 
 // "Now" expressed as a Date whose UTC fields read as the EOD-timezone wall clock.
 function eodNow() {
@@ -127,7 +133,7 @@ async function runReport(db) {
   const mail = renderMail('eod_pending_report', {
     values: { date: dateStr, count: missing.length, time: REPORT_AT },
     blocks: { table: tableHtml },
-    ctaUrl: process.env.APP_URL || '',
+    ctaUrl: seyalLink(),
     preheader: `${missing.length} member(s) missing their EOD report for ${dateStr}.`,
     audience: 'admin',
   });
@@ -185,7 +191,7 @@ function nextSlot(times) {
 function reminderMail({ username, dateStr, label }) {
   return renderMail('eod_reminder', {
     values: { name: username || 'there', date: dateStr, time: label },
-    ctaUrl: process.env.APP_URL || '',
+    ctaUrl: seyalLink(),
     preheader: `Your EOD report for ${dateStr} is still pending.`,
     audience: 'member',
   });
@@ -351,7 +357,7 @@ async function runMidnightLock(db) {
   const mail = renderMail('eod_defaulters_locked', {
     values: { date: dueDay, count: locked.length },
     blocks: { list: listHtml },
-    ctaUrl: process.env.APP_URL || '',
+    ctaUrl: seyalLink(),
     preheader: `${locked.length} member(s) locked for missing their EOD report on ${dueDay}.`,
     audience: 'admin',
   });

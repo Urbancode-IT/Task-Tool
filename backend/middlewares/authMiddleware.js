@@ -1,12 +1,56 @@
 import jwt from 'jsonwebtoken';
+import crypto from 'node:crypto';
+import dotenv from 'dotenv';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import * as db from '../db/index.js';
 
-const JWT_SECRET = process.env.JWT_SECRET;
+// The secret is resolved when this module loads, which happens before server.js runs
+// its own dotenv call, so load the .env here too. dotenv never overrides a variable
+// the hosting platform already set.
+dotenv.config({ path: path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '.env'), quiet: true });
+
+/**
+ * The token signing secret, resolved once at startup. It must always exist.
+ *
+ * A missing secret used to make every auth check pass (an early `return next()`), so a
+ * configuration mistake became a complete authentication bypass. Auth now fails closed:
+ *   - production: the process refuses to start without a strong JWT_SECRET;
+ *   - development: an ephemeral random secret is generated, so tokens are still verified
+ *     cryptographically. Sessions simply do not survive a restart.
+ */
+const MIN_SECRET_LENGTH = 32;
+
+function resolveJwtSecret() {
+  const configured = (process.env.JWT_SECRET || '').trim();
+  const isProduction = process.env.NODE_ENV === 'production';
+
+  if (configured) {
+    if (configured.length < MIN_SECRET_LENGTH) {
+      if (isProduction) {
+        console.error('FATAL: JWT_SECRET must be at least ' + MIN_SECRET_LENGTH + ' characters. Refusing to start.');
+        process.exit(1);
+      }
+      console.warn('WARNING: JWT_SECRET is shorter than ' + MIN_SECRET_LENGTH + ' characters. Set a longer secret before deploying.');
+    }
+    return configured;
+  }
+
+  if (isProduction) {
+    console.error('FATAL: JWT_SECRET is not set. Authentication cannot be enforced. Refusing to start.');
+    console.error('Generate one with: node -e "console.log(require(\'crypto\').randomBytes(48).toString(\'hex\'))"');
+    process.exit(1);
+  }
+
+  console.warn('WARNING: JWT_SECRET is not set. Generated a temporary development secret; all sessions end when this process restarts. Set JWT_SECRET in backend/.env.');
+  return crypto.randomBytes(48).toString('hex');
+}
+
+export const JWT_SECRET = resolveJwtSecret();
 const JWT_ACCESS_EXPIRY = process.env.JWT_ACCESS_EXPIRY || '15m';
 const JWT_REFRESH_EXPIRY = process.env.JWT_REFRESH_EXPIRY || '7d';
 
 export function optionalAuth(req, res, next) {
-  if (!JWT_SECRET) return next();
   const token = req.cookies?.access_token;
   if (!token) return next();
   try {
@@ -19,12 +63,10 @@ export function optionalAuth(req, res, next) {
 }
 
 export function requireAuth(req, res, next) {
-  if (!JWT_SECRET) return next();
   const token = req.cookies?.access_token;
   if (!token) {
     return res.status(401).json({ message: 'Authentication required' });
   }
-  if (token === 'demo-token') return next();
   try {
     const decoded = jwt.verify(token, JWT_SECRET);
     req.user = decoded;
@@ -104,15 +146,14 @@ export function requirePermission(...permissions) {
 }
 
 export function signAccessToken(payload) {
-  return JWT_SECRET ? jwt.sign(payload, JWT_SECRET, { expiresIn: JWT_ACCESS_EXPIRY }) : null;
+  return jwt.sign(payload, JWT_SECRET, { expiresIn: JWT_ACCESS_EXPIRY });
 }
 
 export function signRefreshToken(payload) {
-  return JWT_SECRET ? jwt.sign(payload, JWT_SECRET, { expiresIn: JWT_REFRESH_EXPIRY }) : null;
+  return jwt.sign(payload, JWT_SECRET, { expiresIn: JWT_REFRESH_EXPIRY });
 }
 
 export function verifyRefreshToken(token) {
-  if (!JWT_SECRET) return null;
   try {
     return jwt.verify(token, JWT_SECRET);
   } catch {

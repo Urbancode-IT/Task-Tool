@@ -23,3 +23,40 @@ export function confirmDialog({
     );
   });
 }
+
+/**
+ * Same dialog, but the user must type a reason before the primary action unlocks.
+ * Resolves with the trimmed reason, or null when cancelled or dismissed.
+ *
+ *   const reason = await reasonDialog({ title: 'Delete task?', danger: true });
+ *   if (!reason) return;            // cancelled
+ *   await api.deleteTask(id, {}, reason);
+ */
+export function reasonDialog({
+  title = 'Are you sure?',
+  message = '',
+  confirmLabel = 'Confirm',
+  cancelLabel = 'Cancel',
+  danger = false,
+  reasonLabel = 'Reason',
+  placeholder = '',
+  minLength = 5,
+  maxLength = 500,
+} = {}) {
+  if (typeof window === 'undefined') return Promise.resolve(null);
+  return new Promise((resolve) => {
+    window.dispatchEvent(
+      new CustomEvent(CONFIRM_EVENT, {
+        detail: {
+          title,
+          message,
+          confirmLabel,
+          cancelLabel,
+          danger,
+          reason: { label: reasonLabel, placeholder, minLength, maxLength },
+          resolve,
+        },
+      })
+    );
+  });
+}
