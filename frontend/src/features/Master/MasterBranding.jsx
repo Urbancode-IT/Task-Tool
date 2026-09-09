@@ -6,6 +6,7 @@ import {
   MdSpaceDashboard, MdClose, MdVisibility, MdBadge, MdPublic, MdMarkEmailRead,
 } from 'react-icons/md';
 import adminApi from '../../api/adminApi';
+import { ensureMasterSession } from './masterSession';
 import { toastError, toastSuccess } from '../../utils/toast';
 import { confirmDialog } from '../../utils/confirm';
 import {
@@ -580,6 +581,9 @@ export default function MasterBranding() {
       toastError(`Fix these links before publishing: ${badLinks.join(', ')}.`);
       return;
     }
+    // Without a master session the server keeps the master-owned fields and the
+    // publish would look successful while silently changing nothing.
+    if (!(await ensureMasterSession())) return;
     setSaving(true);
     try {
       // Overrides identical to the audience default are dropped, so a pre-filled box the

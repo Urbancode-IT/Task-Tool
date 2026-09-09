@@ -2117,6 +2117,10 @@ function validateCompanyProfile(profile = {}) {
 /** Display name per brand asset; also the set of asset types the API accepts. */
 const ASSET_LABEL = {
   logo: 'Logo',
+  // The letterhead mark. Separate from `logo`, which is the application's own logo in
+  // the app shell and on the login screen: an invoice has to carry the organisation's
+  // identity, not the product's.
+  org_logo: 'Organisation logo',
   favicon: 'Favicon',
   signature: 'Authorized signature',
   digital_signature: 'Digital signature',
@@ -2148,8 +2152,13 @@ function isMasterSession(req) {
  */
 function requireMasterSession(req, res, next) {
   if (!isMasterSession(req)) {
+    // The workspace and the console share one pair of session cookies, so a later
+    // sign-in to either replaces the other. Saying only "use the master console" is
+    // misleading when the caller is sitting in it with a session that got replaced.
     return res.status(403).json({
-      message: 'Brand assets are managed in the master console under Appearance.',
+      code: 'master_session_required',
+      message:
+        'Brand assets can only be published from a master-console session, and this browser does not currently hold one. Sign in again at /master, then publish. (The workspace and the console share one session, so whichever you signed into last is the active one.)',
     });
   }
   return next();

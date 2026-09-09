@@ -4,6 +4,7 @@ import {
   MdWarningAmber, MdInfoOutline, MdAlternateEmail, MdLocationOn, MdRestartAlt,
 } from 'react-icons/md';
 import adminApi from '../../api/adminApi';
+import { ensureMasterSession } from './masterSession';
 import { toastError, toastSuccess } from '../../utils/toast';
 import { confirmDialog } from '../../utils/confirm';
 import { notifyBrandingChanged } from '../../branding/BrandingContext';
@@ -200,6 +201,9 @@ export default function RegulatoryCompliance() {
       toastError(`Fix these before publishing: ${errors.join(', ')}.`);
       return;
     }
+    // Compliance, bank and invoice defaults are master-owned: without a master session
+    // the server keeps the stored values and the publish would change nothing.
+    if (!(await ensureMasterSession())) return;
     setSaving(true);
     try {
       // Blank catalogue rows are dropped rather than persisted.

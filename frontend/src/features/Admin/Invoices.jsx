@@ -432,6 +432,9 @@ function InvoicePrint({ invoice, company, onBack }) {
   const signoff = signoffAssets(c);
   // Same source as the editor: published under Billing & Legal.
   const settings = invoiceSettingsFrom(c);
+  // An invoice is the organisation's document, so the letterhead prefers the
+  // organisation logo and only falls back to the application's own logo.
+  const letterheadLogo = assets.org_logo || assets.logo || '';
   const sellerName = c.legal_name || c.company_name || 'Your Company';
   const cur = invoice.currency || 'INR';
   const companyAddress = [addr.line1, addr.line2, [addr.city, addr.state].filter(Boolean).join(', '), [addr.country, addr.postal_code].filter(Boolean).join(' ')]
@@ -456,7 +459,13 @@ function InvoicePrint({ invoice, company, onBack }) {
       <div className="inv-print">
         <header className="inv-doc-head">
           <div className="inv-doc-brand">
-            {assets.logo ? <img src={assets.logo} alt="" className="inv-doc-logo" /> : null}
+            {letterheadLogo ? (
+              <img src={letterheadLogo} alt={sellerName} className="inv-doc-logo" />
+            ) : (
+              // Never leave the letterhead blank: with no logo uploaded the document
+              // still has to say whose invoice it is.
+              <div className="inv-doc-brand-name">{sellerName}</div>
+            )}
             {c.tagline && <div className="inv-doc-tagline">{c.tagline}</div>}
           </div>
           <div className="inv-doc-title">

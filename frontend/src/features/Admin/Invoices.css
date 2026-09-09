@@ -78,6 +78,8 @@
 /* Header: brand left, document title right */
 .inv-doc-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; }
 .inv-doc-logo { max-width: 210px; max-height: 54px; object-fit: contain; display: block; }
+/* Text letterhead, used when no logo has been uploaded. */
+.inv-doc-brand-name { font-size: 17px; font-weight: 700; letter-spacing: 0.01em; color: #111; }
 .inv-doc-tagline { margin-top: 4px; font-size: 10px; letter-spacing: 0.02em; color: #555; }
 .inv-doc-title { text-align: right; }
 .inv-doc-title h1 { margin: 0; font-size: 27px; font-weight: 400; letter-spacing: 0.01em; color: #222; }

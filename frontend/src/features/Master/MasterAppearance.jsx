@@ -4,6 +4,7 @@ import {
   MdCloudUpload, MdDelete, MdImage,
 } from 'react-icons/md';
 import adminApi from '../../api/adminApi';
+import { ensureMasterSession } from './masterSession';
 import { toastError, toastSuccess } from '../../utils/toast';
 import { confirmDialog } from '../../utils/confirm';
 import {
@@ -40,7 +41,12 @@ const PRESETS = [
  * neither signature is marked required on its own.
  */
 const ASSET_META = [
-  { key: 'logo', label: 'Primary Logo', hint: 'App shell, login screen and invoices' },
+  { key: 'logo', label: 'Primary Logo', hint: 'App shell and login screen' },
+  {
+    key: 'org_logo',
+    label: 'Organisation Logo',
+    hint: 'Letterhead on invoices — falls back to the primary logo',
+  },
   { key: 'favicon', label: 'Favicon', hint: 'Browser tab icon' },
   { key: 'signature', label: 'Director Signature', hint: 'Scanned wet signature' },
   { key: 'digital_signature', label: 'Digital Signature', hint: 'Used in place of the scan' },
@@ -190,6 +196,10 @@ export default function MasterAppearance() {
       toastError('Primary must be a hex colour such as #2563eb.');
       return;
     }
+    // The upload endpoints only accept a master-console session, and this browser's
+    // session may have been replaced since the page loaded. Checking first keeps the
+    // staged files and avoids a half-applied run.
+    if (!(await ensureMasterSession())) return;
     setSaving(true);
     try {
       let liveAssets = assets;
