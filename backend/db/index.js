@@ -1319,14 +1319,23 @@ export async function dbGetProjects(status = null, projectType = null) {
     const params = [];
     if (status) {
       params.push(status);
-      conds.push(`status = $${params.length}`);
+      conds.push(`pr.status = $${params.length}`);
     }
     if (projectType) {
       params.push(projectType);
-      conds.push(`project_type = $${params.length}`);
+      conds.push(`pr.project_type = $${params.length}`);
     }
     const where = conds.length ? ` WHERE ${conds.join(' AND ')}` : '';
-    const query = `SELECT * FROM it_projects${where} ORDER BY project_id`;
+    // The owners are joined for their profile pictures: the project cards show the two
+    // owners as avatars rather than as two lines of text.
+    const query = `
+      SELECT pr.*,
+             u_own.profile_image AS owner_profile_image,
+             u_sec.profile_image AS secondary_owner_profile_image
+      FROM it_projects pr
+      LEFT JOIN users u_own ON pr.owner_user_id = u_own.user_id
+      LEFT JOIN users u_sec ON pr.secondary_owner_user_id = u_sec.user_id${where}
+      ORDER BY pr.project_id`;
     const { rows } = await p.query(query, params);
     const projectIds = rows.map((r) => r.project_id);
     let progressMap = {};
@@ -1366,8 +1375,13 @@ export async function dbGetProjects(status = null, projectType = null) {
         owner: r.owner_name || 'IT Team',
         owner_name: r.owner_name || 'IT Team',
         owner_user_id: r.owner_user_id ?? null,
+        owner_profile_image: avatarUrlFor(r.owner_user_id, r.owner_profile_image),
         secondary_owner_name: r.secondary_owner_name ?? null,
         secondary_owner_user_id: r.secondary_owner_user_id ?? null,
+        secondary_owner_profile_image: avatarUrlFor(
+          r.secondary_owner_user_id,
+          r.secondary_owner_profile_image
+        ),
         teammates: teammatesFromText(r.teammates),
         teammates_text: r.teammates || '',
         project_type: r.project_type || 'internal',
@@ -3005,32 +3019,59 @@ export async function dbGetDashboardStats() {
 }
 
 // Spec shape: { stats: { active_projects, active_tasks, completed_tasks }, projects: [...], teamActivity: [...] }
-export async function dbGetDashboardStatsFull() {
+/**
+ * Dashboard figures for one sector.
+ *
+ * Everything here is scoped by `projectType` ('internal' or 'external'); without it
+ * the internal dashboard counted the external projects too. Tasks follow their
+ * project's sector, and a task with no project belongs to internal unless it is a CRM
+ * lead — the same rule the boards use client-side.
+ *
+ * `completed_today` is counted here rather than left to the caller: the card labelled
+ * "Completed Tasks Today" used to fall back to the all-time completed count, which is
+ * why it showed a number that never went down.
+ */
+export async function dbGetDashboardStatsFull(projectType = null) {
   const p = getPool();
-  if (!p) {
-    return {
-      stats: { active_projects: 0, active_tasks: 0, completed_tasks: 0 },
-      projects: [],
-      teamActivity: [],
-    };
-  }
   const empty = {
-    stats: { active_projects: 0, active_tasks: 0, completed_tasks: 0 },
+    stats: { active_projects: 0, active_tasks: 0, completed_tasks: 0, completed_today: 0 },
     projects: [],
     teamActivity: [],
+    completedTasksToday: 0,
   };
+  if (!p) return empty;
+
+  const type = projectType === 'external' ? 'external' : projectType === 'internal' ? 'internal' : null;
+  // Which projects belong to this sector, and therefore which tasks do.
+  const projectScope = type
+    ? `COALESCE(p.project_type, 'internal') = '${type}'`
+    : 'TRUE';
+  const taskScope = type
+    ? `(
+        t.project_id IN (SELECT project_id FROM it_projects WHERE COALESCE(project_type, 'internal') = '${type}')
+        OR (t.project_id IS NULL AND COALESCE(t.is_crm, false) = ${type === 'external' ? 'true' : 'false'})
+      )`
+    : 'TRUE';
+  // A CRM lead is a pipeline card, not a task, so it never counts as work.
+  const realTasks = `COALESCE(t.is_crm, false) = false AND ${taskScope}`;
+
   try {
-    const [activeProj, activeTasks, completedTasks, projectRows, teamRows] = await Promise.all([
-      p.query("SELECT COUNT(*) AS n FROM it_projects WHERE status = 'active'"),
-      p.query("SELECT COUNT(*) AS n FROM it_tasks WHERE status IN ('todo', 'in_progress', 'review', 'rework')"),
-      p.query("SELECT COUNT(*) AS n FROM it_tasks WHERE status = 'completed'"),
+    const [activeProj, activeTasks, completedTasks, completedToday, projectRows, teamRows] = await Promise.all([
+      p.query(`SELECT COUNT(*) AS n FROM it_projects p WHERE p.status = 'active' AND ${projectScope}`),
+      p.query(`SELECT COUNT(*) AS n FROM it_tasks t WHERE t.status IN ('todo', 'in_progress', 'review', 'rework') AND ${realTasks}`),
+      p.query(`SELECT COUNT(*) AS n FROM it_tasks t WHERE t.status = 'completed' AND ${realTasks}`),
+      p.query(`
+        SELECT COUNT(*) AS n FROM it_tasks t
+        WHERE t.status = 'completed'
+          AND (t.completed_at::date = CURRENT_DATE OR (t.completed_at IS NULL AND t.task_date = CURRENT_DATE))
+          AND ${realTasks}`),
       p.query(`
         SELECT p.project_id, p.project_name, p.priority, p.logo,
                COUNT(t.task_id) AS total_tasks,
                COUNT(t.task_id) FILTER (WHERE t.status = 'completed') AS completed_tasks
         FROM it_projects p
-        LEFT JOIN it_tasks t ON t.project_id = p.project_id
-        WHERE p.status = 'active'
+        LEFT JOIN it_tasks t ON t.project_id = p.project_id AND COALESCE(t.is_crm, false) = false
+        WHERE p.status = 'active' AND ${projectScope}
         GROUP BY p.project_id, p.project_name, p.priority, p.logo
         ORDER BY p.project_id
       `),
@@ -3049,6 +3090,7 @@ export async function dbGetDashboardStatsFull() {
       active_projects: Number(activeProj.rows[0]?.n ?? 0),
       active_tasks: Number(activeTasks.rows[0]?.n ?? 0),
       completed_tasks: Number(completedTasks.rows[0]?.n ?? 0),
+      completed_today: Number(completedToday.rows[0]?.n ?? 0),
     };
     const projects = (projectRows.rows || []).map((r) => ({
       project_id: r.project_id,
@@ -3069,7 +3111,8 @@ export async function dbGetDashboardStatsFull() {
       completed_today: Number(r.completed_today ?? 0),
       total_assigned: Number(r.total_assigned ?? 0),
     }));
-    return { stats, projects, teamActivity };
+    // completedTasksToday mirrors stats.completed_today for older callers.
+    return { stats, projects, teamActivity, completedTasksToday: stats.completed_today };
   } catch (err) {
     console.error('dbGetDashboardStatsFull:', err.message);
     return empty;

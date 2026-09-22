@@ -5,6 +5,7 @@ import {
   MdRefresh,
   MdAdd,
   MdClose,
+  MdFilterList,
   MdCheck,
   MdOutlineAssignment,
   MdInsights,
@@ -16,6 +17,7 @@ import {
   MdTableChart,
   MdMenu,
   MdCalendarToday,
+  MdOpenInNew,
   MdEdit,
   MdDelete,
   MdHome,
@@ -24,7 +26,8 @@ import {
 } from 'react-icons/md';
 import itUpdatesApi from '../../api/itUpdatesApi';
 import { getDisplayRole } from '../../utils/displayRole';
-import { isTaskOverdue } from '../../utils/taskDue';
+import { isTaskOverdue, splitByDue } from '../../utils/taskDue';
+import { matchesProjectFilters } from '../../utils/projectFilters';
 import { toastSuccess, toastError } from '../../utils/toast';
 import { taskInPeriod, EMPTY_PERIOD } from '../../utils/taskPeriod';
 import { controlKeys, textareaSubmit, escapeCloses } from '../../utils/formKeys';
@@ -135,6 +138,50 @@ const MOOD_OPTIONS = [
   { value: 'stressed', label: 'Stressed', emoji: '😓' },
   { value: 'blocked', label: 'Blocked', emoji: '🚫' },
 ];
+
+/**
+ * Whether a stored value is actually a web address.
+ *
+ * The field is free text and people record notes in it — "Not yet deployed" is the
+ * common one. Rendered as a link, a note like that becomes a relative href: the
+ * browser resolves it against the current page and appears to send you back into
+ * Seyal. Anything that is not recognisably an address is shown as plain text instead.
+ */
+function isWebUrl(value) {
+  const s = String(value || '').trim();
+  if (!s || /\s/.test(s)) return false;
+  if (/^https?:\/\//i.test(s)) return true;
+  // A bare host: label.tld, optionally with a port or a path.
+  return /^[a-z0-9-]+(\.[a-z0-9-]+)+(:\d+)?([/?#].*)?$/i.test(s);
+}
+
+/**
+ * Project URLs are typed by hand, so they often arrive without a scheme
+ * ("urbancode.in"). An href like that is read as a relative path and would navigate
+ * inside the app instead of out to the site, so a missing scheme is filled in.
+ */
+function externalHref(url) {
+  const s = String(url || '').trim();
+  if (!s) return '';
+  return /^[a-z][a-z0-9+.-]*:\/\//i.test(s) ? s : `https://${s}`;
+}
+
+/** A project date for a card, or an em dash when it has not been set. */
+function projectDate(value) {
+  if (!value) return '—';
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return String(value);
+  // A short form: two of these plus the owners have to share one narrow card line.
+  return d.toLocaleDateString(undefined, { day: '2-digit', month: 'short', year: '2-digit' });
+}
+
+/** The same URL without its scheme or trailing slash, for a compact card label. */
+function shortUrl(url) {
+  return String(url || '')
+    .trim()
+    .replace(/^[a-z][a-z0-9+.-]*:\/\//i, '')
+    .replace(/\/+$/, '');
+}
 
 const groupTasksByStatus = (tasks) => {
   return tasks.reduce(
@@ -373,7 +420,24 @@ const ITUpdatesMain = ({ currentUser, onLogout, scope = 'internal' }) => {
   const [eodReports, setEodReports] = useState([]);
   // EOD tab: optional date filter + pagination (20 per page).
   const [eodDateFilter, setEodDateFilter] = useState('');
+  // Projects tab filters. Hidden behind a button so the grid stays uncluttered; the
+  // button carries a count when something is filtering the list.
+  const EMPTY_PROJECT_FILTERS = { q: '', status: '', priority: '', owner: '' };
+  const [projectFiltersOpen, setProjectFiltersOpen] = useState(false);
+  const [projectFilters, setProjectFilters] = useState(EMPTY_PROJECT_FILTERS);
+
   const [eodPage, setEodPage] = useState(0);
+
+  /**
+   * The paging buttons sit under a long list, so after changing page the reader is
+   * left staring at the foot of the new page. The scrollbar belongs to
+   * .it-updates-main (see the stylesheet), not the window, so window.scrollTo would
+   * do nothing here.
+   */
+  const mainRef = useRef(null);
+  const scrollListToTop = useCallback(() => {
+    mainRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
+  }, []);
   const filteredEodReports = useMemo(
     () =>
       eodDateFilter
@@ -569,7 +633,7 @@ const ITUpdatesMain = ({ currentUser, onLogout, scope = 'internal' }) => {
     setError('');
     try {
       const [statsRes, teamRes, projRes, tasksRes] = await Promise.all([
-        itUpdatesApi.getDashboardStats(),
+        itUpdatesApi.getDashboardStats({ scope }),
         itUpdatesApi.getTeamOverview({ team: 'it' }),
         itUpdatesApi.getProjects(undefined, scope),
         itUpdatesApi.getTasks({ team: 'it' }),
@@ -840,6 +904,58 @@ const ITUpdatesMain = ({ currentUser, onLogout, scope = 'internal' }) => {
     return fromState();
   }, [dashboardData, projects, isExternalScope]);
 
+  /**
+   * The home figures for someone who is not an admin: their own workload, not the
+   * organisation's. Computed from myTasks, which this module already holds, so the
+   * panel costs no extra request.
+   */
+  const myStats = useMemo(() => {
+    const mine = (myTasks || []).filter(Boolean);
+    const { dueNow, upcoming } = splitByDue(mine);
+    const isToday = (value) => {
+      if (!value) return false;
+      const d = new Date(value);
+      const now = new Date();
+      return (
+        d.getFullYear() === now.getFullYear() &&
+        d.getMonth() === now.getMonth() &&
+        d.getDate() === now.getDate()
+      );
+    };
+    return {
+      open: mine.filter((t) => t.status !== 'completed').length,
+      overdue: mine.filter((t) => isTaskOverdue(t)).length,
+      dueNow: dueNow.length,
+      upcoming: upcoming.length,
+      completedToday: mine.filter(
+        (t) => t.status === 'completed' && isToday(t.completed_at || t.task_date)
+      ).length,
+    };
+  }, [myTasks]);
+
+  /** Owners that actually appear on a project, for the owner dropdown. */
+  const projectOwnerOptions = useMemo(() => {
+    const names = new Set();
+    (projects || []).forEach((p) => {
+      [p?.owner_name || p?.owner, p?.secondary_owner_name].forEach((n) => {
+        const name = String(n || '').trim();
+        if (name) names.add(name);
+      });
+    });
+    return [...names].sort((a, b) => a.localeCompare(b));
+  }, [projects]);
+
+  const activeProjectFilterCount = useMemo(
+    () => Object.values(projectFilters).filter((v) => String(v || '').trim()).length,
+    [projectFilters]
+  );
+
+  /** The Projects grid, narrowed by whatever the filter bar has set. */
+  const filteredProjects = useMemo(
+    () => (projects || []).filter(Boolean).filter((p) => matchesProjectFilters(p, projectFilters)),
+    [projects, projectFilters]
+  );
+
   const projectLinks = useMemo(
     () => (projects || []).filter((p) => Boolean((p.project_url || '').trim())),
     [projects]
@@ -1030,7 +1146,7 @@ const ITUpdatesMain = ({ currentUser, onLogout, scope = 'internal' }) => {
         await itUpdatesApi.createProject(body);
       }
       const [statsRes, projRes] = await Promise.all([
-        itUpdatesApi.getDashboardStats(),
+        itUpdatesApi.getDashboardStats({ scope }),
         itUpdatesApi.getProjects(undefined, scope),
       ]);
       setDashboardData(statsRes?.data ?? null);
@@ -1064,7 +1180,7 @@ const ITUpdatesMain = ({ currentUser, onLogout, scope = 'internal' }) => {
     try {
       await itUpdatesApi.deleteProject(project.id);
       const [statsRes, projRes] = await Promise.all([
-        itUpdatesApi.getDashboardStats(),
+        itUpdatesApi.getDashboardStats({ scope }),
         itUpdatesApi.getProjects(undefined, scope),
       ]);
       setDashboardData(statsRes?.data ?? null);
@@ -1117,7 +1233,7 @@ const ITUpdatesMain = ({ currentUser, onLogout, scope = 'internal' }) => {
       }
       const [tasksRes, statsRes] = await Promise.all([
         itUpdatesApi.getTasks({ team: MODULE_TEAM }),
-        itUpdatesApi.getDashboardStats(),
+        itUpdatesApi.getDashboardStats({ scope }),
       ]);
       setTasks(scopeTasksToProjects(tasksRes?.data, projects, scope));
       setDashboardData(statsRes?.data ?? null);
@@ -1233,6 +1349,21 @@ const ITUpdatesMain = ({ currentUser, onLogout, scope = 'internal' }) => {
             {activeTab === 'Projects' && (
               <button
                 type="button"
+                className={`it-updates-btn it-updates-btn-secondary${projectFiltersOpen ? ' active' : ''}`}
+                onClick={() => setProjectFiltersOpen((v) => !v)}
+                aria-expanded={projectFiltersOpen}
+                title="Filter projects"
+              >
+                <MdFilterList size={18} />
+                Filter
+                {activeProjectFilterCount > 0 && (
+                  <span className="it-updates-filter-count">{activeProjectFilterCount}</span>
+                )}
+              </button>
+            )}
+            {activeTab === 'Projects' && (
+              <button
+                type="button"
                 className="it-updates-btn it-updates-btn-primary"
                 onClick={() => openProjectModal(null)}
               >
@@ -1240,7 +1371,9 @@ const ITUpdatesMain = ({ currentUser, onLogout, scope = 'internal' }) => {
                 Add project
               </button>
             )}
-            {activeTab !== 'Tasks' && (
+            {/* Task boards only: the EOD Updates tab has its own Submit EOD button,
+                and the button has no business on the dashboard or the project list. */}
+            {(activeTab === 'My Tasks' || activeTab === 'All Tasks') && (
               <button
                 type="button"
                 className="it-updates-btn it-updates-btn-secondary"
@@ -1268,7 +1401,7 @@ const ITUpdatesMain = ({ currentUser, onLogout, scope = 'internal' }) => {
           </div>
         )}
 
-        <main className="it-updates-main">
+        <main className="it-updates-main" ref={mainRef}>
           {!booted && <Preloader label="Loading your workspace…" />}
           {booted && loading && <Preloader label="Loading…" />}
           {activeTab === 'My Dashboard' && (
@@ -1281,24 +1414,50 @@ const ITUpdatesMain = ({ currentUser, onLogout, scope = 'internal' }) => {
           )}
           {activeTab === 'Dashboard' && (
             <>
-              <section className="it-updates-stats-row">
-                <div className="it-updates-stat-card">
-                  <div className="it-updates-stat-label">Active Projects</div>
-                  <div className="it-updates-stat-value">
-                    {stats.active_projects ?? 0}
+              {/* Admins see how the sector as a whole is doing; everyone else sees
+                  their own workload. The organisation-wide figures and the progress of
+                  every project are an admin view. */}
+              {isAdmin ? (
+                <section className="it-updates-stats-row">
+                  <div className="it-updates-stat-card">
+                    <div className="it-updates-stat-label">Active Projects</div>
+                    <div className="it-updates-stat-value">{stats.active_projects ?? 0}</div>
                   </div>
-                </div>
-                <div className="it-updates-stat-card">
-                  <div className="it-updates-stat-label">
-                    {isExternalScope ? 'Tasks Completed' : 'Completed Tasks Today'}
+                  <div className="it-updates-stat-card">
+                    <div className="it-updates-stat-label">
+                      {isExternalScope ? 'Tasks Completed' : 'Completed Tasks Today'}
+                    </div>
+                    <div className="it-updates-stat-value">
+                      {isExternalScope
+                        ? stats.completed_tasks ?? 0
+                        : stats.completed_today ?? dashboardData?.completedTasksToday ?? 0}
+                    </div>
                   </div>
-                  <div className="it-updates-stat-value">
-                    {isExternalScope
-                      ? stats.completed_tasks ?? 0
-                      : dashboardData?.completedTasksToday ?? stats.completed_tasks ?? 0}
+                  <div className="it-updates-stat-card">
+                    <div className="it-updates-stat-label">Open Tasks</div>
+                    <div className="it-updates-stat-value">{stats.active_tasks ?? 0}</div>
                   </div>
-                </div>
-              </section>
+                </section>
+              ) : (
+                <section className="it-updates-stats-row">
+                  <div className="it-updates-stat-card">
+                    <div className="it-updates-stat-label">My Open Tasks</div>
+                    <div className="it-updates-stat-value">{myStats.open}</div>
+                  </div>
+                  <div className="it-updates-stat-card">
+                    <div className="it-updates-stat-label">Overdue</div>
+                    <div className="it-updates-stat-value">{myStats.overdue}</div>
+                  </div>
+                  <div className="it-updates-stat-card">
+                    <div className="it-updates-stat-label">Due This Week</div>
+                    <div className="it-updates-stat-value">{myStats.upcoming}</div>
+                  </div>
+                  <div className="it-updates-stat-card">
+                    <div className="it-updates-stat-label">Completed Today</div>
+                    <div className="it-updates-stat-value">{myStats.completedToday}</div>
+                  </div>
+                </section>
+              )}
 
               {/* What the signed-in user owes today and this week. Fed from myTasks, so
                   it needs no request of its own. */}
@@ -1338,6 +1497,7 @@ const ITUpdatesMain = ({ currentUser, onLogout, scope = 'internal' }) => {
               )}
 
               <section className="it-updates-dashboard-sections">
+                {isAdmin && (
                 <div className="it-updates-panel it-updates-panel-full">
                   <div className="it-updates-panel-header">
                     <h2>Project Progress</h2>
@@ -1385,6 +1545,7 @@ const ITUpdatesMain = ({ currentUser, onLogout, scope = 'internal' }) => {
                     )}
                   </div>
                 </div>
+                )}
 
                 <div className="it-updates-panel it-updates-panel-full">
                   <div className="it-updates-panel-header">
@@ -1409,14 +1570,20 @@ const ITUpdatesMain = ({ currentUser, onLogout, scope = 'internal' }) => {
                         <span className="it-updates-project-link-name">
                           {project.name ?? project.project_name}
                         </span>
-                        <a
-                          className="it-updates-project-link-url"
-                          href={project.project_url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                        >
-                          {project.project_url}
-                        </a>
+                        {isWebUrl(project.project_url) ? (
+                          <a
+                            className="it-updates-project-link-url"
+                            href={externalHref(project.project_url)}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                          >
+                            {project.project_url}
+                          </a>
+                        ) : (
+                          // A note rather than an address ("Not yet deployed"): show it,
+                          // but never as something clickable.
+                          <span className="it-updates-project-link-note">{project.project_url}</span>
+                        )}
                       </div>
                     ))}
                     {!projectLinks.length && isExternalScope && (
@@ -1535,8 +1702,62 @@ const ITUpdatesMain = ({ currentUser, onLogout, scope = 'internal' }) => {
 
           {activeTab === 'Projects' && (
             <section className="it-updates-panel">
+              {projectFiltersOpen && (
+                <div className="it-updates-filters">
+                  <input
+                    type="search"
+                    value={projectFilters.q}
+                    onChange={(e) => setProjectFilters((f) => ({ ...f, q: e.target.value }))}
+                    placeholder="Search"
+                  />
+                  <select
+                    value={projectFilters.status}
+                    onChange={(e) => setProjectFilters((f) => ({ ...f, status: e.target.value }))}
+                  >
+                    <option value="">Statuses</option>
+                    {Object.keys(PROJECT_STATUS_COLORS).map((s) => (
+                      <option key={s} value={s}>
+                        {s.replace('_', ' ')}
+                      </option>
+                    ))}
+                  </select>
+                  <select
+                    value={projectFilters.priority}
+                    onChange={(e) => setProjectFilters((f) => ({ ...f, priority: e.target.value }))}
+                  >
+                    <option value="">Priorities</option>
+                    {Object.keys(PRIORITY_COLORS).map((p) => (
+                      <option key={p} value={p}>
+                        {p}
+                      </option>
+                    ))}
+                  </select>
+                  <select
+                    value={projectFilters.owner}
+                    onChange={(e) => setProjectFilters((f) => ({ ...f, owner: e.target.value }))}
+                  >
+                    <option value="">Owners</option>
+                    {projectOwnerOptions.map((name) => (
+                      <option key={name} value={name}>
+                        {name}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    className="it-updates-btn it-updates-btn-secondary"
+                    onClick={() => setProjectFilters(EMPTY_PROJECT_FILTERS)}
+                    disabled={activeProjectFilterCount === 0}
+                  >
+                    Clear
+                  </button>
+                  <span className="it-updates-filter-result">
+                    {filteredProjects.length} of {projects.length}
+                  </span>
+                </div>
+              )}
               <div className="it-updates-projects-grid-cards">
-                {projects.map((project) => (
+                {filteredProjects.map((project) => (
                   <div
                     key={project.id}
                     className="it-updates-project-card clickable"
@@ -1559,12 +1780,29 @@ const ITUpdatesMain = ({ currentUser, onLogout, scope = 'internal' }) => {
                         {project.status ?? 'active'}
                       </span>
                     </div>
-                    <div className="it-updates-project-meta">
-                      <span>Primary Owner: {project.owner_name || project.owner || 'Not set'}</span>
-                    </div>
-                    <div className="it-updates-project-meta">
-                      <span>Secondary Owner: {project.secondary_owner_name || 'Not set'}</span>
-                    </div>
+                    {String(project.project_url || '').trim() ? (
+                      <div className="it-updates-project-meta">
+                        {isWebUrl(project.project_url) ? (
+                          // stopPropagation: the whole card opens the project, and a
+                          // click on the link must leave the app instead.
+                          <a
+                            className="it-updates-project-link"
+                            href={externalHref(project.project_url)}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            title={project.project_url}
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <MdOpenInNew size={12} />
+                            <span className="it-updates-project-link-text">{shortUrl(project.project_url)}</span>
+                          </a>
+                        ) : (
+                          <span className="it-updates-project-link-note" title={project.project_url}>
+                            {project.project_url}
+                          </span>
+                        )}
+                      </div>
+                    ) : null}
                     {(Array.isArray(project.teammates) && project.teammates.length > 0) || project.teammates_text ? (
                       <div className="it-updates-project-meta">
                         <span>
@@ -1572,9 +1810,14 @@ const ITUpdatesMain = ({ currentUser, onLogout, scope = 'internal' }) => {
                         </span>
                       </div>
                     ) : null}
-                    {project.documents_url ? (
+                    {isWebUrl(project.documents_url) ? (
                       <div className="it-updates-project-meta">
-                        <a href={project.documents_url} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}>
+                        <a
+                          href={externalHref(project.documents_url)}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={(e) => e.stopPropagation()}
+                        >
                           Documents ↗
                         </a>
                       </div>
@@ -1594,18 +1837,61 @@ const ITUpdatesMain = ({ currentUser, onLogout, scope = 'internal' }) => {
                       <span>{project.total_tasks ?? 0} tasks</span>
                       <span>{project.progress ?? project.completion_percentage ?? 0}%</span>
                     </div>
-                    {(project.start_date || project.end_date) && (
-                      <div className="it-updates-project-dates">
+                    {/* Card footer: the schedule on the left, the owners' pictures on
+                        the right. Both dates are labelled, so a project with no end date
+                        shows an empty slot rather than hiding the field altogether. */}
+                    <div className="it-updates-project-footer">
+                      <div
+                        className="it-updates-project-dates"
+                        title={`Start: ${projectDate(project.start_date)}   End: ${projectDate(project.end_date)}`}
+                      >
                         <MdCalendarToday size={12} />
-                        {project.start_date && new Date(project.start_date).toLocaleDateString()}
-                        {project.end_date && ` – ${new Date(project.end_date).toLocaleDateString()}`}
+                        {/* Start then end, so the end slot is visible even when it has
+                            not been filled in yet. */}
+                        <span>{projectDate(project.start_date)}</span>
+                        <span className="it-updates-project-dates-arrow">→</span>
+                        <span>{projectDate(project.end_date)}</span>
                       </div>
-                    )}
+                      {(() => {
+                        const owners = [
+                          {
+                            key: 'primary',
+                            role: 'Primary owner',
+                            name: project.owner_name || project.owner,
+                            image: project.owner_profile_image,
+                          },
+                          {
+                            key: 'secondary',
+                            role: 'Secondary owner',
+                            name: project.secondary_owner_name,
+                            image: project.secondary_owner_profile_image,
+                          },
+                        ].filter((o) => String(o.name || '').trim());
+                        return (
+                          <div className="it-updates-project-owners" title="Project owners">
+                            {owners.map((o) => (
+                              <span
+                                key={o.key}
+                                className="it-updates-project-owner"
+                                title={`${o.role}: ${o.name}`}
+                              >
+                                <Avatar user={{ username: o.name, profile_image: o.image }} size="small" />
+                              </span>
+                            ))}
+                          </div>
+                        );
+                      })()}
+                    </div>
                   </div>
                 ))}
                 {!projects.length && (
                   <div className="it-updates-empty">
                     No projects yet. Click &quot;Add project&quot; to create one.
+                  </div>
+                )}
+                {Boolean(projects.length) && !filteredProjects.length && (
+                  <div className="it-updates-empty">
+                    No projects match these filters.
                   </div>
                 )}
               </div>
@@ -1880,7 +2166,10 @@ const ITUpdatesMain = ({ currentUser, onLogout, scope = 'internal' }) => {
                     <button
                       type="button"
                       className="it-updates-btn it-updates-btn-secondary"
-                      onClick={() => setOverviewPage((p) => Math.max(0, p - 1))}
+                      onClick={() => {
+                        setOverviewPage((p) => Math.max(0, p - 1));
+                        scrollListToTop();
+                      }}
                       disabled={overviewPage === 0}
                     >
                       Previous
@@ -1891,7 +2180,10 @@ const ITUpdatesMain = ({ currentUser, onLogout, scope = 'internal' }) => {
                     <button
                       type="button"
                       className="it-updates-btn it-updates-btn-secondary"
-                      onClick={() => setOverviewPage((p) => Math.min(overviewPageCount - 1, p + 1))}
+                      onClick={() => {
+                        setOverviewPage((p) => Math.min(overviewPageCount - 1, p + 1));
+                        scrollListToTop();
+                      }}
                       disabled={overviewPage >= overviewPageCount - 1}
                     >
                       Next
@@ -1969,7 +2261,10 @@ const ITUpdatesMain = ({ currentUser, onLogout, scope = 'internal' }) => {
                     <button
                       type="button"
                       className="it-updates-btn it-updates-btn-secondary"
-                      onClick={() => setEodPage((p) => Math.max(0, p - 1))}
+                      onClick={() => {
+                        setEodPage((p) => Math.max(0, p - 1));
+                        scrollListToTop();
+                      }}
                       disabled={eodPage === 0}
                     >
                       Previous
@@ -1980,7 +2275,10 @@ const ITUpdatesMain = ({ currentUser, onLogout, scope = 'internal' }) => {
                     <button
                       type="button"
                       className="it-updates-btn it-updates-btn-secondary"
-                      onClick={() => setEodPage((p) => Math.min(eodPageCount - 1, p + 1))}
+                      onClick={() => {
+                        setEodPage((p) => Math.min(eodPageCount - 1, p + 1));
+                        scrollListToTop();
+                      }}
                       disabled={eodPage >= eodPageCount - 1}
                     >
                       Next

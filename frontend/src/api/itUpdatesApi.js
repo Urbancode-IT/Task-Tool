@@ -101,8 +101,10 @@ const itUpdatesApi = {
     });
   },
 
-  getDashboardStats: () => {
-    return apiClient.get(`${BASE_PATH}/dashboard/stats`);
+  // `scope` ('internal' | 'external') keeps one sector's dashboard from counting the
+  // other sector's projects and tasks.
+  getDashboardStats: (params = {}) => {
+    return apiClient.get(`${BASE_PATH}/dashboard/stats`, { params });
   },
 
   getTeamOverview: (params = {}) => {

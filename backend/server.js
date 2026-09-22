@@ -1397,7 +1397,10 @@ app.get(`${BASE_PATH}/dashboard/stats`, async (req, res) => {
   try {
     if (db.useDb()) {
       try {
-        const full = await db.dbGetDashboardStatsFull();
+        // The internal and external sectors share this endpoint; without the scope the
+        // internal dashboard counted the external projects as well.
+        const scope = req.query?.scope === 'external' ? 'external' : req.query?.scope === 'internal' ? 'internal' : null;
+        const full = await db.dbGetDashboardStatsFull(scope);
         return res.json(full);
       } catch {
         const legacy = await db.dbGetDashboardStats();

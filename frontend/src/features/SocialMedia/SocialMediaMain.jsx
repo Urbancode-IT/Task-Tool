@@ -719,15 +719,19 @@ export default function SocialMediaMain({ currentUser, onLogout }) {
                 Add task
               </button>
             )}
-            <button
-              type="button"
-              className="it-updates-btn it-updates-btn-secondary"
-              onClick={() => setEodModal(true)}
-              title="Submit EOD Report"
-            >
-              <MdOutlineAssignment size={16} />
-              <span>EOD</span>
-            </button>
+            {/* Task boards only: the EOD Updates tab has its own Submit EOD button,
+                and the button has no business on the dashboard or the overview. */}
+            {(activeTab === 'My Tasks' || activeTab === 'All Tasks') && (
+              <button
+                type="button"
+                className="it-updates-btn it-updates-btn-secondary"
+                onClick={() => setEodModal(true)}
+                title="Submit EOD Report"
+              >
+                <MdOutlineAssignment size={16} />
+                <span>EOD</span>
+              </button>
+            )}
             <button
               type="button"
               className="it-updates-btn it-updates-btn-icon"
