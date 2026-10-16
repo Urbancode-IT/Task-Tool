@@ -6,7 +6,7 @@
  */
 
 export const PERIOD_PRESETS = [
-  { key: 'all', label: 'Schedule' },
+  { key: 'all', label: 'All dates' },
   { key: 'today', label: 'Today' },
   { key: 'yesterday', label: 'Yesterday' },
   { key: 'week', label: 'This week' },
@@ -14,6 +14,10 @@ export const PERIOD_PRESETS = [
 ];
 
 export const EMPTY_PERIOD = { preset: 'all', from: '', to: '' };
+
+// Task boards open on the current month; older or later cards appear only once the
+// period filter is changed ("All dates" shows everything).
+export const CURRENT_MONTH_PERIOD = { preset: 'month', from: '', to: '' };
 
 const pad = (n) => String(n).padStart(2, '0');
 const toYmd = (date) => `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;

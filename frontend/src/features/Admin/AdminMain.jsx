@@ -20,8 +20,10 @@ import {
   MdReceiptLong,
   MdVpnKey,
   MdDeleteSweep,
+  MdTimer,
 } from 'react-icons/md';
 import adminApi from '../../api/adminApi';
+import PerformanceEfficiency from './PerformanceEfficiency';
 import itUpdatesApi from '../../api/itUpdatesApi';
 import { TaskModal, TaskBoard } from '../ITUpdates/ITUpdatesMain';
 import { getDisplayRole } from '../../utils/displayRole';
@@ -51,8 +53,23 @@ const ADMIN_TABS = [
   { key: 'locked_users', labelId: 'section.locked_users', label: 'Locked Users', icon: MdLock },
   { key: 'invoices', labelId: 'section.invoices', label: 'Invoices', icon: MdReceiptLong },
   { key: 'credentials', labelId: 'section.credentials', label: 'UC Credentials', icon: MdVpnKey },
+  { key: 'performance_metrics', labelId: 'section.performance_metrics', label: 'Performance Metrics', icon: MdTimer },
   { key: 'deleted_tasks', labelId: 'section.deleted_tasks', label: 'Deleted Tasks', icon: MdDeleteSweep },
 ];
+
+/** Seconds as "3h 25m" — the unit people think in when reviewing a week's work. */
+function formatDuration(seconds) {
+  const s = Math.max(0, Math.round(Number(seconds) || 0));
+  const h = Math.floor(s / 3600);
+  const m = Math.round((s % 3600) / 60);
+  if (!h && !m) return '0m';
+  return [h ? `${h}h` : '', m ? `${m}m` : ''].filter(Boolean).join(' ');
+}
+
+/** yyyy-mm-dd for a date input, from a Date. */
+function isoDate(d) {
+  return new Date(d).toISOString().slice(0, 10);
+}
 
 // Modules a task can belong to, for the deletion log filter. The values are the
 // team codes the backend stores on each log row.
@@ -163,6 +180,19 @@ export default function AdminMain({ currentUser, onLogout }) {
   const [overdueTasks, setOverdueTasks] = useState([]);
   const [lockedUsers, setLockedUsers] = useState([]);
   const [lockedLoading, setLockedLoading] = useState(false);
+  // Time tracking: how long each member recorded, and against what.
+  const [timeReport, setTimeReport] = useState(null);
+  const [timeLoading, setTimeLoading] = useState(false);
+  const [timeExpanded, setTimeExpanded] = useState(() => new Set());
+  // Bumped by Refresh so the efficiency table reloads alongside the time report.
+  const [perfRefresh, setPerfRefresh] = useState(0);
+  const [timeFilters, setTimeFilters] = useState(() => {
+    const today = new Date();
+    const start = new Date(today);
+    start.setDate(start.getDate() - 29);
+    return { from: isoDate(start), to: isoDate(today), team: '' };
+  });
+
   // Deletion log: who deleted which task, when, and why.
   const [deleteLog, setDeleteLog] = useState([]);
   const [deleteLogLoading, setDeleteLogLoading] = useState(false);
@@ -440,6 +470,19 @@ export default function AdminMain({ currentUser, onLogout }) {
       .finally(() => setLockedLoading(false));
   };
 
+  const loadTimeReport = (filters = timeFilters) => {
+    setTimeLoading(true);
+    const params = {};
+    if (filters.from) params.from = filters.from;
+    if (filters.to) params.to = filters.to;
+    if (filters.team) params.team = filters.team;
+    adminApi
+      .getTimeReport(params)
+      .then((res) => setTimeReport(res.data || null))
+      .catch(() => setTimeReport(null))
+      .finally(() => setTimeLoading(false));
+  };
+
   const loadDeleteLog = (filters = deleteLogFilters) => {
     setDeleteLogLoading(true);
     const params = {};
@@ -569,6 +612,7 @@ export default function AdminMain({ currentUser, onLogout }) {
     if (activeTab === 'overdue_tasks') loadOverdueTasks();
     if (activeTab === 'locked_users') loadLockedUsers();
     if (activeTab === 'deleted_tasks') loadDeleteLog();
+    if (activeTab === 'performance_metrics') loadTimeReport();
     if (activeTab === 'credentials' && isAdmin) loadCredentialProjects();
     if (activeTab === 'director_tasks' && canViewDirectorTasks) {
       loadDirectors();
@@ -1564,6 +1608,174 @@ export default function AdminMain({ currentUser, onLogout }) {
             </section>
           )}
 
+
+          {activeTab === 'performance_metrics' && (
+            <section className="admin-panel admin-panel-inline">
+              <div className="admin-panel-header">
+                <div className="admin-delete-log-filters">
+                  <label>
+                    From
+                    <input
+                      type="date"
+                      value={timeFilters.from}
+                      onChange={(e) => {
+                        const next = { ...timeFilters, from: e.target.value };
+                        setTimeFilters(next);
+                        loadTimeReport(next);
+                      }}
+                    />
+                  </label>
+                  <label>
+                    To
+                    <input
+                      type="date"
+                      value={timeFilters.to}
+                      onChange={(e) => {
+                        const next = { ...timeFilters, to: e.target.value };
+                        setTimeFilters(next);
+                        loadTimeReport(next);
+                      }}
+                    />
+                  </label>
+                  <label>
+                    Module
+                    <select
+                      value={timeFilters.team}
+                      onChange={(e) => {
+                        const next = { ...timeFilters, team: e.target.value };
+                        setTimeFilters(next);
+                        loadTimeReport(next);
+                      }}
+                    >
+                      <option value="">All modules</option>
+                      {DELETE_LOG_TEAMS.map((t) => (
+                        <option key={t.value} value={t.value}>
+                          {t.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+                <button
+                  type="button"
+                  className="it-updates-btn it-updates-btn-secondary"
+                  style={{ marginLeft: 'auto' }}
+                  onClick={() => {
+                    loadTimeReport();
+                    setPerfRefresh((n) => n + 1);
+                  }}
+                >
+                  <MdRefresh size={16} /> Refresh
+                </button>
+              </div>
+              <PerformanceEfficiency filters={timeFilters} refreshKey={perfRefresh} />
+              <h3 className="perf-eff-title">Time logged</h3>
+              <p className="admin-panel-subtitle">
+                Time recorded against subtasks, by timer or by manual entry, between the
+                two dates. Totals count only what members actually logged.
+              </p>
+              {timeLoading ? (
+                <div className="admin-loading">Loading…</div>
+              ) : !timeReport?.members?.length ? (
+                <div className="it-updates-empty">No time recorded in this period.</div>
+              ) : (
+                <>
+                  <div className="admin-time-total">
+                    Team total <strong>{formatDuration(timeReport.total_seconds)}</strong> across{' '}
+                    {timeReport.members.length} member{timeReport.members.length === 1 ? '' : 's'}
+                  </div>
+                  <div className="admin-table-wrap">
+                    <table className="admin-table">
+                      <thead>
+                        <tr>
+                          <th>Member</th>
+                          <th className="inv-num">Time</th>
+                          <th className="inv-num">Days</th>
+                          <th className="inv-num">Tasks</th>
+                          <th>Spent on</th>
+                          <th className="admin-th-actions"></th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {timeReport.members.map((m) => {
+                          const open = timeExpanded.has(m.user_id);
+                          return (
+                            <React.Fragment key={m.user_id}>
+                              <tr>
+                                <td>{m.username}</td>
+                                <td className="inv-num">{formatDuration(m.seconds)}</td>
+                                <td className="inv-num">{m.days}</td>
+                                <td className="inv-num">{m.task_count}</td>
+                                <td>
+                                  {m.projects.slice(0, 3).map((p) => (
+                                    <span key={p.project_name} className="admin-time-chip">
+                                      {p.project_name} · {formatDuration(p.seconds)}
+                                    </span>
+                                  ))}
+                                  {m.projects.length > 3 ? (
+                                    <span className="admin-time-chip">+{m.projects.length - 3} more</span>
+                                  ) : null}
+                                </td>
+                                <td className="admin-td-actions">
+                                  <button
+                                    type="button"
+                                    className="it-updates-btn it-updates-btn-secondary"
+                                    onClick={() =>
+                                      setTimeExpanded((prev) => {
+                                        const next = new Set(prev);
+                                        if (next.has(m.user_id)) next.delete(m.user_id);
+                                        else next.add(m.user_id);
+                                        return next;
+                                      })
+                                    }
+                                  >
+                                    {open ? 'Hide' : 'Details'}
+                                  </button>
+                                </td>
+                              </tr>
+                              {open && (
+                                <tr className="admin-time-detail-row">
+                                  <td colSpan={6}>
+                                    <div className="admin-time-detail">
+                                      <div>
+                                        <div className="admin-time-detail-label">By project</div>
+                                        {m.projects.map((p) => (
+                                          <div key={p.project_name} className="admin-time-line">
+                                            <span>{p.project_name}</span>
+                                            <span>{formatDuration(p.seconds)}</span>
+                                          </div>
+                                        ))}
+                                      </div>
+                                      <div>
+                                        <div className="admin-time-detail-label">
+                                          Tasks worked on{m.task_count > m.tasks.length ? ` (top ${m.tasks.length} of ${m.task_count})` : ''}
+                                        </div>
+                                        {m.tasks.map((t) => (
+                                          <div key={`${t.team}-${t.task_id}`} className="admin-time-line">
+                                            <span>
+                                              {t.title}
+                                              {t.project_name ? (
+                                                <span className="admin-time-sub"> · {t.project_name}</span>
+                                              ) : null}
+                                            </span>
+                                            <span>{formatDuration(t.seconds)}</span>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  </td>
+                                </tr>
+                              )}
+                            </React.Fragment>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
+              )}
+            </section>
+          )}
 
           {activeTab === 'deleted_tasks' && (
             <section className="admin-panel admin-panel-inline">

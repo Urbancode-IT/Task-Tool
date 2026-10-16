@@ -2511,6 +2511,14 @@
   width: 100%;
 }
 
+/* "Fill from my tasks" in the EOD forms: its own full-width row, button left-aligned,
+   in both the flex (rich editor) and grid (textarea) layouts. */
+.it-updates-eod-fill {
+  align-self: flex-start;
+  justify-self: start;
+  grid-column: 1 / -1;
+}
+
 .it-updates-eod-form .tc-input {
   min-height: 220px;
   max-height: 50vh;

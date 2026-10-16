@@ -17,6 +17,8 @@
   padding: 0.35rem 0 0.85rem;
   background: var(--surface-bg, #f4f5f9);
   border-bottom: 1px solid var(--clr-slate-200);
+  /* Masks scrolled content in the strip above the stuck bar (see .mb-bar). */
+  box-shadow: 0 -2rem 0 var(--surface-bg, #f4f5f9);
 }
 
 .ma-bar p {

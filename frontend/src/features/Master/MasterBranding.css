@@ -21,6 +21,10 @@
   padding: 0.35rem 0 0.85rem;
   background: var(--surface-bg, #f4f5f9);
   border-bottom: 1px solid var(--clr-slate-200);
+  /* The scroll container's top padding leaves a strip above the stuck bar where
+     scrolled content stayed visible. A raised shadow in the ground colour masks it;
+     the scroller clips it, so it never reaches the page header. */
+  box-shadow: 0 -2rem 0 var(--surface-bg, #f4f5f9);
 }
 
 .mb-bar-text p {

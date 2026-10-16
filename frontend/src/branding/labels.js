@@ -50,6 +50,7 @@ export const ADMIN_SECTION_LABELS = [
   { id: 'section.locked_users', default: 'Locked Users' },
   { id: 'section.invoices', default: 'Invoices' },
   { id: 'section.credentials', default: 'UC Credentials' },
+  { id: 'section.performance_metrics', default: 'Performance Metrics' },
   { id: 'section.deleted_tasks', default: 'Deleted Tasks' },
 ];
 
@@ -214,7 +215,7 @@ export const SECTOR_SIDEBARS = [
     sections: [
       'section.admin_dashboard', 'section.review_tasks', 'section.overdue_tasks',
       'section.admin_overview', 'section.users', 'section.departments',
-      'section.locked_users', 'section.invoices', 'section.credentials', 'section.deleted_tasks',
+      'section.locked_users', 'section.invoices', 'section.credentials', 'section.performance_metrics', 'section.deleted_tasks',
     ],
   },
 ];

@@ -815,3 +815,142 @@
   white-space: pre-wrap;
   word-break: break-word;
 }
+
+/* ── Time tracking ───────────────────────────────────────────────────────── */
+.admin-time-total {
+  margin: 0.25rem 0 0.75rem;
+  font-size: 0.85rem;
+  color: var(--clr-slate-600, #475569);
+}
+
+.admin-time-total strong {
+  font-size: 1rem;
+  color: var(--clr-slate-800, #1e293b);
+}
+
+/* What a member's time went on, summarised on their row. */
+.admin-time-chip {
+  display: inline-block;
+  margin: 0.1rem 0.25rem 0.1rem 0;
+  padding: 0.12rem 0.45rem;
+  border-radius: var(--radius-full, 999px);
+  background: var(--clr-slate-100, #f1f5f9);
+  color: var(--clr-slate-600, #475569);
+  font-size: 0.72rem;
+  white-space: nowrap;
+}
+
+.admin-time-detail-row td {
+  background: var(--clr-slate-50, #f8fafc);
+}
+
+.admin-time-detail {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1.5rem;
+  padding: 0.4rem 0.2rem 0.6rem;
+}
+
+.admin-time-detail-label {
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--clr-slate-400, #94a3b8);
+  margin-bottom: 0.35rem;
+}
+
+.admin-time-line {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.18rem 0;
+  font-size: 0.82rem;
+  color: var(--clr-slate-700, #334155);
+  border-bottom: 1px solid var(--clr-slate-100, #f1f5f9);
+}
+
+.admin-time-line span:last-child {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.admin-time-sub {
+  color: var(--clr-slate-400, #94a3b8);
+}
+
+/* ── Performance Metrics → Efficiency (PerformanceEfficiency.jsx) ── */
+.perf-eff {
+  margin-bottom: 1.75rem;
+}
+
+.perf-eff-title {
+  margin: 0.25rem 0 0.25rem;
+  font-size: 1rem;
+  color: var(--clr-slate-800);
+}
+
+.perf-score {
+  display: inline-block;
+  min-width: 2.4rem;
+  padding: 0.1rem 0.45rem;
+  border-radius: 999px;
+  font-weight: 700;
+  font-size: 0.8rem;
+  text-align: center;
+}
+
+.perf-score-good { background: #dcfce7; color: #15803d; }
+.perf-score-fair { background: #fef3c7; color: #b45309; }
+.perf-score-poor { background: #fee2e2; color: #b91c1c; }
+
+.perf-task-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8rem;
+}
+
+.perf-task-table th,
+.perf-task-table td {
+  padding: 0.35rem 0.5rem;
+  border-bottom: 1px solid var(--clr-slate-100);
+  text-align: left;
+}
+
+.perf-task-table th {
+  color: var(--clr-slate-500);
+  font-weight: 600;
+}
+
+.perf-task-table .inv-num {
+  text-align: right;
+}
+
+@media (max-width: 800px) {
+  .admin-time-detail {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* The panel header holds a filter group on the left and an action on the right. It
+   had no rule at all, so the button sat on its own line under the filters — in the
+   deleted-tasks, performance-metrics and locked-users sections alike. Bottom-aligned,
+   because each filter puts a caption above its control. */
+.admin-panel-header {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.6rem;
+}
+
+.admin-panel-header > .admin-delete-log-filters {
+  flex: 1 1 auto;
+}
+
+/* Pushed right whether or not the section has filters beside it. */
+.admin-panel-header > .it-updates-btn,
+.admin-panel-header > .admin-btn {
+  margin-left: auto;
+  flex: none;
+}

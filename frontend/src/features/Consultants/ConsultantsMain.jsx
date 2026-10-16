@@ -18,16 +18,19 @@ import {
 } from 'react-icons/md';
 import itUpdatesApi from '../../api/itUpdatesApi';
 import { getDisplayRole } from '../../utils/displayRole';
+import { newestFirst } from '../../utils/taskSort';
 import { isTaskOverdue } from '../../utils/taskDue';
-import { toastSuccess, toastError } from '../../utils/toast';
+import { toastSuccess, toastError, toastInfo } from '../../utils/toast';
+import { loadEodSections, sectionsToText, localToday } from '../../utils/eodSummary';
 import { reasonDialog } from '../../utils/confirm';
-import { taskInPeriod, EMPTY_PERIOD } from '../../utils/taskPeriod';
+import { taskInPeriod, CURRENT_MONTH_PERIOD } from '../../utils/taskPeriod';
 import { controlKeys, textareaSubmit, escapeCloses } from '../../utils/formKeys';
 import PeriodFilter from '../../components/PeriodFilter';
 import TaskComments from '../../components/TaskComments';
 import ModalKebabMenu from '../../components/ModalKebabMenu';
 import ProjectLogo from '../../components/ProjectLogo';
 import DuplicateTaskButton from '../../components/DuplicateTaskButton';
+import MyTaskList from '../../components/MyTaskList';
 import { makeTaskDuplicate, toSubtaskDrafts } from '../../utils/taskDuplicate';
 import SidebarUser from '../../components/SidebarUser';
 import useSidebarCollapsed from '../../utils/useSidebarCollapsed';
@@ -52,7 +55,7 @@ const TABS = [
 ];
 const MODULE_TEAM = 'consultant';
 
-const EMPTY_ALL_TASKS_FILTERS = { status: '', priority: '', assignee: '', branch: '', period: EMPTY_PERIOD };
+const EMPTY_ALL_TASKS_FILTERS = { status: '', priority: '', assignee: '', branch: '', period: CURRENT_MONTH_PERIOD };
 const EMPTY_OVERVIEW_FILTERS = { from_date: '', to_date: '', assigned_to: '' };
 
 const STATUS_LABELS = {
@@ -78,8 +81,9 @@ const PRIORITY_COLORS = {
   critical: '#ef4444',
 };
 
+// Newest cards first in every column.
 const groupTasksByStatus = (tasks) =>
-  tasks.reduce(
+  newestFirst(tasks).reduce(
     (acc, task) => {
       const key = task.status || 'in_progress';
       if (!acc[key]) acc[key] = [];
@@ -368,6 +372,45 @@ export default function ConsultantsMain({ currentUser, onLogout }) {
       return false;
     }
   };
+
+  // My Tasks list: "+ Create" adds a task from its title alone, assigned to me.
+  const handleQuickCreateTask = async ({ title, status }) => {
+    try {
+      await itUpdatesApi.createTask({
+        title,
+        status,
+        assigned_to: userId,
+        assigned_by: userId,
+        team: MODULE_TEAM,
+      });
+      await refreshTasksOnly();
+      toastSuccess('Task created');
+      return true;
+    } catch (e) {
+      toastError(e?.response?.data?.message || 'Failed to create task');
+      return false;
+    }
+  };
+
+  // My Tasks list: inline due date / priority edits.
+  const handleInlineTaskUpdate = async (task, patch) => {
+    const local = 'dueDate' in patch ? { ...patch, due_date: patch.dueDate } : patch;
+    setTasks((prev) => prev.map((t) => (String(t.id) === String(task.id) ? { ...t, ...local } : t)));
+    try {
+      await itUpdatesApi.updateTask(task.id, { ...patch, team: MODULE_TEAM });
+    } catch (e) {
+      toastError(e?.response?.data?.message || 'Failed to update task');
+      await refreshTasksOnly();
+    }
+  };
+
+  // The list's status dropdown moves the card exactly as a drag on the board would.
+  const handleListStatusChange = (task, status) =>
+    handleDragEnd({
+      draggableId: `task-${task.id}`,
+      source: { droppableId: task.status, index: 0 },
+      destination: { droppableId: status, index: 0 },
+    });
 
   const handleSaveEod = async (payload) => {
     try {
@@ -697,17 +740,18 @@ export default function ConsultantsMain({ currentUser, onLogout }) {
 
           {/* ─── My Tasks ─── */}
           {activeTab === 'My Tasks' && (
-            <>
-              <DragDropContext onDragEnd={handleDragEnd}>
-                <div className="it-updates-kanban-wrap">
-                  <section className="it-updates-columns">
-                    {['todo', 'in_progress', 'review', 'rework', 'completed'].map((statusKey) =>
-                      renderKanbanColumn(statusKey, myTaskGroups[statusKey] || [])
-                    )}
-                  </section>
-                </div>
-              </DragDropContext>
-            </>
+            <MyTaskList
+              tasks={myTasks}
+              statuses={['todo', 'in_progress', 'review', 'rework', 'completed']}
+              statusLabel={(k) => statusTextFor(STATUS_LABELS, k)}
+              statusColors={STATUS_COLORS}
+              keyPrefix="CON"
+              onOpenTask={openTaskModal}
+              onStatusChange={handleListStatusChange}
+              onUpdateTask={handleInlineTaskUpdate}
+              onQuickCreate={handleQuickCreateTask}
+              currentUser={user}
+            />
           )}
 
           {/* ─── All Tasks ─── */}
@@ -1564,10 +1608,33 @@ function TaskModal({ task, currentUser, onClose, onSave, onRefresh, teamMembers,
 ───────────────────────────────────────────── */
 function EodModal({ onClose, onSave }) {
   const [form, setForm] = useState({
-    report_date: new Date().toISOString().slice(0, 10),
+    report_date: localToday(),
     achievements: '',
     status: 'on_track',
   });
+
+  // Fill the summary from the day's task cards; anything already typed is kept above it.
+  const [filling, setFilling] = useState(false);
+  const fillFromTasks = async () => {
+    if (!form.report_date) {
+      toastError('Pick the report date first.');
+      return;
+    }
+    setFilling(true);
+    try {
+      const sections = await loadEodSections(form.report_date, MODULE_TEAM);
+      if (!sections.length) {
+        toastInfo('No task activity found for this date.');
+        return;
+      }
+      const text = sectionsToText(sections);
+      setForm((f) => ({ ...f, achievements: f.achievements.trim() ? `${f.achievements.trim()}\n\n${text}` : text }));
+    } catch {
+      toastError('Could not load your tasks for this date.');
+    } finally {
+      setFilling(false);
+    }
+  };
 
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -1606,6 +1673,15 @@ function EodModal({ onClose, onSave }) {
               onChange={(e) => setForm((f) => ({ ...f, report_date: e.target.value }))}
             />
           </label>
+          <button
+            type="button"
+            className="it-updates-btn it-updates-btn-secondary it-updates-eod-fill"
+            onClick={fillFromTasks}
+            disabled={filling}
+          >
+            <MdChecklist size={16} />
+            {filling ? 'Loading your tasks…' : 'Fill from my tasks'}
+          </button>
           <label>
             Work summary (What did you complete?) *
             <textarea

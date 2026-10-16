@@ -26,16 +26,19 @@ import {
 } from 'react-icons/md';
 import itUpdatesApi from '../../api/itUpdatesApi';
 import { getDisplayRole } from '../../utils/displayRole';
+import { newestFirst } from '../../utils/taskSort';
 import { isTaskOverdue, splitByDue } from '../../utils/taskDue';
 import { matchesProjectFilters } from '../../utils/projectFilters';
-import { toastSuccess, toastError } from '../../utils/toast';
-import { taskInPeriod, EMPTY_PERIOD } from '../../utils/taskPeriod';
+import { toastSuccess, toastError, toastInfo } from '../../utils/toast';
+import { loadEodSections, sectionsToHtml, localToday } from '../../utils/eodSummary';
+import { taskInPeriod, CURRENT_MONTH_PERIOD } from '../../utils/taskPeriod';
 import { controlKeys, textareaSubmit, escapeCloses } from '../../utils/formKeys';
 import ProjectSearchSelect from '../../components/ProjectSearchSelect';
 import PeriodFilter from '../../components/PeriodFilter';
 import TaskComments from '../../components/TaskComments';
 import ProjectLogo from '../../components/ProjectLogo';
 import DuplicateTaskButton from '../../components/DuplicateTaskButton';
+import MyTaskList from '../../components/MyTaskList';
 import { makeTaskDuplicate, toSubtaskDrafts } from '../../utils/taskDuplicate';
 import ProjectRequirements from '../../components/ProjectRequirements';
 import MemberPicker from '../../components/MemberPicker';
@@ -81,7 +84,7 @@ const MODULE_TEAM = 'it';
 
 const OVERVIEW_PAGE_SIZE = 20;
 const EOD_PAGE_SIZE = 20;
-const EMPTY_ALL_TASKS_FILTERS = { project_id: '', status: '', priority: '', assignee: '', branch: '', period: EMPTY_PERIOD };
+const EMPTY_ALL_TASKS_FILTERS = { project_id: '', status: '', priority: '', assignee: '', branch: '', period: CURRENT_MONTH_PERIOD };
 const EMPTY_OVERVIEW_FILTERS = { from_date: '', to_date: '', assigned_to: '', project_id: '' };
 
 const STATUS_LABELS = {
@@ -183,8 +186,9 @@ function shortUrl(url) {
     .replace(/\/+$/, '');
 }
 
+// Newest cards first in every column.
 const groupTasksByStatus = (tasks) => {
-  return tasks.reduce(
+  return newestFirst(tasks).reduce(
     (acc, task) => {
       const key = task.status || 'in_progress';
       if (!acc[key]) acc[key] = [];
@@ -1247,6 +1251,56 @@ const ITUpdatesMain = ({ currentUser, onLogout, scope = 'internal' }) => {
     }
   };
 
+  const reloadTasksAndStats = async () => {
+    const [tasksRes, statsRes] = await Promise.all([
+      itUpdatesApi.getTasks({ team: MODULE_TEAM }),
+      itUpdatesApi.getDashboardStats({ scope }),
+    ]);
+    setTasks(scopeTasksToProjects(tasksRes?.data, projects, scope));
+    setDashboardData(statsRes?.data ?? null);
+  };
+
+  // My Tasks list: "+ Create" adds a task from its title alone, assigned to me.
+  const handleQuickCreateTask = async ({ title, status, projectId }) => {
+    try {
+      await itUpdatesApi.createTask({
+        title,
+        status,
+        projectId,
+        assigned_to: myId,
+        assigned_by: myId,
+        is_crm: false,
+        team: MODULE_TEAM,
+      });
+      await reloadTasksAndStats();
+      toastSuccess('Task created');
+      return true;
+    } catch (e) {
+      toastError(e?.response?.data?.message || 'Failed to create task');
+      return false;
+    }
+  };
+
+  // My Tasks list: inline due date / priority edits.
+  const handleInlineTaskUpdate = async (task, patch) => {
+    const local = 'dueDate' in patch ? { ...patch, due_date: patch.dueDate } : patch;
+    setTasks((prev) => prev.map((t) => (String(t.id) === String(task.id) ? { ...t, ...local } : t)));
+    try {
+      await itUpdatesApi.updateTask(task.id, { ...patch, team: MODULE_TEAM });
+    } catch (e) {
+      toastError(e?.response?.data?.message || 'Failed to update task');
+      await reloadTasksAndStats().catch(() => {});
+    }
+  };
+
+  // The list's status dropdown moves the card exactly as a drag on the board would.
+  const handleListStatusChange = (task, status) =>
+    handleDragEnd({
+      draggableId: `task-${task.id}`,
+      source: { droppableId: task.status, index: 0 },
+      destination: { droppableId: status, index: 0 },
+    });
+
   const handleSaveEod = async (payload) => {
     try {
       await itUpdatesApi.createEodReport({
@@ -1598,14 +1652,20 @@ const ITUpdatesMain = ({ currentUser, onLogout, scope = 'internal' }) => {
           )}
 
           {activeTab === 'My Tasks' && (
-            <TaskBoard
+            <MyTaskList
               tasks={myTasks}
-              onDragEnd={handleDragEnd}
-              onCardClick={openTaskModal}
-              onCardDuplicate={duplicateTask}
-              projectById={projectById}
-              statusLabels={boardStatusLabels}
               statuses={boardStatuses}
+              statusLabel={(k) => boardStatusLabels[k] || k}
+              statusColors={STATUS_COLORS}
+              keyPrefix={isExternalScope ? 'EXT' : 'INT'}
+              onOpenTask={openTaskModal}
+              onStatusChange={handleListStatusChange}
+              onUpdateTask={handleInlineTaskUpdate}
+              onQuickCreate={handleQuickCreateTask}
+              projects={projects}
+              // External boards only list cards that belong to an external project.
+              requireProject={isExternalScope}
+              currentUser={user}
             />
           )}
 
@@ -3375,7 +3435,42 @@ export function TaskModal({ task, currentUser, projects, developers, managers, o
 }
 
 function EodModal({ onClose, onSave, members = [] }) {
-  const [reportDate, setReportDate] = useState(new Date().toISOString().slice(0, 10));
+  const [reportDate, setReportDate] = useState(localToday);
+  // "Fill from my tasks" rebuilds the editor around the generated summary (it only
+  // reads its content on mount), so it asks first if the member has typed anything.
+  const [prefill, setPrefill] = useState({ key: 0, html: '' });
+  const [typed, setTyped] = useState(false);
+  const [filling, setFilling] = useState(false);
+
+  const fillFromTasks = async () => {
+    if (!reportDate) {
+      toastError('Pick the report date first.');
+      return;
+    }
+    if (
+      typed &&
+      !(await confirmDialog({
+        title: 'Replace your summary?',
+        message: 'What you have written will be replaced by the summary built from your tasks.',
+        confirmLabel: 'Replace',
+      }))
+    )
+      return;
+    setFilling(true);
+    try {
+      const sections = await loadEodSections(reportDate, MODULE_TEAM);
+      if (!sections.length) {
+        toastInfo('No task activity found for this date.');
+        return;
+      }
+      setPrefill((p) => ({ key: p.key + 1, html: sectionsToHtml(sections) }));
+      setTyped(true);
+    } catch {
+      toastError('Could not load your tasks for this date.');
+    } finally {
+      setFilling(false);
+    }
+  };
 
   const handleEditorSubmit = (html) => {
     if (!reportDate) {
@@ -3415,9 +3510,20 @@ function EodModal({ onClose, onSave, members = [] }) {
               onChange={(e) => setReportDate(e.target.value)}
             />
           </label>
-          <div className="it-updates-eod-field">
+          <button
+            type="button"
+            className="it-updates-btn it-updates-btn-secondary it-updates-eod-fill"
+            onClick={fillFromTasks}
+            disabled={filling}
+          >
+            <MdChecklist size={16} />
+            {filling ? 'Loading your tasks…' : 'Fill from my tasks'}
+          </button>
+          <div className="it-updates-eod-field" onInput={() => setTyped(true)}>
             <span className="it-updates-eod-field-label">Work summary (How much completed?) *</span>
             <CommentEditor
+              key={prefill.key}
+              initialHtml={prefill.html}
               members={members}
               placeholder="Write your end-of-day summary. Type @ to mention someone."
               submitLabel="Submit EOD"

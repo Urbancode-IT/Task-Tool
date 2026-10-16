@@ -175,6 +175,27 @@ function mergeTaskReviewTransition(existing, incomingBody, reqUser) {
   return body;
 }
 
+/**
+ * Revisions feed the performance score: a Review → Rework return, and any move of the
+ * due date to a later day, are each logged once. Setting a first due date, or pulling
+ * one earlier, is not a revision.
+ */
+async function recordTaskRevisions(existing, incoming, team, changedBy) {
+  if (!existing || !incoming) return;
+  const assignedTo = existing.assigned_to ?? null;
+  if (existing.status === 'review' && incoming.status === 'rework') {
+    await db.dbLogTaskRevision({ team, taskId: existing.id, kind: 'rework', assignedTo, changedBy });
+  }
+  const rawNew = incoming.dueDate !== undefined ? incoming.dueDate : incoming.due_date;
+  if (rawNew === undefined) return;
+  const oldDue = existing.dueDate ? String(existing.dueDate).slice(0, 10) : null;
+  const newDue = rawNew ? String(rawNew).slice(0, 10) : null;
+  // ISO yyyy-mm-dd strings compare correctly as text.
+  if (oldDue && newDue && newDue > oldDue) {
+    await db.dbLogTaskRevision({ team, taskId: existing.id, kind: 'due_extension', oldDue, newDue, assignedTo, changedBy });
+  }
+}
+
 /** Legal & Finance tasks: admins, or users with the Legal & Finance RBAC role (legal_finance.view / manage). */
 function requireLegalFinanceAccess(req, res) {
   const perms = req.user?.permissions || [];
@@ -1190,6 +1211,9 @@ app.put(`${BASE_PATH}/tasks/:taskId`, async (req, res) => {
       const body = mergeTaskReviewTransition(existing, { ...req.body, team }, req.user);
       const task = await db.dbUpdateTask(taskId, body);
       if (!task) return res.status(404).json({ message: 'Task not found' });
+      recordTaskRevisions(existing, req.body, existing?.team || team, req.user?.id).catch((e) =>
+        console.error('recordTaskRevisions:', e.message)
+      );
       return res.json(task);
     }
     const idx = tasks.findIndex((t) => t.id === taskId);
@@ -1461,6 +1485,22 @@ app.get(`${BASE_PATH}/team-overview`, async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: 'Failed to fetch team overview' });
+  }
+});
+
+// Pre-fill for the EOD form: the signed-in member's task activity on one day. Always
+// the caller's own data — the user id comes from the session, never the query.
+app.get(`${BASE_PATH}/eod-summary`, async (req, res) => {
+  try {
+    const date = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.date || '')) ? req.query.date : null;
+    if (!date) return res.status(400).json({ message: 'A report date (yyyy-mm-dd) is required.' });
+    if (!db.useDb() || req.user?.id == null) return res.json({ date, completed: [], worked: [], created: [], open: [] });
+    const team = req.query.team || 'it';
+    if (isLegalFinanceTeamString(team) && !requireLegalFinanceAccess(req, res)) return;
+    res.json(await db.dbGetEodSummary(req.user.id, date, team));
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Failed to build the EOD summary' });
   }
 });
 
@@ -2764,6 +2804,29 @@ app.put(`${ADMIN_PATH}/users/:userId/roles`, async (req, res) => {
     res.status(500).json({ message: 'Failed to update user roles' });
   }
 });
+
+// How much time each member recorded, and what against. Admin-only by virtue of the
+// ADMIN_PATH guard above.
+app.get(`${ADMIN_PATH}/time-report`, asyncMw(async (req, res) => {
+  if (!db.useDb()) return res.json({ members: [], total_seconds: 0 });
+  const report = await db.dbGetTimeReport({
+    from: req.query?.from || undefined,
+    to: req.query?.to || undefined,
+    team: req.query?.team || undefined,
+  });
+  res.json(report);
+}));
+
+// Efficiency scores for Performance Metrics. Admin-only by virtue of the ADMIN_PATH guard.
+app.get(`${ADMIN_PATH}/performance-report`, asyncMw(async (req, res) => {
+  if (!db.useDb()) return res.json({ members: [] });
+  const report = await db.dbGetPerformanceReport({
+    from: req.query?.from || undefined,
+    to: req.query?.to || undefined,
+    team: req.query?.team || undefined,
+  });
+  res.json(report);
+}));
 
 // Task deletion log. Admin-only by virtue of the ADMIN_PATH guard above.
 app.get(`${ADMIN_PATH}/task-delete-log`, asyncMw(async (req, res) => {

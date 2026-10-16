@@ -19,6 +19,8 @@ const adminApi = {
     apiClient.put(`${ADMIN_PATH}/users/${userId}/roles`, { role_ids: roleIds }),
   getAuditLog: (params = {}) => apiClient.get(`${ADMIN_PATH}/audit-log`, { params }),
   getTaskDeleteLog: (params = {}) => apiClient.get(`${ADMIN_PATH}/task-delete-log`, { params }),
+  getTimeReport: (params = {}) => apiClient.get(`${ADMIN_PATH}/time-report`, { params }),
+  getPerformanceReport: (params = {}) => apiClient.get(`${ADMIN_PATH}/performance-report`, { params }),
   createAuditEntry: (data) => apiClient.post(`${ADMIN_PATH}/audit-log`, data),
   getLockedUsers: () => apiClient.get(`${ADMIN_PATH}/locked-users`),
   unlockUserEod: (userId) => apiClient.post(`${ADMIN_PATH}/users/${userId}/eod-unlock`),

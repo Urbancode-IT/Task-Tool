@@ -720,6 +720,29 @@ export async function dbEnsureTables() {
     console.warn('dbEnsureTables: task_delete_log failed:', err.message);
   }
 
+  // Task revisions, for the performance score: one row each time a reviewer sends a
+  // task back to Rework, or someone moves its due date later. The first extension's
+  // old_due_date is the task's original due date, which lateness is measured against.
+  // No FK to the task tables: tasks live in one table per team.
+  try {
+    await p.query(`
+      CREATE TABLE IF NOT EXISTS task_revision_log (
+        log_id SERIAL PRIMARY KEY,
+        team VARCHAR(40) NOT NULL,
+        task_id INT NOT NULL,
+        kind VARCHAR(20) NOT NULL,
+        old_due_date DATE,
+        new_due_date DATE,
+        assigned_to INT,
+        changed_by INT REFERENCES users(user_id) ON DELETE SET NULL,
+        created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+    await p.query('CREATE INDEX IF NOT EXISTS idx_task_revision_log_task ON task_revision_log(team, task_id);');
+  } catch (err) {
+    console.warn('dbEnsureTables: task_revision_log failed:', err.message);
+  }
+
   // Per-requirement time tracking (start/pause/resume timer).
   for (const tbl of [
     'it_task_requirements',
@@ -3797,6 +3820,347 @@ export async function dbAddRequirementManualTime(reqId, { fromTime, toTime }, ta
 }
 
 const EMPTY_TASK_STATS = { total: 0, completed: 0, in_progress: 0, todo: 0, review: 0, overdue: 0 };
+/**
+ * Time report for the whole team, for the management console.
+ *
+ * Reads requirement_time_logs, which is where both the running timer and a manual
+ * entry end up, so it reflects the time people actually recorded rather than an
+ * estimate. Returns one row per member — total time, days worked, tasks touched —
+ * and, for each, what that time went on: the projects and the individual tasks.
+ *
+ * Task titles live in a different table per team, so the titles are resolved per team
+ * afterwards rather than with a union across all of them.
+ */
+export async function dbGetTimeReport({ from, to, team = null, limitTasks = 8 } = {}) {
+  const p = getPool();
+  const empty = { from, to, team, total_seconds: 0, members: [] };
+  if (!p) return empty;
+
+  const params = [from || '0001-01-01', to || '9999-12-31'];
+  let where = 'l.work_date BETWEEN $1 AND $2';
+  if (team) {
+    params.push(resolveTeamFromInput(team));
+    where += ` AND COALESCE(l.team, 'it') = $${params.length}`;
+  }
+
+  try {
+    const { rows: memberRows } = await p.query(
+      `SELECT l.user_id,
+              COALESCE(u.username, u.email, 'Unknown') AS username,
+              u.profile_image,
+              SUM(l.seconds)::int AS seconds,
+              COUNT(DISTINCT l.work_date)::int AS days,
+              COUNT(DISTINCT (COALESCE(l.team, 'it') || ':' || COALESCE(l.task_id, 0)))::int AS task_count
+       FROM requirement_time_logs l
+       LEFT JOIN users u ON u.user_id = l.user_id
+       WHERE ${where}
+       GROUP BY l.user_id, u.username, u.email, u.profile_image
+       ORDER BY seconds DESC`,
+      params
+    );
+    if (!memberRows.length) return empty;
+
+    const { rows: taskRows } = await p.query(
+      `SELECT l.user_id, COALESCE(l.team, 'it') AS team, l.task_id, SUM(l.seconds)::int AS seconds
+       FROM requirement_time_logs l
+       WHERE ${where}
+       GROUP BY l.user_id, COALESCE(l.team, 'it'), l.task_id
+       ORDER BY seconds DESC`,
+      params
+    );
+
+    // One lookup per team present, rather than a union over every task table.
+    const titles = new Map(); // "team:task_id" -> { title, project_name }
+    const byTeam = new Map();
+    taskRows.forEach((r) => {
+      if (r.task_id == null) return;
+      if (!byTeam.has(r.team)) byTeam.set(r.team, new Set());
+      byTeam.get(r.team).add(Number(r.task_id));
+    });
+    for (const [teamKey, ids] of byTeam) {
+      const table = taskTableForTeam(resolveTeamFromInput(teamKey));
+      const idList = [...ids];
+      if (!idList.length) continue;
+      try {
+        const hasProject = teamKey === 'it' || teamKey === 'consultant';
+        const { rows } = await p.query(
+          `SELECT t.task_id, t.task_title${hasProject ? ', pr.project_name' : ''}
+           FROM ${table} t
+           ${hasProject ? 'LEFT JOIN it_projects pr ON pr.project_id = t.project_id' : ''}
+           WHERE t.task_id = ANY($1)`,
+          [idList]
+        );
+        rows.forEach((r) => {
+          titles.set(`${teamKey}:${r.task_id}`, {
+            title: r.task_title || 'Untitled task',
+            project_name: r.project_name || null,
+          });
+        });
+      } catch (err) {
+        // A team whose table is absent simply contributes no titles.
+        console.warn('dbGetTimeReport: titles for', teamKey, err.message);
+      }
+    }
+
+    const perUser = new Map();
+    taskRows.forEach((r) => {
+      const key = String(r.user_id);
+      if (!perUser.has(key)) perUser.set(key, { tasks: [], projects: new Map() });
+      const bucket = perUser.get(key);
+      const meta = titles.get(`${r.team}:${r.task_id}`) || {};
+      const seconds = Number(r.seconds || 0);
+      bucket.tasks.push({
+        task_id: r.task_id,
+        team: r.team,
+        title: meta.title || (r.task_id ? `Task #${r.task_id}` : 'Unassigned time'),
+        project_name: meta.project_name || null,
+        seconds,
+      });
+      const projectKey = meta.project_name || 'No project';
+      bucket.projects.set(projectKey, (bucket.projects.get(projectKey) || 0) + seconds);
+    });
+
+    const members = memberRows.map((m) => {
+      const bucket = perUser.get(String(m.user_id)) || { tasks: [], projects: new Map() };
+      return {
+        user_id: m.user_id,
+        username: m.username,
+        profile_image: avatarUrlFor(m.user_id, m.profile_image),
+        seconds: Number(m.seconds || 0),
+        days: Number(m.days || 0),
+        task_count: Number(m.task_count || 0),
+        projects: [...bucket.projects.entries()]
+          .map(([project_name, seconds]) => ({ project_name, seconds }))
+          .sort((a, b) => b.seconds - a.seconds),
+        tasks: bucket.tasks.sort((a, b) => b.seconds - a.seconds).slice(0, limitTasks),
+      };
+    });
+
+    return {
+      from,
+      to,
+      team,
+      total_seconds: members.reduce((s, m) => s + m.seconds, 0),
+      members,
+    };
+  } catch (err) {
+    console.error('dbGetTimeReport:', err.message);
+    return empty;
+  }
+}
+
+/**
+ * What a member did on one day in one module, for pre-filling their EOD report:
+ * tasks completed that day, tasks and subtasks they logged time on, tasks they
+ * created, and their tasks still open (overdue first). Days are IST calendar days.
+ */
+export async function dbGetEodSummary(userId, date, teamInput = 'it') {
+  const p = getPool();
+  const team = resolveTeamFromInput(teamInput);
+  const empty = { date, team, completed: [], worked: [], created: [], open: [] };
+  const uid = parseInt(String(userId), 10);
+  if (!p || !Number.isFinite(uid)) return empty;
+  const table = taskTableForTeam(team);
+  const reqTable = reqTableForTeam(team);
+  const notCrm = team === 'it' ? 'AND COALESCE(t.is_crm, false) = false' : '';
+  const istDay = (col) => `(${col} AT TIME ZONE 'Asia/Kolkata')::date`;
+  // The EOD groups its lines under project names, so every row carries its project.
+  const pick = `t.task_id, t.task_title, t.status, to_char(t.due_date, 'YYYY-MM-DD') AS due_date,
+    (SELECT pr.project_name FROM it_projects pr WHERE pr.project_id = t.project_id) AS project_name`;
+
+  try {
+    const [completed, created, open, logs] = await Promise.all([
+      p.query(
+        `SELECT ${pick} FROM ${table} t
+         WHERE t.assigned_to = $1 AND t.status = 'completed' AND ${istDay('t.completed_at')} = $2 ${notCrm}
+         ORDER BY t.completed_at`,
+        [uid, date]
+      ),
+      p.query(
+        `SELECT ${pick} FROM ${table} t
+         WHERE COALESCE(t.created_by, t.assigned_by) = $1 AND ${istDay('t.created_at')} = $2 ${notCrm}
+         ORDER BY t.created_at`,
+        [uid, date]
+      ),
+      p.query(
+        `SELECT ${pick} FROM ${table} t
+         WHERE t.assigned_to = $1 AND t.status <> 'completed' ${notCrm}
+         ORDER BY (t.due_date IS NULL), t.due_date, t.task_id
+         LIMIT 15`,
+        [uid]
+      ),
+      p.query(
+        `SELECT l.task_id, l.requirement_id, SUM(l.seconds)::int AS seconds
+         FROM requirement_time_logs l
+         WHERE l.user_id = $1 AND l.work_date = $2 AND COALESCE(l.team, 'it') = $3
+         GROUP BY l.task_id, l.requirement_id`,
+        [uid, date, team]
+      ),
+    ]);
+
+    // Time logged is per subtask; roll it up to the task and keep the subtask names.
+    const worked = [];
+    const logRows = logs.rows.filter((r) => r.task_id != null);
+    if (logRows.length) {
+      const taskIds = [...new Set(logRows.map((r) => Number(r.task_id)))];
+      const reqIds = [...new Set(logRows.map((r) => Number(r.requirement_id)))];
+      const [tasks, reqs] = await Promise.all([
+        p.query(`SELECT ${pick} FROM ${table} t WHERE t.task_id = ANY($1)`, [taskIds]),
+        p.query(`SELECT requirement_id, title FROM ${reqTable} WHERE requirement_id = ANY($1)`, [reqIds]),
+      ]);
+      const reqTitle = new Map(reqs.rows.map((r) => [Number(r.requirement_id), r.title]));
+      for (const t of tasks.rows) {
+        const mine = logRows.filter((r) => Number(r.task_id) === Number(t.task_id));
+        worked.push({
+          ...t,
+          seconds: mine.reduce((s, r) => s + Number(r.seconds || 0), 0),
+          subtasks: mine.map((r) => reqTitle.get(Number(r.requirement_id))).filter(Boolean),
+        });
+      }
+      worked.sort((a, b) => b.seconds - a.seconds);
+    }
+
+    return { date, team, completed: completed.rows, worked, created: created.rows, open: open.rows };
+  } catch (err) {
+    console.error('dbGetEodSummary:', err.message);
+    return empty;
+  }
+}
+
+/** Record one task revision ('rework' or 'due_extension') for the performance score. */
+export async function dbLogTaskRevision({ team, taskId, kind, oldDue = null, newDue = null, assignedTo = null, changedBy = null }) {
+  const p = getPool();
+  if (!p) return;
+  const id = parseInt(String(taskId), 10);
+  if (!Number.isFinite(id)) return;
+  await p.query(
+    `INSERT INTO task_revision_log (team, task_id, kind, old_due_date, new_due_date, assigned_to, changed_by)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+    [resolveTeamFromInput(team), id, kind, oldDue, newDue, assignedTo ?? null, changedBy ?? null]
+  );
+}
+
+// Performance score per completed task: start at 100, lose REVISION_PENALTY for every
+// revision after the first (Rework returns plus due-date extensions) and
+// LATE_DAY_PENALTY for every day it finished after its ORIGINAL due date. Floor 0.
+export const PERFORMANCE_RULES = { start: 100, revisionPenalty: 10, freeRevisions: 1, lateDayPenalty: 5 };
+const PERFORMANCE_TEAMS = ['it', 'consultant', 'creative_team', 'social_media', 'legal_finance', 'director'];
+
+const ymdDiffDays = (a, b) => Math.round((Date.parse(`${a}T00:00:00Z`) - Date.parse(`${b}T00:00:00Z`)) / 86400000);
+
+export function scoreTask({ reworkCount = 0, extensionCount = 0, daysLate = 0 }) {
+  const r = PERFORMANCE_RULES;
+  const revisions = reworkCount + extensionCount;
+  const score = r.start - r.revisionPenalty * Math.max(0, revisions - r.freeRevisions) - r.lateDayPenalty * Math.max(0, daysLate);
+  return Math.max(0, score);
+}
+
+/**
+ * Efficiency report: every task completed between `from` and `to` (IST calendar
+ * days), scored with scoreTask, averaged per assignee. Client CRM leads are left out.
+ */
+export async function dbGetPerformanceReport({ from, to, team = null, limitTasks = 10 } = {}) {
+  const p = getPool();
+  const empty = { from, to, team, rules: PERFORMANCE_RULES, members: [] };
+  if (!p) return empty;
+  const teams = team ? [resolveTeamFromInput(team)] : PERFORMANCE_TEAMS;
+  const range = [from || '0001-01-01', to || '9999-12-31'];
+
+  const done = [];
+  for (const teamKey of teams) {
+    const table = taskTableForTeam(teamKey);
+    try {
+      const { rows } = await p.query(
+        `SELECT t.task_id, t.task_title, t.assigned_to, t.due_date,
+                to_char((t.completed_at AT TIME ZONE 'Asia/Kolkata')::date, 'YYYY-MM-DD') AS completed_on,
+                COALESCE(u.username, u.email, 'Unknown') AS username, u.profile_image
+         FROM ${table} t
+         LEFT JOIN users u ON u.user_id = t.assigned_to
+         WHERE t.status = 'completed' AND t.completed_at IS NOT NULL AND t.assigned_to IS NOT NULL
+           AND (t.completed_at AT TIME ZONE 'Asia/Kolkata')::date BETWEEN $1 AND $2
+           ${teamKey === 'it' ? 'AND COALESCE(t.is_crm, false) = false' : ''}`,
+        range
+      );
+      rows.forEach((r) => done.push({ ...r, team: teamKey }));
+    } catch (err) {
+      // A team whose table is absent simply contributes nothing.
+      console.warn('dbGetPerformanceReport:', teamKey, err.message);
+    }
+  }
+  if (!done.length) return empty;
+
+  const revisions = new Map(); // "team:task_id" -> { rework, extension, originalDue }
+  try {
+    const { rows } = await p.query(
+      `SELECT team, task_id,
+              COUNT(*) FILTER (WHERE kind = 'rework')::int AS rework_count,
+              COUNT(*) FILTER (WHERE kind = 'due_extension')::int AS extension_count,
+              (ARRAY_AGG(to_char(old_due_date, 'YYYY-MM-DD') ORDER BY created_at, log_id)
+                 FILTER (WHERE kind = 'due_extension' AND old_due_date IS NOT NULL))[1] AS original_due
+       FROM task_revision_log
+       WHERE task_id = ANY($1)
+       GROUP BY team, task_id`,
+      [[...new Set(done.map((d) => Number(d.task_id)))]]
+    );
+    rows.forEach((r) => revisions.set(`${r.team}:${r.task_id}`, r));
+  } catch (err) {
+    console.warn('dbGetPerformanceReport: revisions', err.message);
+  }
+
+  const byUser = new Map();
+  for (const d of done) {
+    const rev = revisions.get(`${d.team}:${d.task_id}`) || {};
+    const reworkCount = Number(rev.rework_count || 0);
+    const extensionCount = Number(rev.extension_count || 0);
+    const originalDue = rev.original_due || d.due_date || null;
+    const daysLate = originalDue && d.completed_on ? Math.max(0, ymdDiffDays(d.completed_on, originalDue)) : 0;
+    const score = scoreTask({ reworkCount, extensionCount, daysLate });
+
+    const key = String(d.assigned_to);
+    if (!byUser.has(key)) {
+      byUser.set(key, {
+        user_id: d.assigned_to,
+        username: d.username,
+        profile_image: avatarUrlFor(d.assigned_to, d.profile_image),
+        tasks: [],
+      });
+    }
+    byUser.get(key).tasks.push({
+      task_id: d.task_id,
+      team: d.team,
+      title: d.task_title || 'Untitled task',
+      original_due: originalDue,
+      due_date: d.due_date || null,
+      completed_on: d.completed_on,
+      rework_count: reworkCount,
+      extension_count: extensionCount,
+      days_late: daysLate,
+      score,
+    });
+  }
+
+  const members = [...byUser.values()].map((m) => {
+    const n = m.tasks.length;
+    const sum = (f) => m.tasks.reduce((s, t) => s + f(t), 0);
+    return {
+      user_id: m.user_id,
+      username: m.username,
+      profile_image: m.profile_image,
+      completed: n,
+      on_time: m.tasks.filter((t) => t.days_late === 0).length,
+      rework_count: sum((t) => t.rework_count),
+      extension_count: sum((t) => t.extension_count),
+      days_late: sum((t) => t.days_late),
+      score: Math.round(sum((t) => t.score) / n),
+      // Weakest first, so the tasks that cost points are the ones listed.
+      tasks: m.tasks.sort((a, b) => a.score - b.score).slice(0, limitTasks),
+    };
+  });
+  members.sort((a, b) => b.score - a.score || b.completed - a.completed);
+
+  return { from, to, team, rules: PERFORMANCE_RULES, members };
+}
+
 const EMPTY_DASHBOARD = { daily: [], byProject: [], projects: [], leaves: [], totalSeconds: 0, taskStats: { ...EMPTY_TASK_STATS } };
 
 /**

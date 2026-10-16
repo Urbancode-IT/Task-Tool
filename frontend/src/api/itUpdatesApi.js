@@ -8,6 +8,9 @@ const withTeamParam = (data = {}, params = {}) => {
 };
 
 const itUpdatesApi = {
+  // The signed-in member's task activity on one day, for pre-filling the EOD form.
+  getEodSummary: (date, team) => apiClient.get(`${BASE_PATH}/eod-summary`, { params: { date, team } }),
+
   // type: 'internal' | 'external' (optional) to scope to a project sector.
   getProjects: (status, type) => {
     const params = {};

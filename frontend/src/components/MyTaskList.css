@@ -1,0 +1,309 @@
+/* "My Tasks" list view (see MyTaskList.jsx): one compact row per task, Jira style. */
+
+.mtl {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.mtl-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--clr-slate-200);
+  border-radius: var(--radius-lg);
+  background: #fff;
+  overflow: hidden;
+}
+
+.mtl-row,
+.mtl-create {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-height: 3rem;
+  padding: 0.35rem 1rem;
+}
+
+.mtl-row {
+  border-bottom: 1px solid var(--clr-slate-100);
+  cursor: pointer;
+  transition: background var(--transition-base, 0.15s);
+}
+
+.mtl-row:last-child {
+  border-bottom: none;
+}
+
+.mtl-row:hover {
+  background: var(--clr-slate-50);
+}
+
+.mtl-type {
+  display: inline-flex;
+  flex: none;
+  color: var(--clr-primary-500, #2563eb);
+}
+
+.mtl-type-overdue {
+  color: #ef4444;
+}
+
+.mtl-key {
+  flex: none;
+  min-width: 4.5rem;
+  color: var(--clr-slate-500);
+  font-size: 0.82rem;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+.mtl-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--clr-slate-800);
+  font-size: 0.9rem;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.mtl-row-done .mtl-title {
+  color: var(--clr-slate-400);
+  text-decoration: line-through;
+}
+
+.mtl-project {
+  flex: 0 1 auto;
+  max-width: 10rem;
+  overflow: hidden;
+  padding: 0.1rem 0.5rem;
+  border-radius: 999px;
+  background: var(--clr-slate-100);
+  color: var(--clr-slate-600);
+  font-size: 0.72rem;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* Status pill: a native <select> styled as a lozenge in the status colour. */
+.mtl-status {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  border: 1px solid color-mix(in srgb, var(--mtl-status) 45%, transparent);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--mtl-status) 12%, #fff);
+  color: color-mix(in srgb, var(--mtl-status) 75%, #0f172a);
+}
+
+.mtl-status select {
+  appearance: none;
+  -webkit-appearance: none;
+  min-width: 6.5rem;
+  max-width: 10rem;
+  padding: 0.22rem 1.5rem 0.22rem 0.55rem;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.mtl-status select:focus {
+  outline: none;
+}
+
+.mtl-status:focus-within {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--mtl-status) 35%, transparent);
+}
+
+.mtl-status svg {
+  position: absolute;
+  right: 0.35rem;
+  pointer-events: none;
+}
+
+/* Due date chip; the real <input type="date"> sits hidden beneath it. */
+.mtl-due-wrap {
+  position: relative;
+  flex: none;
+}
+
+.mtl-due {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  width: 6.6rem;
+  padding: 0.25rem 0.5rem;
+  border: 1px solid var(--clr-slate-200);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--clr-slate-700);
+  font: inherit;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.mtl-due:hover {
+  border-color: var(--clr-slate-300);
+}
+
+.mtl-due-empty {
+  color: var(--clr-slate-400);
+}
+
+.mtl-due-overdue {
+  border-color: #fecaca;
+  background: #fef2f2;
+  color: #b91c1c;
+}
+
+.mtl-due-input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* Priority: a small coloured select. */
+.mtl-priority {
+  flex: none;
+}
+
+.mtl-priority select {
+  width: 4.9rem;
+  padding: 0.2rem 0.3rem;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--mtl-priority) 14%, #fff);
+  color: var(--mtl-priority);
+  font: inherit;
+  font-size: 0.74rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.mtl-priority select:focus {
+  outline: none;
+  border-color: var(--mtl-priority);
+}
+
+.mtl-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: 50%;
+  background: var(--clr-slate-200);
+  color: var(--clr-slate-600);
+  font-size: 0.75rem;
+  font-weight: 700;
+  object-fit: cover;
+}
+
+.mtl-empty {
+  padding: 1.5rem 1rem;
+  border: 1px dashed var(--clr-slate-200);
+  border-radius: var(--radius-lg);
+  color: var(--clr-slate-400);
+  font-size: 0.86rem;
+  text-align: center;
+}
+
+/* ── Create ── */
+.mtl-create-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  align-self: flex-start;
+  padding: 0.4rem 0.6rem;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--clr-slate-600);
+  font: inherit;
+  font-size: 0.88rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.mtl-create-trigger:hover {
+  background: var(--clr-slate-100);
+  color: var(--clr-slate-800);
+}
+
+.mtl-create {
+  border: 2px solid var(--clr-primary-400, #337bd4);
+  border-radius: var(--radius-lg);
+  background: #fff;
+}
+
+.mtl-create-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 0.3rem 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--clr-slate-800);
+  font: inherit;
+  font-size: 0.9rem;
+}
+
+.mtl-create-project {
+  flex: 0 1 12rem;
+  min-width: 0;
+  padding: 0.25rem 0.4rem;
+  border: 1px solid var(--clr-slate-200);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--clr-slate-700);
+  font: inherit;
+  font-size: 0.8rem;
+}
+
+.mtl-create-submit {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  flex: none;
+  padding: 0.35rem 0.75rem;
+  border: none;
+  border-radius: 6px;
+  background: var(--clr-primary-600, #0054c4);
+  color: #fff;
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.mtl-create-submit:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Narrow screens: drop the secondary columns so the title keeps its room. */
+@media (max-width: 760px) {
+  .mtl-row,
+  .mtl-create {
+    gap: 0.5rem;
+    padding: 0.35rem 0.6rem;
+  }
+  .mtl-key,
+  .mtl-project,
+  .mtl-priority,
+  .mtl-row .mtl-avatar {
+    display: none;
+  }
+  .mtl-status select {
+    min-width: 0;
+  }
+}
