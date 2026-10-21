@@ -451,7 +451,33 @@ function cleanProduction(value) {
     demo_image_name: text('demo_image_name', 255),
     demo_image: imageData(source.demo_image),
     post_links: postLinks(source.post_links),
+    drive_files: sanitizeDriveFiles(source.drive_files),
+    drive_folder_url: httpOrEmpty(source.drive_folder_url),
   };
+}
+
+function httpOrEmpty(value) {
+  const url = cleanText(value, 2000);
+  return url && isHttpUrl(url) ? url : '';
+}
+
+export function sanitizeDriveFiles(value) {
+  if (!Array.isArray(value)) return [];
+  return value.slice(0, 40).map((file) => {
+    const id = String(file?.id || '').trim();
+    if (!/^[A-Za-z0-9_-]{8,}$/.test(id)) return null;
+    const kind = ['image', 'poster', 'reference', 'rework', 'others', 'final'].includes(file?.kind) ? file.kind : 'others';
+    const url = httpOrEmpty(file?.url);
+    const stage = [...PIPELINE_STAGES, ...POSTING_CHANNELS].includes(file?.stage) ? file.stage : '';
+    return {
+      id,
+      name: cleanText(file?.name, 180),
+      kind,
+      mime: cleanText(file?.mime, 80),
+      url,
+      ...(stage ? { stage } : {}),
+    };
+  }).filter(Boolean);
 }
 
 function postLinks(value) {
@@ -677,9 +703,15 @@ export async function dbUpdateContentTask(taskId, body) {
   for (const [key, column] of Object.entries(EDITABLE)) {
     if (!Object.prototype.hasOwnProperty.call(body, key)) continue;
     if (sets.some((part) => part.startsWith(`${column} =`))) continue;
-    const value = column === 'content_type'
+    let value = column === 'content_type'
       ? await assertContentType(body[key], { allowEmpty: true })
       : normalizeField(column, body[key]);
+    if (column === 'production_meta') {
+      const cleaned = JSON.parse(value);
+      cleaned.drive_files = sanitizeDriveFiles(existing.production?.drive_files);
+      cleaned.drive_folder_url = httpOrEmpty(existing.production?.drive_folder_url);
+      value = JSON.stringify(cleaned);
+    }
     if (column === 'platforms' || column === 'production_meta') {
       sets.push(`${column} = $${i++}::jsonb`);
     } else {
@@ -833,7 +865,7 @@ export function planContentTransition(task, action, input = {}, { canManage = fa
       patch.assigned_to = null;
       patch.pipeline_stage = 'final_approval';
       patch.workflow_status = 'pending';
-      return { patch, event: { ...eventBase('final_approval', 'pending'), action: 'save_to_drive' } };
+      return { patch, event: eventBase('final_approval', 'pending') };
     }
     case 'save_to_drive': {
       if (stage !== 'save_to_drive') throw new ContentError(400, 'A Drive link is added in Save to Drive.');
@@ -986,4 +1018,48 @@ export async function dbTransitionContentTask(taskId, action, input, actor) {
     client.release();
   }
   return dbGetContentTask(existing.task_id);
+}
+
+async function writeDriveFiles(task, files, folderUrl) {
+  const p = getPool();
+  const production = {
+    ...(task.production || {}),
+    drive_files: sanitizeDriveFiles(files),
+    drive_folder_url: httpOrEmpty(folderUrl || task.production?.drive_folder_url),
+  };
+  await p.query(
+    `UPDATE social_media_tasks
+     SET production_meta = $2::jsonb,
+         drive_url = COALESCE(NULLIF(btrim(drive_url), ''), $3),
+         updated_at = CURRENT_TIMESTAMP
+     WHERE task_id = $1`,
+    [task.task_id, JSON.stringify(production), production.drive_folder_url || null]
+  );
+  return dbGetContentTask(task.task_id);
+}
+
+export async function dbAddContentDriveFile(taskId, file, folderUrl) {
+  const task = await dbGetContentTask(taskId);
+  if (!task) throw new ContentError(404, 'Content task not found.');
+  const files = [...sanitizeDriveFiles(task.production?.drive_files), file];
+  return writeDriveFiles(task, files, folderUrl);
+}
+
+export async function dbRemoveContentDriveFile(taskId, fileId) {
+  const task = await dbGetContentTask(taskId);
+  if (!task) throw new ContentError(404, 'Content task not found.');
+  const files = sanitizeDriveFiles(task.production?.drive_files);
+  const kept = files.filter((file) => file.id !== fileId);
+  if (kept.length === files.length) throw new ContentError(404, 'That file is not on this task.');
+  const stillPointsAtFolder = task.drive_url && task.drive_url === httpOrEmpty(task.production?.drive_folder_url);
+  const updated = await writeDriveFiles(task, kept, task.production?.drive_folder_url);
+  if (!kept.length && stillPointsAtFolder) {
+    const p = getPool();
+    await p.query(
+      `UPDATE social_media_tasks SET drive_url = NULL, updated_at = CURRENT_TIMESTAMP WHERE task_id = $1`,
+      [task.task_id]
+    );
+    return dbGetContentTask(task.task_id);
+  }
+  return updated;
 }

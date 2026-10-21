@@ -3,7 +3,6 @@ export const STAGES = [
   { key: 'content_generation', label: 'Content', color: '#F59E0B', short: 'Content' },
   { key: 'content_approval', label: 'Content Approval', color: '#EC4899', short: 'Approve' },
   { key: 'designing_editing', label: 'Designing / Editing', color: '#8B5CF6', short: 'Design' },
-  { key: 'save_to_drive', label: 'Save to Drive', color: '#14B8A6', short: 'Drive' },
   { key: 'final_approval', label: 'Final Approval', color: '#F43F5E', short: 'Final' },
   { key: 'ready_to_post', label: 'Ready to Post', color: '#0EA5E9', short: 'Post' },
   { key: 'published', label: 'Published', color: '#22C55E', short: 'Live' },
@@ -165,7 +164,7 @@ export const ACTION_LABELS = {
   reject_content: 'Sent for rework',
   revise_content: 'Sent for rework',
   start_design: 'Design started',
-  complete_design: 'Design handed to Drive',
+  complete_design: 'Sent for final approval',
   save_to_drive: 'Drive link saved',
   approve_final: 'Final approval granted',
   reject_final: 'Sent back for rework',
@@ -181,6 +180,9 @@ export function stageMeta(key) {
   const channel = channelMeta(key);
   if (channel) {
     return { key: channel.value, label: channel.label, color: channel.color, short: channel.label };
+  }
+  if (key === 'save_to_drive') {
+    return { key, label: 'Save to Drive', color: '#14B8A6', short: 'Drive' };
   }
   return STAGES.find((stage) => stage.key === key) || STAGES[0];
 }
@@ -336,12 +338,10 @@ export function actionsFor(task, canManage, userId = null) {
     items.push({ action: 'revise_content', label: 'Needs Rework', manage: true, feedback: true, danger: true });
   } else if (stage === 'designing_editing') {
     if (canDoAssignedWork && status === 'in_progress') {
-      items.push({ action: 'complete_design', label: 'Save Drive link', primary: true });
+      items.push({ action: 'complete_design', label: 'Send for approval', primary: true });
     } else if (canDoAssignedWork) {
       items.push({ action: 'start_design', label: 'Start designing', primary: true });
     }
-  } else if (stage === 'save_to_drive') {
-    if (canDoAssignedWork) items.push({ action: 'save_to_drive', label: 'Save Drive link', primary: true });
   } else if (stage === 'final_approval') {
     items.push({ action: 'approve_final', label: 'Approve', primary: true, manage: true });
     items.push({ action: 'revise_final', label: 'Needs Rework', manage: true, feedback: true, danger: true });

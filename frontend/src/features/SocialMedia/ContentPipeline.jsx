@@ -453,28 +453,268 @@ function FilterSearch({
   );
 }
 
-function ContentSheetForm({ task, updateField, updateProduction }) {
-  const production = task.production || {};
-  const [imageError, setImageError] = useState('');
+function isPreviewImage(file) {
+  return String(file?.mime || '').startsWith('image/') || /\.(png|jpe?g|gif|webp)$/i.test(file?.name || '');
+}
 
-  const onImage = (file) => {
-    setImageError('');
-    if (!file) return;
-    if (!String(file.type || '').startsWith('image/')) {
-      setImageError('Choose an image file.');
-      return;
+function isPreviewVideo(file) {
+  return String(file?.mime || '').startsWith('video/') || /\.(mp4|webm|mov|m4v)$/i.test(file?.name || '');
+}
+
+function DriveFilePreview({ taskId, file, localUrl }) {
+  const image = isPreviewImage(file);
+  const video = !image && isPreviewVideo(file);
+  const [src, setSrc] = useState(localUrl || '');
+
+  useEffect(() => {
+    if (localUrl) {
+      setSrc(localUrl);
+      return undefined;
     }
-    if (file.size > 1500000) {
-      setImageError('Use an image smaller than 1.5 MB.');
-      return;
-    }
-    const reader = new FileReader();
-    reader.onload = () => {
-      updateProduction('demo_image', String(reader.result || ''));
-      updateProduction('demo_image_name', file.name);
+    if (!image && !video) return undefined;
+    let url = '';
+    let active = true;
+    itUpdatesApi.getSocialContentFile(taskId, file.id)
+      .then((res) => {
+        url = URL.createObjectURL(res.data);
+        if (active) setSrc(url);
+      })
+      .catch(() => {
+        if (active) setSrc('');
+      });
+    return () => {
+      active = false;
+      if (url) URL.revokeObjectURL(url);
     };
-    reader.readAsDataURL(file);
+  }, [taskId, file.id, image, video, localUrl]);
+
+  if (!image && !video) return null;
+  if (!src) return <span className="smc-drive-file-wait">…</span>;
+  if (video) return <video className="smc-drive-preview" src={src} muted playsInline />;
+  return <img className="smc-drive-preview" src={src} alt="" />;
+}
+
+function fileLabel(file, onlyStage) {
+  if (onlyStage === 'designing_editing' || file?.kind === 'final') return 'Design';
+  if (file?.kind === 'reference') return 'Reference';
+  if (file?.kind === 'rework') return 'Rework';
+  if (file?.kind === 'poster' || file?.kind === 'image') return 'Design';
+  return 'File';
+}
+
+function fileKind(file) {
+  const mime = String(file?.type || '').toLowerCase();
+  if (mime.startsWith('image/') || mime.startsWith('video/') || mime === 'application/pdf') return 'media';
+  return '';
+}
+
+function driveFolderHint(task) {
+  const branch = String(task?.content_branch || '').trim();
+  const brand = /^jz/i.test(branch) ? 'JZ' : /^uc/i.test(branch) ? 'UC' : 'UC or JZ';
+  const type = String(task?.content_type || '').toLowerCase();
+  const folder = type === 'poster' ? 'Posters' : type === 'reel' ? 'Reels' : 'Reels or Posters';
+  const date = String(task?.production?.sheet_date || task?.due_date || '').slice(0, 10);
+  const year = /^\d{4}/.test(date) ? date.slice(0, 4) : String(new Date().getFullYear());
+  return `${year} / ${brand} / ${folder}`;
+}
+
+function isDesignFile(file) {
+  return file?.stage === 'designing_editing' || file?.kind === 'final';
+}
+
+function DriveUploads({ task, onTask, onlyStage = '' }) {
+  const [busy, setBusy] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
+  const [error, setError] = useState('');
+  const [progress, setProgress] = useState(null);
+  const [previewVersion, setPreviewVersion] = useState(0);
+  const localPreviews = useRef(new Map());
+  const storedFiles = Array.isArray(task?.production?.drive_files) ? task.production.drive_files : [];
+  const files = storedFiles.filter((file) => {
+    if (!onlyStage) return true;
+    if (file.stage === onlyStage) return true;
+    return onlyStage === 'content_generation' && !file.stage && !isDesignFile(file);
+  });
+  const folder = task?.production?.drive_folder_url || '';
+
+  useEffect(() => () => {
+    localPreviews.current.forEach((url) => URL.revokeObjectURL(url));
+    localPreviews.current.clear();
+  }, []);
+
+  const upload = async (list) => {
+    const chosen = [...(list || [])];
+    if (!chosen.length) return;
+    setError('');
+    const tooBig = chosen.find((file) => file.size > 20 * 1024 * 1024);
+    if (tooBig) {
+      setError('Each file must be 20 MB or smaller.');
+      return;
+    }
+    const unsupported = chosen.find((file) => !fileKind(file));
+    if (unsupported) {
+      setError('Drop an image, PDF, or video.');
+      return;
+    }
+    setBusy(true);
+    let current = task;
+    try {
+      for (let index = 0; index < chosen.length; index += 1) {
+        const file = chosen[index];
+        const report = (loadedPercent) => {
+          if (loadedPercent == null) {
+            setProgress({ name: file.name, index: index + 1, count: chosen.length, percent: null, saving: true });
+            return;
+          }
+          const saving = loadedPercent >= 100;
+          const portion = Math.min(95, loadedPercent);
+          const percent = Math.round(((index + portion / 100) / chosen.length) * 100);
+          setProgress({ name: file.name, index: index + 1, count: chosen.length, percent, saving });
+        };
+        report(0);
+        const previousIds = new Set((current?.production?.drive_files || []).map((item) => item.id));
+        const { data } = await itUpdatesApi.uploadSocialContentFile(current, fileKind(file), file, report, onlyStage);
+        const added = (data?.production?.drive_files || []).find((item) => !previousIds.has(item.id));
+        if (added && /^(image|video)\//.test(file.type || '')) {
+          localPreviews.current.set(added.id, URL.createObjectURL(file));
+          setPreviewVersion((value) => value + 1);
+        }
+        current = data;
+        onTask?.(data);
+        setProgress({
+          name: file.name,
+          index: index + 1,
+          count: chosen.length,
+          percent: Math.round(((index + 1) / chosen.length) * 100),
+          saving: false,
+        });
+      }
+      toastSuccess('Saved to Drive');
+    } catch (err) {
+      const message = err?.response?.data?.message || 'Could not upload to Drive.';
+      setError(message);
+      toastError(message);
+    } finally {
+      setBusy(false);
+      setProgress(null);
+    }
   };
+
+  const remove = async (file) => {
+    if (!(await confirmDialog({
+      title: 'Remove this file?',
+      message: file.name || 'It will be removed from Drive.',
+      confirmLabel: 'Remove',
+      danger: true,
+    }))) return;
+    setBusy(true);
+    try {
+      const { data } = await itUpdatesApi.removeSocialContentFile(task.id, file.id);
+      onTask?.(data);
+    } catch (err) {
+      toastError(err?.response?.data?.message || 'Could not remove the file.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="smc-drive-box">
+      <p className="smc-note">
+        {onlyStage === 'designing_editing'
+          ? `Upload the design here. It is saved in DM Root, then ${driveFolderHint(task)}.`
+          : 'Files added in this step are shown here.'}
+      </p>
+      <label
+        className={`smc-drive-drop${dragOver ? ' over' : ''}`}
+        onDragOver={(event) => {
+          event.preventDefault();
+          if (!busy) setDragOver(true);
+        }}
+        onDragLeave={() => setDragOver(false)}
+        onDrop={(event) => {
+          event.preventDefault();
+          setDragOver(false);
+          if (!busy) upload(event.dataTransfer.files);
+        }}
+      >
+        <MdCloudUpload size={28} />
+        {progress ? (
+          <div
+            className="smc-drive-progress"
+            role="progressbar"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={progress.percent ?? undefined}
+            aria-label={`Uploading ${progress.name}`}
+          >
+            <div className="smc-drive-progress-meta">
+              <span>{progress.name}</span>
+              <span>{progress.saving ? 'Saving to Drive…' : `${progress.percent}%`}</span>
+            </div>
+            {progress.count > 1 ? <small>File {progress.index} of {progress.count}</small> : null}
+            <div className="smc-drive-progress-track">
+              <div
+                className={`smc-drive-progress-bar${progress.saving || progress.percent == null ? ' saving' : ''}`}
+                style={{ width: `${progress.percent ?? 100}%` }}
+              />
+            </div>
+          </div>
+        ) : (
+          <>
+            <span>Drop files here</span>
+            <small>or click to browse. Images, PDFs, and videos.</small>
+          </>
+        )}
+        <input
+          type="file"
+          multiple
+          accept="image/*,application/pdf,video/*"
+          disabled={busy}
+          onChange={(event) => {
+            upload(event.target.files);
+            event.target.value = '';
+          }}
+        />
+      </label>
+      {error ? <p className="smc-note">{error}</p> : null}
+      {folder && (!onlyStage || onlyStage === 'content_generation') ? (
+        <a className="smc-drive-link" href={folder} target="_blank" rel="noreferrer">
+          <span className="smc-drive-link-icon"><MdCloudUpload /></span>
+          <span className="smc-drive-link-copy">
+            <strong>Drive folder</strong>
+            <span>{folder}</span>
+          </span>
+        </a>
+      ) : null}
+      {files.length > 0 && (
+        <ul className="smc-drive-files">
+          {files.map((file) => (
+            <li key={file.id}>
+              <a className="smc-drive-file-open" href={file.url} target="_blank" rel="noreferrer">
+                {(isPreviewImage(file) || isPreviewVideo(file)) ? (
+                  <DriveFilePreview
+                    taskId={task.id}
+                    file={file}
+                    localUrl={previewVersion >= 0 ? localPreviews.current.get(file.id) : ''}
+                  />
+                ) : <span className="smc-drive-preview smc-drive-preview-empty" />}
+                <span className="smc-drive-file-copy">
+                  <strong>{fileLabel(file, onlyStage)}</strong>
+                  <span>{file.name}</span>
+                </span>
+              </a>
+              <button type="button" className="smc-link" disabled={busy} onClick={() => remove(file)}>Remove</button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+function ContentSheetForm({ task, updateField, updateProduction, onTask }) {
+  const production = task.production || {};
 
   return (
     <>
@@ -493,10 +733,7 @@ function ContentSheetForm({ task, updateField, updateProduction }) {
           placeholder="https://"
         />
       </label>
-      <label className="smc-field wide">Demo image
-        <input type="file" accept="image/*" onChange={(event) => onImage(event.target.files?.[0])} />
-      </label>
-      {imageError ? <p className="smc-note">{imageError}</p> : null}
+      <DriveUploads task={task} onTask={onTask} onlyStage="content_generation" />
       {production.demo_image ? (
         <div className="smc-demo">
           <img src={production.demo_image} alt={production.demo_image_name || 'Demo'} />
@@ -542,6 +779,7 @@ function TaskPage({
   showHistory,
   updateField,
   updateProduction,
+  onTask,
   onSave,
   onAction,
   onBack,
@@ -575,7 +813,7 @@ function TaskPage({
         {stageHelp(stage) ? <p className="smc-note">{stageHelp(stage)}</p> : null}
         {notice && <div className="smc-banner ok">{notice}</div>}
         <div className="smc-work-grid">
-          {stage !== 'content_generation' && <label className="smc-field">{showPosterPick ? 'Who will post this' : ['content_approval', 'designing_editing', 'save_to_drive'].includes(stage) ? 'Who will design this' : 'Who is doing this'}
+          {stage !== 'content_generation' && <label className="smc-field">{showPosterPick ? 'Who will post this' : ['content_approval', 'designing_editing'].includes(stage) ? 'Who will design this' : 'Who is doing this'}
             <select value={task.assigned_to || ''} onChange={(event) => updateField('assigned_to', event.target.value ? Number(event.target.value) : null)}>
               <option value="">{showPosterPick ? 'Choose who will post' : 'Choose a person'}</option>
               {people.map((person) => (
@@ -602,14 +840,14 @@ function TaskPage({
           )}
           {stage === 'content_generation' && (
             <div className="smc-work-grid wide">
-              <ContentSheetForm task={task} updateField={updateField} updateProduction={updateProduction} />
+              <ContentSheetForm task={task} updateField={updateField} updateProduction={updateProduction} onTask={onTask} />
             </div>
           )}
           {(stage === 'content_approval' || stage === 'final_approval' || stage === 'designing_editing') && (
             <div className="smc-field wide">
               <SheetSummary task={task} />
               {task.production?.demo_image ? <img className="smc-demo-inline" src={task.production.demo_image} alt={task.production.demo_image_name || 'Demo'} /> : null}
-              {task.drive_url && (
+              {task.drive_url && stage !== 'designing_editing' && (
                 <a className="smc-drive-link" href={task.drive_url} target="_blank" rel="noreferrer">
                   <span className="smc-drive-link-icon"><MdCloudUpload /></span>
                   <span className="smc-drive-link-copy">
@@ -630,20 +868,8 @@ function TaskPage({
               <textarea value={feedback} onChange={(event) => setFeedback(event.target.value)} placeholder="Write this only if you press Needs Rework" />
             </label>
           )}
-          {stage === 'save_to_drive' && (
-            canAct ? (
-              <label className="smc-field wide">Google Drive link
-                <input value={task.drive_url || ''} onChange={(event) => updateField('drive_url', event.target.value)} placeholder="https://drive.google.com/..." />
-              </label>
-            ) : task.drive_url ? (
-              <a className="smc-drive-link" href={task.drive_url} target="_blank" rel="noreferrer">
-                <span className="smc-drive-link-icon"><MdCloudUpload /></span>
-                <span className="smc-drive-link-copy">
-                  <strong>Drive file</strong>
-                  <span>{task.drive_url}</span>
-                </span>
-              </a>
-            ) : null
+          {stage !== 'content_generation' && (
+            <DriveUploads task={task} onTask={onTask} onlyStage={stage} />
           )}
           {posting && (
             canAct ? (
@@ -1830,6 +2056,7 @@ export default function ContentPipeline({ currentUser, members = [] }) {
               showHistory
               updateField={updateField}
               updateProduction={updateProduction}
+              onTask={replaceTask}
               onSave={() => saveTask()}
               onAction={runAction}
               onBack={closeTask}
@@ -1857,7 +2084,7 @@ export default function ContentPipeline({ currentUser, members = [] }) {
               }}
             >
               {notice && <div className="smc-banner ok">{notice}</div>}
-              <ContentSheetForm task={selected} updateField={updateField} updateProduction={updateProduction} />
+              <ContentSheetForm task={selected} updateField={updateField} updateProduction={updateProduction} onTask={replaceTask} />
               <div className="smc-actions">
                 {canActOnView && <button type="submit" className="smc-btn smc-btn-primary" disabled={busy}>Submit content</button>}
                 <button type="button" className="smc-btn" disabled={busy} onClick={() => saveTask()}>Save</button>

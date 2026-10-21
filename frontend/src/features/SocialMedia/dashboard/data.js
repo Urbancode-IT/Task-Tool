@@ -5,7 +5,6 @@ export const STAGES = [
   { key: 'content_generation', label: 'Content', subtitle: 'In progress', icon: 'content_generation', bg: '#FFF6E4', border: '#F6E4BE', ink: '#E09212', dot: '#F5A524' },
   { key: 'content_approval', label: 'Content Approval', subtitle: 'Pending approval', icon: 'content_approval', bg: '#FDECF3', border: '#F6D5E3', ink: '#E25B8C', dot: '#F472B6' },
   { key: 'designing_editing', label: 'Designing / Editing', subtitle: 'In progress', icon: 'designing_editing', bg: '#F3EEFE', border: '#E2D8F8', ink: '#8B5CF6', dot: '#8B5CF6' },
-  { key: 'save_to_drive', label: 'Save to Drive', subtitle: 'Uploaded', icon: 'save_to_drive', bg: '#E7F8F4', border: '#C9EDE3', ink: '#0F9F8A', dot: '#14B8A6' },
   { key: 'final_approval', label: 'Final Approval', subtitle: 'Pending review', icon: 'final_approval', bg: '#FDECF2', border: '#F6D5E2', ink: '#E25B8C', dot: '#F472B6' },
   { key: 'ready_to_post', label: 'Ready to Post', subtitle: 'Scheduled', icon: 'ready_to_post', bg: '#EAF4FE', border: '#D0E4F8', ink: '#3B82F6', dot: '#60A5FA' },
   { key: 'published', label: 'Published', subtitle: 'Live', icon: 'published', bg: '#E8F8EE', border: '#C9EED6', ink: '#1F9D55', dot: '#22C55E' },
@@ -16,7 +15,6 @@ export const STAGE_BASE = {
   content_generation: 6,
   content_approval: 4,
   designing_editing: 7,
-  save_to_drive: 3,
   final_approval: 4,
   ready_to_post: 5,
   published: 8,
@@ -76,7 +74,7 @@ export const SEED = [
   { no: 2, id: 'UC-2026-0102', title: 'Student Success Story', subtitle: 'Testimonial video', branch: 'UC', type: 'video', stage: 'content_generation', status: 'in_progress', assignee: 'Priya Rao', deadline: '2026-11-18', platforms: ['instagram', 'facebook', 'linkedin'], progress: 40 },
   { no: 3, id: 'UC-2026-0103', title: 'Festival Greetings', subtitle: 'Greetings post', branch: 'DE', type: 'poster', stage: 'content_approval', status: 'pending', assignee: 'Rohit Kumar', deadline: '2026-11-19', platforms: ['instagram', 'facebook'], progress: 60 },
   { no: 4, id: 'UC-2026-0104', title: 'Course Highlight', subtitle: 'Carousel', branch: 'UC', type: 'carousel', stage: 'designing_editing', status: 'in_progress', assignee: 'Neha Patel', deadline: '2026-11-20', platforms: ['instagram', 'linkedin'], progress: 50 },
-  { no: 5, id: 'UC-2026-0105', title: 'Campus Tour', subtitle: 'Video', branch: 'SP', type: 'video', stage: 'save_to_drive', status: 'completed', assignee: 'Arjun K', deadline: '2026-11-19', platforms: ['youtube', 'instagram'], progress: 100 },
+  { no: 5, id: 'UC-2026-0105', title: 'Campus Tour', subtitle: 'Video', branch: 'SP', type: 'video', stage: 'final_approval', status: 'pending', assignee: 'Arjun K', deadline: '2026-11-19', platforms: ['youtube', 'instagram'], progress: 100 },
   { no: 6, id: 'UC-2026-0106', title: 'Behind the Scenes', subtitle: 'Reel', branch: 'FSD', type: 'reel', stage: 'final_approval', status: 'pending', assignee: 'Sneha P', deadline: '2026-11-18', platforms: ['instagram', 'facebook'], progress: 70 },
   { no: 7, id: 'UC-2026-0107', title: 'Product Features', subtitle: 'Video', branch: 'AZ', type: 'video', stage: 'ready_to_post', status: 'scheduled', assignee: 'Lalit S', deadline: '2026-11-17', platforms: ['instagram', 'facebook', 'linkedin'], progress: 90 },
   { no: 8, id: 'UC-2026-0108', title: 'How It Works', subtitle: 'Blog post', branch: 'AWS', type: 'blog', stage: 'published', status: 'live', assignee: 'Divya Sharma', deadline: '2026-11-16', platforms: ['linkedin', 'google_ads'], progress: 100 },
@@ -138,7 +136,7 @@ export function loadItems() {
     if (!raw) return SEED.map((item) => ({ ...item, platforms: [...item.platforms] }));
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed) || !parsed.length) return SEED.map((item) => ({ ...item, platforms: [...item.platforms] }));
-    return parsed;
+    return parsed.map((item) => (item?.stage === 'save_to_drive' ? { ...item, stage: 'final_approval' } : item));
   } catch {
     return SEED.map((item) => ({ ...item, platforms: [...item.platforms] }));
   }

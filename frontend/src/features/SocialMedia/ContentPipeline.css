@@ -1242,6 +1242,173 @@
   object-fit: contain;
 }
 
+.smc-drive-box {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  grid-column: 1 / -1;
+}
+
+.smc-drive-drop {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-height: 148px;
+  padding: 22px 16px;
+  border: 1.5px dashed #94a3b8;
+  border-radius: 14px;
+  background: #f8fafc;
+  color: #0f172a;
+  text-align: center;
+  cursor: pointer;
+}
+
+.smc-drive-drop span {
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.smc-drive-drop small {
+  color: #64748b;
+  font-size: 12px;
+}
+
+.smc-drive-drop input {
+  display: none;
+}
+
+.smc-drive-drop.over,
+.smc-drive-drop:hover {
+  border-color: #2563eb;
+  background: #eff6ff;
+}
+
+.smc-drive-progress {
+  width: min(420px, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.smc-drive-progress-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.smc-drive-progress-meta span {
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.smc-drive-progress-meta span:first-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.smc-drive-progress-track {
+  height: 8px;
+  border-radius: 999px;
+  background: #e2e8f0;
+  overflow: hidden;
+}
+
+.smc-drive-progress-bar {
+  height: 100%;
+  border-radius: inherit;
+  background: #2563eb;
+  transition: width 160ms ease;
+}
+
+.smc-drive-progress-bar.saving {
+  background: linear-gradient(90deg, #2563eb 0%, #93c5fd 50%, #2563eb 100%);
+  background-size: 200% 100%;
+  animation: smc-drive-progress-slide 1s linear infinite;
+}
+
+@keyframes smc-drive-progress-slide {
+  from { background-position: 100% 0; }
+  to { background-position: -100% 0; }
+}
+
+.smc-drive-files {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.smc-drive-files li {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 12px;
+  padding: 8px;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  background: #fff;
+}
+
+.smc-drive-preview {
+  display: block;
+  width: 52px;
+  height: 52px;
+  flex: none;
+  object-fit: cover;
+  border-radius: 8px;
+  background: #f1f5f9;
+}
+
+.smc-drive-preview-empty {
+  border: 1px solid #e2e8f0;
+}
+
+.smc-drive-file-open {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: inherit;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.smc-drive-file-copy {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.smc-drive-file-copy strong {
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #2563eb;
+}
+
+.smc-drive-file-copy span {
+  color: #0f172a;
+  font-size: 13px;
+  font-weight: 650;
+  word-break: break-word;
+}
+
+.smc-drive-file-wait {
+  font-size: 12px;
+  color: #64748b;
+}
+
 .smc-lane-cell {
   min-height: 44px;
   display: flex;

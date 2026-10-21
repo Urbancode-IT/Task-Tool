@@ -11,15 +11,20 @@ import jwt from 'jsonwebtoken';
 import * as db from './db/index.js';
 import {
   ContentError,
+  dbAddContentDriveFile,
   dbCreateContentTask,
   dbGetContentTask,
+  dbRemoveContentDriveFile,
   listAssignableUsers,
   listContentTypes,
+  sanitizeDriveFiles,
   dbListContentEvents,
   dbListContentTasks,
   dbTransitionContentTask,
   dbUpdateContentTask,
 } from './db/socialContent.js';
+import { openContentFile, shareStoredLinks, trashContentFile, uploadContentFile } from './driveContent.js';
+import multer from 'multer';
 import {
   CourseError,
   createCourse,
@@ -579,6 +584,27 @@ app.post('/auth/master-login', asyncMw(async (req, res) => {
 
 // ---- IT Updates API (JWT auth; any authenticated user can access — attach permissions for UI) ----
 const BASE_PATH = '/api/it-updates';
+const contentFileUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 20 * 1024 * 1024 },
+}).single('file');
+
+function receiveContentFile(req, res, next) {
+  contentFileUpload(req, res, (err) => {
+    if (!err) return next();
+    if (err.code === 'LIMIT_FILE_SIZE') {
+      return res.status(400).json({ message: 'File must be 20 MB or smaller.' });
+    }
+    return res.status(400).json({ message: 'Could not read the file.' });
+  });
+}
+
+const CONTENT_FILE_KINDS = {
+  poster: /^image\//,
+  image: /^image\//,
+  reference: /^(image\/|application\/pdf|video\/)/,
+  media: /^(image\/|application\/pdf|video\/)/,
+};
 app.use(BASE_PATH, requireAuth, asyncMw(attachUserPermissions));
 
 // Serve a user's avatar as a real, cacheable image. List/detail endpoints now
@@ -1361,6 +1387,11 @@ app.get(`${BASE_PATH}/social-content/:taskId`, async (req, res) => {
     if (!actor.canView) return res.status(403).json({ message: 'Social Media access is required.' });
     const task = await dbGetContentTask(req.params.taskId);
     if (!task) return res.status(404).json({ message: 'Content task not found.' });
+    try {
+      await shareStoredLinks(task);
+    } catch (shareErr) {
+      console.warn('Drive public link:', shareErr?.message || shareErr);
+    }
     const events = await dbListContentEvents(req.params.taskId);
     res.json({ ...task, events });
   } catch (err) {
@@ -1391,6 +1422,91 @@ app.put(`${BASE_PATH}/social-content/:taskId`, async (req, res) => {
     res.json(task);
   } catch (err) {
     sendContentError(res, err, 'Failed to update the content task');
+  }
+});
+
+app.post(`${BASE_PATH}/social-content/:taskId/files`, receiveContentFile, async (req, res) => {
+  try {
+    const actor = socialContentActor(req);
+    if (!actor.canView) return res.status(403).json({ message: 'Social Media access is required.' });
+    const kind = String(req.body?.kind || '').trim().toLowerCase();
+    const accept = CONTENT_FILE_KINDS[kind];
+    if (!accept) return res.status(400).json({ message: 'Choose a poster, image, or reference.' });
+    const file = req.file;
+    if (!file?.buffer?.length) return res.status(400).json({ message: 'Choose a file to upload.' });
+    const mime = String(file.mimetype || '').toLowerCase();
+    if (!accept.test(mime)) {
+      return res.status(400).json({ message: 'That file type is not allowed for this upload.' });
+    }
+    let task = await dbGetContentTask(req.params.taskId);
+    if (!task) return res.status(404).json({ message: 'Content task not found.' });
+    const sheetDate = String(req.body?.sheet_date || '').slice(0, 10);
+    const dueDate = String(req.body?.due_date || '').slice(0, 10);
+    const patch = {};
+    if (req.body?.content_branch) patch.content_branch = req.body.content_branch;
+    if (req.body?.content_type) patch.content_type = req.body.content_type;
+    if (req.body?.task_title) patch.task_title = req.body.task_title;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(dueDate)) patch.due_date = dueDate;
+    if (req.body?.course || /^\d{4}-\d{2}-\d{2}$/.test(sheetDate)) {
+      patch.production = {
+        ...(task.production || {}),
+        ...(req.body?.course ? { course: req.body.course } : {}),
+        ...( /^\d{4}-\d{2}-\d{2}$/.test(sheetDate) ? { sheet_date: sheetDate } : {}),
+      };
+    }
+    if (Object.keys(patch).length) task = await dbUpdateContentTask(task.id, patch);
+    const stored = await uploadContentFile({
+      task,
+      kind,
+      buffer: file.buffer,
+      mime,
+      originalName: file.originalname,
+      stage: String(req.body?.stage || ''),
+    });
+    const updated = await dbAddContentDriveFile(req.params.taskId, stored.file, stored.folderUrl);
+    res.status(201).json(updated);
+  } catch (err) {
+    sendContentError(res, err, 'Failed to upload the file to Drive');
+  }
+});
+
+app.get(`${BASE_PATH}/social-content/:taskId/files/:fileId`, async (req, res) => {
+  try {
+    const actor = socialContentActor(req);
+    if (!actor.canView) return res.status(403).json({ message: 'Social Media access is required.' });
+    const task = await dbGetContentTask(req.params.taskId);
+    if (!task) return res.status(404).json({ message: 'Content task not found.' });
+    const known = sanitizeDriveFiles(task.production?.drive_files);
+    const match = known.find((file) => file.id === req.params.fileId);
+    if (!match) return res.status(404).json({ message: 'That file is not on this task.' });
+    const opened = await openContentFile(match.id);
+    res.setHeader('Content-Type', opened.mime || match.mime || 'application/octet-stream');
+    res.setHeader('Cache-Control', 'private, max-age=300');
+    opened.stream.on('error', (err) => {
+      console.error('Drive file stream:', err?.message || err);
+      if (!res.headersSent) res.status(502).end();
+      else res.destroy();
+    });
+    opened.stream.pipe(res);
+  } catch (err) {
+    sendContentError(res, err, 'Failed to load the Drive file');
+  }
+});
+
+app.delete(`${BASE_PATH}/social-content/:taskId/files/:fileId`, async (req, res) => {
+  try {
+    const actor = socialContentActor(req);
+    if (!actor.canView) return res.status(403).json({ message: 'Social Media access is required.' });
+    const task = await dbGetContentTask(req.params.taskId);
+    if (!task) return res.status(404).json({ message: 'Content task not found.' });
+    const known = sanitizeDriveFiles(task.production?.drive_files);
+    const match = known.find((file) => file.id === req.params.fileId);
+    if (!match) return res.status(404).json({ message: 'That file is not on this task.' });
+    await trashContentFile(match.id);
+    const updated = await dbRemoveContentDriveFile(req.params.taskId, match.id);
+    res.json(updated);
+  } catch (err) {
+    sendContentError(res, err, 'Failed to remove the Drive file');
   }
 });
 

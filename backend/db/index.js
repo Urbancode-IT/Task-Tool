@@ -126,10 +126,10 @@ let dbAvailability = null;
 function getConnectionString() {
   if (process.env.DATABASE_URL) return process.env.DATABASE_URL;
   const user = 'postgres';
-  const password = '1234';
+  const password = 'admin@123';
   const host = process.env.DB_HOST || 'localhost';
   const port = process.env.DB_PORT || '5432';
-  const database = 'seyal';
+  const database = 'Seyal_Updates_local';
   if (!user || !database) return null;
   const encoded = password ? encodeURIComponent(password) : '';
   return `postgresql://${user}${encoded ? ':' + encoded : ''}@${host}:${port}/${database}`;
@@ -156,8 +156,8 @@ function getZenPool() {
       host: process.env.DB_HOST || 'localhost',
       port: Number(process.env.DB_PORT || 5432),
       user: process.env.DB_USER || 'postgres',
-      password: process.env.DB_PASSWORD || '1234',
-      database: process.env.ZEN_DATABASE || 'zen-local-db',
+      password: process.env.DB_PASSWORD || 'admin@123',
+      database: process.env.ZEN_DATABASE || 'Seyal_Updates_local',
       ssl: process.env.DATABASE_SSL === 'true' ? { rejectUnauthorized: false } : false,
     });
   }

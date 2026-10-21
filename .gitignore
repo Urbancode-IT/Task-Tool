@@ -10,6 +10,9 @@
 !.env.example
 .env.example
 
+# Google Drive service account key
+**/statusflow-drive.json
+
 # Logs
 **/logs/
 **/*.log
