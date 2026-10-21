@@ -148,24 +148,10 @@ export function getPool() {
   return pool;
 }
 
-let zenPool = null;
-
-function getZenPool() {
-  if (!zenPool) {
-    zenPool = new Pool({
-      host: process.env.DB_HOST || 'localhost',
-      port: Number(process.env.DB_PORT || 5432),
-      user: process.env.DB_USER || 'postgres',
-      password: process.env.DB_PASSWORD || 'admin@123',
-      database: process.env.ZEN_DATABASE || 'Seyal_Updates_local',
-      ssl: process.env.DATABASE_SSL === 'true' ? { rejectUnauthorized: false } : false,
-    });
-  }
-  return zenPool;
-}
-
 export async function listBranches() {
-  const { rows } = await getZenPool().query(
+  const p = getPool();
+  if (!p) return [];
+  const { rows } = await p.query(
     `SELECT branch_id, branch_code, branch_name, city
      FROM public.branches
      WHERE deleted_at IS NULL
@@ -1118,6 +1104,25 @@ export async function dbEnsureTables() {
     } catch (courseErr) {
       console.warn('dbEnsureTables: social media courses:', courseErr.message);
     }
+    await p.query(`
+      CREATE TABLE IF NOT EXISTS public.branches (
+        branch_id SERIAL PRIMARY KEY,
+        branch_code VARCHAR(40) NOT NULL UNIQUE,
+        branch_name VARCHAR(120) NOT NULL,
+        city VARCHAR(120),
+        status VARCHAR(20) NOT NULL DEFAULT 'ACTIVE',
+        sort_order INT NOT NULL DEFAULT 0,
+        deleted_at TIMESTAMPTZ
+      );
+    `);
+    await p.query(`
+      INSERT INTO public.branches (branch_code, branch_name, city, sort_order)
+      VALUES
+        ('UC-PAL', 'UC Pallikaranai', 'Pallikaranai', 1),
+        ('UC-TVL', 'UC Tirunelveli', 'Tirunelveli', 2),
+        ('JZ-PAL', 'JZ Pallikaranai', 'Pallikaranai', 3)
+      ON CONFLICT (branch_code) DO NOTHING;
+    `);
     console.log('DB: social media content pipeline columns ensured.');
   } catch (err) {
     console.warn('dbEnsureTables: social content pipeline:', err.message);
