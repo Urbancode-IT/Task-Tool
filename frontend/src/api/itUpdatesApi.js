@@ -217,6 +217,18 @@ const itUpdatesApi = {
   clearLeave: (date, params = {}) => {
     return apiClient.delete(`${BASE_PATH}/leaves/${date}`, { params });
   },
+
+  getBranches: () => apiClient.get(`${BASE_PATH}/branches`),
+  getContentTypes: () => apiClient.get(`${BASE_PATH}/content-types`),
+  getContentUsers: () => apiClient.get(`${BASE_PATH}/content-users`),
+  getCourses: () => apiClient.get(`${BASE_PATH}/courses`),
+  createCourse: (data) => apiClient.post(`${BASE_PATH}/courses`, data),
+  getSocialContentList: (params = {}) => apiClient.get(`${BASE_PATH}/social-content`, { params }),
+  getSocialContent: (taskId) => apiClient.get(`${BASE_PATH}/social-content/${taskId}`),
+  createSocialContent: (data) => apiClient.post(`${BASE_PATH}/social-content`, data),
+  updateSocialContent: (taskId, data) => apiClient.put(`${BASE_PATH}/social-content/${taskId}`, data),
+  transitionSocialContent: (taskId, data) =>
+    apiClient.post(`${BASE_PATH}/social-content/${taskId}/transition`, data),
 };
 
 export default itUpdatesApi;

@@ -148,6 +148,38 @@ export function getPool() {
   return pool;
 }
 
+let zenPool = null;
+
+function getZenPool() {
+  if (!zenPool) {
+    zenPool = new Pool({
+      host: process.env.DB_HOST || 'localhost',
+      port: Number(process.env.DB_PORT || 5432),
+      user: process.env.DB_USER || 'postgres',
+      password: process.env.DB_PASSWORD || '1234',
+      database: process.env.ZEN_DATABASE || 'zen-local-db',
+      ssl: process.env.DATABASE_SSL === 'true' ? { rejectUnauthorized: false } : false,
+    });
+  }
+  return zenPool;
+}
+
+export async function listBranches() {
+  const { rows } = await getZenPool().query(
+    `SELECT branch_id, branch_code, branch_name, city
+     FROM public.branches
+     WHERE deleted_at IS NULL
+       AND UPPER(COALESCE(status, 'ACTIVE')) = 'ACTIVE'
+     ORDER BY sort_order ASC, branch_name ASC`
+  );
+  return rows.map((row) => ({
+    id: row.branch_id,
+    code: row.branch_code,
+    name: row.branch_name,
+    city: row.city,
+  }));
+}
+
 export function useDb() {
   if (dbAvailability !== null) return dbAvailability;
   return Boolean(getConnectionString());
@@ -1017,6 +1049,78 @@ export async function dbEnsureTables() {
     console.log('DB: social_media_task_requirements table ensured.');
   } catch (err) {
     console.warn('dbEnsureTables: social_media_task_requirements:', err.message);
+  }
+
+  // Content pipeline: one social_media_tasks row keeps its task_id from the brief
+  // through publication. pipeline_stage is the column; workflow_status is the badge.
+  // Legacy channel-board rows leave both null and stay on the existing board.
+  try {
+    await p.query(`
+      ALTER TABLE social_media_tasks
+        ADD COLUMN IF NOT EXISTS pipeline_stage VARCHAR(32),
+        ADD COLUMN IF NOT EXISTS workflow_status VARCHAR(20),
+        ADD COLUMN IF NOT EXISTS content_branch VARCHAR(100),
+        ADD COLUMN IF NOT EXISTS platforms JSONB DEFAULT '[]'::jsonb,
+        ADD COLUMN IF NOT EXISTS objective TEXT,
+        ADD COLUMN IF NOT EXISTS target_audience TEXT,
+        ADD COLUMN IF NOT EXISTS key_message TEXT,
+        ADD COLUMN IF NOT EXISTS cta TEXT,
+        ADD COLUMN IF NOT EXISTS reference_urls TEXT,
+        ADD COLUMN IF NOT EXISTS progress INT DEFAULT 0,
+        ADD COLUMN IF NOT EXISTS draft_script TEXT,
+        ADD COLUMN IF NOT EXISTS draft_caption TEXT,
+        ADD COLUMN IF NOT EXISTS draft_hashtags TEXT,
+        ADD COLUMN IF NOT EXISTS draft_version INT DEFAULT 0,
+        ADD COLUMN IF NOT EXISTS drive_url TEXT,
+        ADD COLUMN IF NOT EXISTS scheduled_at TIMESTAMPTZ,
+        ADD COLUMN IF NOT EXISTS published_url TEXT,
+        ADD COLUMN IF NOT EXISTS publication_confirmed BOOLEAN DEFAULT FALSE,
+        ADD COLUMN IF NOT EXISTS asset_notes TEXT,
+        ADD COLUMN IF NOT EXISTS production_meta JSONB DEFAULT '{}'::jsonb;
+    `);
+    await p.query(`CREATE INDEX IF NOT EXISTS idx_social_media_tasks_pipeline ON social_media_tasks(pipeline_stage);`);
+    await p.query(`
+      CREATE TABLE IF NOT EXISTS social_media_content_events (
+        event_id SERIAL PRIMARY KEY,
+        task_id INT NOT NULL REFERENCES social_media_tasks(task_id) ON DELETE CASCADE,
+        action VARCHAR(40) NOT NULL,
+        from_stage VARCHAR(32),
+        to_stage VARCHAR(32),
+        from_status VARCHAR(20),
+        to_status VARCHAR(20),
+        feedback TEXT,
+        actor_id INT REFERENCES users(user_id) ON DELETE SET NULL,
+        created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+    await p.query(`CREATE INDEX IF NOT EXISTS idx_sm_content_events_task ON social_media_content_events(task_id, created_at);`);
+    await p.query(`
+      CREATE TABLE IF NOT EXISTS social_media_content_types (
+        type_code VARCHAR(40) PRIMARY KEY,
+        type_label VARCHAR(80) NOT NULL,
+        sort_order INT NOT NULL DEFAULT 0,
+        is_active BOOLEAN NOT NULL DEFAULT TRUE
+      );
+    `);
+    await p.query(`
+      INSERT INTO social_media_content_types (type_code, type_label, sort_order)
+      VALUES
+        ('reel', 'Reel', 1),
+        ('poster', 'Poster', 2),
+        ('ad', 'Ad', 3),
+        ('carousel', 'Carousel', 4),
+        ('gmb', 'GMB', 5)
+      ON CONFLICT (type_code) DO NOTHING;
+    `);
+    try {
+      const { ensureSocialMediaCourses } = await import('./courses.js');
+      await ensureSocialMediaCourses();
+    } catch (courseErr) {
+      console.warn('dbEnsureTables: social media courses:', courseErr.message);
+    }
+    console.log('DB: social media content pipeline columns ensured.');
+  } catch (err) {
+    console.warn('dbEnsureTables: social content pipeline:', err.message);
   }
 
   // Per-requirement timer columns — FINAL pass. The earlier ADD COLUMN block runs
@@ -1957,6 +2061,9 @@ export async function dbGetTasksSimple(filters = {}) {
       publish_link: r.publish_link ?? null,
       target_date: r.target_date ?? null,
       publish_date: r.publish_date ?? null,
+      pipeline_stage: r.pipeline_stage ?? null,
+      workflow_status: r.workflow_status ?? null,
+      content_branch: r.content_branch ?? null,
       is_crm: Boolean(r.is_crm),
       lead_details: (() => {
         if (!r.lead_details) return null;
@@ -2327,6 +2434,9 @@ export async function dbGetTaskById(taskId, teamInput = null) {
     publish_link: row.publish_link ?? null,
     target_date: row.target_date ?? null,
     publish_date: row.publish_date ?? null,
+    pipeline_stage: row.pipeline_stage ?? null,
+    workflow_status: row.workflow_status ?? null,
+    content_branch: row.content_branch ?? null,
     team,
   };
 }

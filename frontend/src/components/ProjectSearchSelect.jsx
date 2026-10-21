@@ -75,12 +75,11 @@ export default function ProjectSearchSelect({
   };
 
   return (
-    <div className="project-search" ref={wrapRef}>
-      <div className="project-search-field">
-        <MdSearch size={16} className="project-search-icon" />
+    <div className={`seyal-select project-search${open ? ' open' : ''}`} ref={wrapRef}>
+      <div className="seyal-select-field">
+        <MdSearch size={16} className="seyal-search-icon" />
         <input
           type="text"
-          className="project-search-input"
           placeholder={placeholder}
           value={query}
           onChange={(e) => {
@@ -92,38 +91,44 @@ export default function ProjectSearchSelect({
         {(value || query) && (
           <button
             type="button"
-            className="project-search-clear"
+            className="seyal-select-clear"
             onClick={clearSelection}
             title="Clear project filter"
+            aria-label="Clear project filter"
           >
             <MdClose size={14} />
           </button>
         )}
       </div>
       {open && (
-        <ul className="project-search-menu">
-          <li
-            className={`project-search-option ${!value ? 'active' : ''}`}
-            onMouseDown={(e) => {
-              e.preventDefault();
-              clearSelection();
-            }}
-          >
-            Projects
-          </li>
-          {matches.map((o) => (
-            <li
-              key={o.id}
-              className={`project-search-option ${String(value) === o.id ? 'active' : ''}`}
+        <ul className="seyal-select-menu" role="listbox">
+          <li>
+            <button
+              type="button"
+              className={!value ? 'active' : ''}
               onMouseDown={(e) => {
                 e.preventDefault();
-                selectProject(o.id);
+                clearSelection();
               }}
             >
-              {o.name}
+              Projects
+            </button>
+          </li>
+          {matches.map((o) => (
+            <li key={o.id}>
+              <button
+                type="button"
+                className={String(value) === o.id ? 'active' : ''}
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  selectProject(o.id);
+                }}
+              >
+                {o.name}
+              </button>
             </li>
           ))}
-          {!matches.length && <li className="project-search-empty">No projects found</li>}
+          {!matches.length && <li className="seyal-select-empty">No projects found</li>}
         </ul>
       )}
     </div>

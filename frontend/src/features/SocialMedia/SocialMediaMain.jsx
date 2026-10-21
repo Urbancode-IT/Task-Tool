@@ -15,6 +15,7 @@ import {
   MdRefresh,
   MdTableChart,
   MdViewKanban,
+  MdAccountTree,
   MdEdit,
   MdDelete,
   MdReplay,
@@ -45,10 +46,12 @@ import Preloader from '../../components/Preloader';
 import { sanitizeCommentHtml } from '../../utils/sanitizeHtml';
 import '../ITUpdates/ITUpdatesMain.css';
 import DueTasksPanel from '../../components/DueTasksPanel';
+import ContentPipeline from './ContentPipeline';
 import { useNav } from '../../branding/BrandingContext';
 import { statusTextFor } from '../../branding/labels';
 
 const TABS = [
+  { key: 'Content Pipeline', labelId: 'section.content_pipeline', label: 'Content Pipeline', icon: MdAccountTree },
   { key: 'Dashboard', labelId: 'section.home', label: 'Home', icon: MdHome },
   { key: 'My Dashboard', labelId: 'section.dashboard', label: 'Dashboard', icon: MdInsights },
   { key: 'My Tasks', labelId: 'section.my_tasks', label: 'My Tasks', icon: MdChecklist },
@@ -178,7 +181,7 @@ function Avatar({ user }) {
 export default function SocialMediaMain({ currentUser, onLogout }) {
   const nav = useNav();
   const visibleTabs = useMemo(() => nav.apply(TABS, 'module.social_media'), [nav]);
-  const [activeTab, setActiveTab] = useState('Dashboard');
+  const [activeTab, setActiveTab] = useState('Content Pipeline');
   const [loading, setLoading] = useState(false);
   const [booted, setBooted] = useState(false);
   const [error, setError] = useState('');
@@ -309,19 +312,21 @@ export default function SocialMediaMain({ currentUser, onLogout }) {
     }
   }, [activeTab, userId]);
 
+  const channelTasks = useMemo(() => tasks.filter((t) => !t.pipeline_stage), [tasks]);
+
   const myTasks = useMemo(() => {
-    if (!userId) return tasks;
-    return tasks.filter(
+    if (!userId) return channelTasks;
+    return channelTasks.filter(
       (t) =>
         String(t.assigned_to) === String(userId) ||
         (user && (t.assignee === user.name || t.assignee === user.username))
     );
-  }, [tasks, userId, user]);
+  }, [channelTasks, userId, user]);
 
   const myTaskGroups = useMemo(() => groupTasksByStatus(myTasks), [myTasks]);
 
   const filteredTasks = useMemo(() => {
-    let result = tasks;
+    let result = channelTasks;
     if (allTasksFiltersApplied.status) result = result.filter((t) => t.status === allTasksFiltersApplied.status);
     if (allTasksFiltersApplied.priority) result = result.filter((t) => t.priority === allTasksFiltersApplied.priority);
     if (allTasksFiltersApplied.assignee)
@@ -331,10 +336,10 @@ export default function SocialMediaMain({ currentUser, onLogout }) {
     if (allTasksFiltersApplied.period)
       result = result.filter((t) => taskInPeriod(t, allTasksFiltersApplied.period));
     return result;
-  }, [tasks, allTasksFiltersApplied]);
+  }, [channelTasks, allTasksFiltersApplied]);
 
   const overviewTasks = useMemo(() => {
-    let result = tasks;
+    let result = channelTasks;
     if (overviewFiltersApplied.from_date)
       result = result.filter((t) => t.task_date && t.task_date.slice(0, 10) >= overviewFiltersApplied.from_date);
     if (overviewFiltersApplied.to_date)
@@ -342,25 +347,25 @@ export default function SocialMediaMain({ currentUser, onLogout }) {
     if (overviewFiltersApplied.assigned_to)
       result = result.filter((t) => String(t.assigned_to) === String(overviewFiltersApplied.assigned_to));
     return result;
-  }, [tasks, overviewFiltersApplied]);
+  }, [channelTasks, overviewFiltersApplied]);
 
   const calendarTasks = useMemo(() => {
     const toKey = (t) =>
       t.target_date || t.publish_date || (t.task_date ? String(t.task_date).slice(0, 10) : '');
-    return [...tasks]
+    return [...channelTasks]
       .filter((t) => Boolean(toKey(t)))
       .sort((a, b) => String(toKey(a)).localeCompare(String(toKey(b))));
-  }, [tasks]);
+  }, [channelTasks]);
 
   const linkHubTasks = useMemo(() => {
     const hasAnyLink = (t) => Boolean(t.design_link || t.content_doc_link || t.publish_link);
     const hasMissingLink = (t) => !t.design_link || !t.content_doc_link || !t.publish_link;
-    return tasks.filter((t) => {
+    return channelTasks.filter((t) => {
       if (!hasAnyLink(t)) return false;
       if (!linkHubMissingOnly) return true;
       return hasMissingLink(t);
     });
-  }, [tasks, linkHubMissingOnly]);
+  }, [channelTasks, linkHubMissingOnly]);
 
   const handleCopyLink = useCallback(async (link) => {
     try {
@@ -725,66 +730,67 @@ export default function SocialMediaMain({ currentUser, onLogout }) {
 
       {/* ─── Main Content ─── */}
       <div className="it-updates-content-area">
-        {/* Topbar */}
-        <header className="it-updates-topbar">
-          <div className="it-updates-topbar-left">
-            <button
-              type="button"
-              className="it-updates-mobile-menu-btn"
-              onClick={() => setSidebarOpen(true)}
-            >
-              <MdMenu size={24} />
-            </button>
-            <div>
-              <h1 className="it-updates-topbar-title">
-                {tabConfig?.label || activeTab}
-              </h1>
-              <p className="it-updates-topbar-subtitle">
-                {activeTab === 'Dashboard' && 'Overview of your campaigns and tasks'}
-                {activeTab === 'My Dashboard' && (isAdmin ? "Members' working hours, projects and leave" : 'Your working hours, projects and leave')}
-                {activeTab === 'My Tasks' && 'Tasks assigned to you'}
-                {activeTab === 'All Tasks' && 'All tasks in kanban view'}
-                {activeTab === 'Overview' && 'Detailed task overview and filters'}
-                {activeTab === 'Calendar' && 'Scheduled and published content timeline'}
-                {activeTab === 'Link Hub' && 'Design, content, and publish links in one place'}
-                {activeTab === 'EOD Updates' && 'Your end-of-day reports'}
-              </p>
+        {activeTab !== 'Content Pipeline' && (
+          <header className="it-updates-topbar">
+            <div className="it-updates-topbar-left">
+              <button
+                type="button"
+                className="it-updates-mobile-menu-btn"
+                onClick={() => setSidebarOpen(true)}
+              >
+                <MdMenu size={24} />
+              </button>
+              <div>
+                <h1 className="it-updates-topbar-title">
+                  {tabConfig?.label || activeTab}
+                </h1>
+                <p className="it-updates-topbar-subtitle">
+                  {activeTab === 'Dashboard' && 'Overview of your campaigns and tasks'}
+                  {activeTab === 'My Dashboard' && (isAdmin ? "Members' working hours, projects and leave" : 'Your working hours, projects and leave')}
+                  {activeTab === 'My Tasks' && 'Tasks assigned to you'}
+                  {activeTab === 'All Tasks' && 'All tasks in kanban view'}
+                  {activeTab === 'Overview' && 'Detailed task overview and filters'}
+                  {activeTab === 'Calendar' && 'Scheduled and published content timeline'}
+                  {activeTab === 'Link Hub' && 'Design, content, and publish links in one place'}
+                  {activeTab === 'EOD Updates' && 'Your end-of-day reports'}
+                </p>
+              </div>
             </div>
-          </div>
-          <div className="it-updates-topbar-right">
-            {(activeTab === 'My Tasks' || activeTab === 'All Tasks') && (
+            <div className="it-updates-topbar-right">
+              {(activeTab === 'My Tasks' || activeTab === 'All Tasks') && (
+                <button
+                  type="button"
+                  className="it-updates-btn it-updates-btn-primary"
+                  onClick={() => openTaskModal(null)}
+                >
+                  <MdAdd size={18} />
+                  Add task
+                </button>
+              )}
+              {/* Task boards only: the EOD Updates tab has its own Submit EOD button,
+                  and the button has no business on the dashboard or the overview. */}
+              {(activeTab === 'My Tasks' || activeTab === 'All Tasks') && (
+                <button
+                  type="button"
+                  className="it-updates-btn it-updates-btn-secondary"
+                  onClick={() => setEodModal(true)}
+                  title="Submit EOD Report"
+                >
+                  <MdOutlineAssignment size={16} />
+                  <span>EOD</span>
+                </button>
+              )}
               <button
                 type="button"
-                className="it-updates-btn it-updates-btn-primary"
-                onClick={() => openTaskModal(null)}
+                className="it-updates-btn it-updates-btn-icon"
+                onClick={loadMyTasks}
+                title="Refresh data"
               >
-                <MdAdd size={18} />
-                Add task
+                <MdRefresh size={18} />
               </button>
-            )}
-            {/* Task boards only: the EOD Updates tab has its own Submit EOD button,
-                and the button has no business on the dashboard or the overview. */}
-            {(activeTab === 'My Tasks' || activeTab === 'All Tasks') && (
-              <button
-                type="button"
-                className="it-updates-btn it-updates-btn-secondary"
-                onClick={() => setEodModal(true)}
-                title="Submit EOD Report"
-              >
-                <MdOutlineAssignment size={16} />
-                <span>EOD</span>
-              </button>
-            )}
-            <button
-              type="button"
-              className="it-updates-btn it-updates-btn-icon"
-              onClick={loadMyTasks}
-              title="Refresh data"
-            >
-              <MdRefresh size={18} />
-            </button>
-          </div>
-        </header>
+            </div>
+          </header>
+        )}
 
         {error && (
           <div className="it-updates-error" role="alert">
@@ -792,9 +798,12 @@ export default function SocialMediaMain({ currentUser, onLogout }) {
           </div>
         )}
 
-        <main className="it-updates-main">
+        <main className={`it-updates-main${activeTab === 'Content Pipeline' ? ' it-updates-main--pipeline' : ''}`}>
           {!booted && <Preloader label="Loading your workspace…" />}
-          {booted && loading && <Preloader label="Loading…" />}
+          {booted && loading && activeTab !== 'Content Pipeline' && <Preloader label="Loading…" />}
+          {activeTab === 'Content Pipeline' && (
+            <ContentPipeline currentUser={user} members={teamOverview} />
+          )}
           {activeTab === 'My Dashboard' && (
             <MemberDashboard currentUser={user} members={teamOverview} isAdmin={isAdmin} team={MODULE_TEAM} />
           )}

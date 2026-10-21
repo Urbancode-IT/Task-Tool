@@ -9,6 +9,23 @@ import bcrypt from 'bcrypt';
 import crypto from 'node:crypto';
 import jwt from 'jsonwebtoken';
 import * as db from './db/index.js';
+import {
+  ContentError,
+  dbCreateContentTask,
+  dbGetContentTask,
+  listAssignableUsers,
+  listContentTypes,
+  dbListContentEvents,
+  dbListContentTasks,
+  dbTransitionContentTask,
+  dbUpdateContentTask,
+} from './db/socialContent.js';
+import {
+  CourseError,
+  createCourse,
+  listCourseCategories,
+  listCourses,
+} from './db/courses.js';
 import { sendMail, isMailConfigured, renderMail, applyEmailBranding } from './mailer.js';
 import { startEodDirectorReport, startEodMemberReminders, startEodMidnightLock } from './eodReminder.js';
 import { requireMasterScope } from './middlewares/masterMiddleware.js';
@@ -1208,6 +1225,18 @@ app.put(`${BASE_PATH}/tasks/:taskId`, async (req, res) => {
       if (isLegalFinanceTeamString(team) && !requireLegalFinanceAccess(req, res)) return;
       if ((existing?.team === 'director' || isDirectorTeamString(team)) && !requireDirectorManage(req, res)) return;
       if (req.body?.assigned_to !== undefined && !(await assigneeActiveOrReject(res, req.body.assigned_to))) return;
+      if (existing?.pipeline_stage) {
+        const nextStatus = req.body?.status;
+        const movesStage =
+          (nextStatus !== undefined && nextStatus !== existing.status && nextStatus !== 'content_pipeline') ||
+          req.body?.pipeline_stage !== undefined ||
+          req.body?.workflow_status !== undefined;
+        if (movesStage) {
+          return res.status(400).json({
+            message: 'This item lives on the content pipeline. Move it from Content Pipeline so its history stays on the same task.',
+          });
+        }
+      }
       const body = mergeTaskReviewTransition(existing, { ...req.body, team }, req.user);
       const task = await db.dbUpdateTask(taskId, body);
       if (!task) return res.status(404).json({ message: 'Task not found' });
@@ -1224,6 +1253,156 @@ app.put(`${BASE_PATH}/tasks/:taskId`, async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: 'Failed to update task' });
+  }
+});
+
+function socialContentActor(req) {
+  const perms = req.user?.permissions || [];
+  const canView =
+    perms.includes('admin.access') ||
+    perms.includes('social_media.view') ||
+    perms.includes('social_media.manage');
+  const canManage = perms.includes('admin.access') || perms.includes('social_media.manage');
+  const id = req.user?.id != null ? parseInt(String(req.user.id), 10) : null;
+  return { canView, canManage, id: Number.isFinite(id) ? id : null };
+}
+
+function sendContentError(res, err, fallback) {
+  if (err instanceof ContentError) return res.status(err.status).json({ message: err.message });
+  console.error(err);
+  return res.status(500).json({ message: fallback });
+}
+
+// Active users with their roles, for the content assignee dropdown.
+app.get(`${BASE_PATH}/content-users`, async (req, res) => {
+  try {
+    const actor = socialContentActor(req);
+    if (!actor.canView) return res.status(403).json({ message: 'Social Media access is required.' });
+    res.json(await listAssignableUsers());
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Failed to load users' });
+  }
+});
+
+// Content types live in social_media_content_types. The dropdown reads this list.
+app.get(`${BASE_PATH}/content-types`, async (req, res) => {
+  try {
+    const actor = socialContentActor(req);
+    if (!actor.canView) return res.status(403).json({ message: 'Social Media access is required.' });
+    res.json(await listContentTypes());
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Failed to load content types' });
+  }
+});
+
+// Course catalog (category = course_type) for the content pipeline board.
+app.get(`${BASE_PATH}/courses`, async (req, res) => {
+  try {
+    const actor = socialContentActor(req);
+    if (!actor.canView) return res.status(403).json({ message: 'Social Media access is required.' });
+    const [courses, categories] = await Promise.all([listCourses(), listCourseCategories()]);
+    res.json({ courses, categories });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Failed to load courses' });
+  }
+});
+
+app.post(`${BASE_PATH}/courses`, async (req, res) => {
+  try {
+    const actor = socialContentActor(req);
+    if (!actor.canView) return res.status(403).json({ message: 'Social Media access is required.' });
+    const course = await createCourse(req.body || {});
+    res.status(201).json(course);
+  } catch (err) {
+    if (err instanceof CourseError) {
+      return res.status(err.status || 400).json({ message: err.message });
+    }
+    console.error(err);
+    res.status(500).json({ message: 'Failed to add course' });
+  }
+});
+
+// Active branches from public.branches, ordered for the content dropdown.
+app.get(`${BASE_PATH}/branches`, async (req, res) => {
+  try {
+    const actor = socialContentActor(req);
+    if (!actor.canView) return res.status(403).json({ message: 'Social Media access is required.' });
+    res.json(await db.listBranches());
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Failed to load branches' });
+  }
+});
+
+app.get(`${BASE_PATH}/social-content`, async (req, res) => {
+  try {
+    const actor = socialContentActor(req);
+    if (!actor.canView) return res.status(403).json({ message: 'Social Media access is required.' });
+    const list = await dbListContentTasks({
+      q: req.query.q || '',
+      branch: req.query.branch || '',
+      content_type: req.query.content_type || '',
+      status: req.query.status || '',
+      assigned_to: req.query.assigned_to || '',
+      deadline: req.query.deadline || '',
+    });
+    res.json(list);
+  } catch (err) {
+    sendContentError(res, err, 'Failed to load content tasks');
+  }
+});
+
+app.get(`${BASE_PATH}/social-content/:taskId`, async (req, res) => {
+  try {
+    const actor = socialContentActor(req);
+    if (!actor.canView) return res.status(403).json({ message: 'Social Media access is required.' });
+    const task = await dbGetContentTask(req.params.taskId);
+    if (!task) return res.status(404).json({ message: 'Content task not found.' });
+    const events = await dbListContentEvents(req.params.taskId);
+    res.json({ ...task, events });
+  } catch (err) {
+    sendContentError(res, err, 'Failed to load content task');
+  }
+});
+
+app.post(`${BASE_PATH}/social-content`, async (req, res) => {
+  try {
+    const actor = socialContentActor(req);
+    if (!actor.canView) return res.status(403).json({ message: 'Social Media access is required.' });
+    if (req.body?.assigned_to && !(await assigneeActiveOrReject(res, req.body.assigned_to))) return;
+    const task = await dbCreateContentTask(req.body || {}, actor.id);
+    res.status(201).json(task);
+  } catch (err) {
+    sendContentError(res, err, 'Failed to create the requirement');
+  }
+});
+
+app.put(`${BASE_PATH}/social-content/:taskId`, async (req, res) => {
+  try {
+    const actor = socialContentActor(req);
+    if (!actor.canView) return res.status(403).json({ message: 'Social Media access is required.' });
+    if (req.body?.assigned_to !== undefined && req.body.assigned_to !== '' && req.body.assigned_to != null) {
+      if (!(await assigneeActiveOrReject(res, req.body.assigned_to))) return;
+    }
+    const task = await dbUpdateContentTask(req.params.taskId, req.body || {});
+    res.json(task);
+  } catch (err) {
+    sendContentError(res, err, 'Failed to update the content task');
+  }
+});
+
+app.post(`${BASE_PATH}/social-content/:taskId/transition`, async (req, res) => {
+  try {
+    const actor = socialContentActor(req);
+    if (!actor.canView) return res.status(403).json({ message: 'Social Media access is required.' });
+    const task = await dbTransitionContentTask(req.params.taskId, req.body?.action, req.body || {}, actor);
+    const events = await dbListContentEvents(req.params.taskId);
+    res.json({ ...task, events });
+  } catch (err) {
+    sendContentError(res, err, 'Failed to move the content task');
   }
 });
 
