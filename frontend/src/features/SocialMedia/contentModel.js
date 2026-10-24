@@ -29,6 +29,7 @@ export const CONTENT_TYPES = [
   { value: 'video', label: 'Video' },
   { value: 'blog', label: 'Blog' },
   { value: 'image', label: 'Image' },
+  { value: 'website', label: 'Website' },
 ];
 
 export const CONTENT_BRANCHES = [
@@ -221,6 +222,7 @@ export function sheetRows(task) {
   const kind = production.sheet_kind;
   const row = (label, value) => (value ? { label, value: String(value) } : null);
   const demo = [
+    row('Requirements', production.requirements),
     row('Content', task.draft_script),
     row('Content demo URL', production.demo_url),
     row('Demo image', production.demo_image ? (production.demo_image_name || 'Saved') : ''),
@@ -332,7 +334,9 @@ export function actionsFor(task, canManage, userId = null) {
   if (stage === 'requirement') {
     items.push({ action: 'start_generation', label: 'Start content', primary: true });
   } else if (stage === 'content_generation') {
-    items.push({ action: 'submit_for_approval', label: 'Submit content', primary: true });
+    if (!task.assigned_to || isAssignee) {
+      items.push({ action: 'submit_for_approval', label: 'Submit content', primary: true });
+    }
   } else if (stage === 'content_approval') {
     items.push({ action: 'approve_content', label: 'Approve', primary: true, manage: true });
     items.push({ action: 'revise_content', label: 'Needs Rework', manage: true, feedback: true, danger: true });

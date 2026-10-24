@@ -71,7 +71,11 @@ function typeNames(task) {
   const type = String(task?.content_type || '').trim().toLowerCase();
   if (type === 'reel') return { folder: 'Reels', label: 'Reel' };
   if (type === 'poster') return { folder: 'Posters', label: 'Poster' };
-  throw new ContentError(400, 'Set the type to Reel or Poster before uploading.');
+  if (type === 'ad') return { folder: 'Ads', label: 'Ad' };
+  if (type === 'carousel') return { folder: 'Carousels', label: 'Carousel' };
+  if (type === 'gmb') return { folder: 'GMB', label: 'GMB' };
+  if (type === 'website') return { folder: 'Website', label: 'Website' };
+  throw new ContentError(400, 'Set the content type before uploading.');
 }
 
 function contentDate(task) {
@@ -192,7 +196,8 @@ function placeFor(task, mime, uploadStage) {
   const type = String(task?.content_type || '').toLowerCase();
   if (status === 'needs_revision' || status === 'rejected') return { folder: 'Rework', kind: 'rework' };
   const designed = stage === 'designing_editing' && (mime.startsWith('image/') || mime.startsWith('video/'));
-  const primary = (type === 'reel' && mime.startsWith('video/')) || (type === 'poster' && mime.startsWith('image/'));
+  const primary = (type === 'reel' && mime.startsWith('video/'))
+    || ((type === 'poster' || type === 'ad' || type === 'carousel' || type === 'gmb' || type === 'website') && mime.startsWith('image/'));
   if (designed || (primary && FINAL_STAGES.has(stage))) return { folder: '', kind: 'final' };
   if (mime === 'application/pdf' || EARLY_STAGES.has(stage)) return { folder: 'Reference', kind: 'reference' };
   return { folder: 'Others', kind: 'others' };

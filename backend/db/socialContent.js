@@ -224,6 +224,7 @@ export function mapContentTask(row) {
     requester: row.created_by_username || '',
     dueDate: row.due_date ?? null,
     due_date: row.due_date ?? null,
+    task_date: row.task_date ?? row.due_date ?? null,
     created_at: row.created_at,
     updated_at: row.updated_at,
     completed_at: row.completed_at ?? null,
@@ -447,6 +448,9 @@ function cleanProduction(value) {
     poster_link: text('poster_link', 8000),
     reel_script: text('reel_script', 8000),
     upload_date: date('upload_date'),
+    requirements: text('requirements', 8000),
+    content_writer: text('content_writer', 120),
+    content_writer_id: text('content_writer_id', 20),
     demo_url: text('demo_url', 2000),
     demo_image_name: text('demo_image_name', 255),
     demo_image: imageData(source.demo_image),
@@ -549,6 +553,18 @@ function validateCreate(body) {
     assignedTo: body.assigned_to ? parseInt(String(body.assigned_to), 10) : null,
     production,
   };
+}
+
+export async function dbDeleteContentTask(taskId) {
+  const task = await dbGetContentTask(taskId);
+  if (!task) throw new ContentError(404, 'Content task not found.');
+  const p = getPool();
+  const { rowCount } = await p.query(
+    `DELETE FROM social_media_tasks WHERE task_id = $1 AND pipeline_stage IS NOT NULL`,
+    [task.task_id]
+  );
+  if (!rowCount) throw new ContentError(404, 'Content task not found.');
+  return true;
 }
 
 export async function dbCreateContentTask(body, actorId) {
@@ -752,6 +768,9 @@ export function planContentTransition(task, action, input = {}, { canManage = fa
       throw new ContentError(403, 'Only a Social Media manager can approve, send work back for rework, or confirm publication.');
   }
 
+  if (action === 'submit_for_approval' && task.assigned_to && !isAssignee) {
+    throw new ContentError(403, 'Only the person assigned to write this content can submit it.');
+  }
   const assignedWork = new Set(['start_design', 'complete_design', 'save_to_drive', 'schedule_post', 'confirm_publish', 'save_channel_post']);
   if (assignedWork.has(action) && task.assigned_to && !canManage && !isAssignee) {
     throw new ContentError(403, 'This work is assigned to someone else.');
@@ -811,7 +830,7 @@ export function planContentTransition(task, action, input = {}, { canManage = fa
       const drive = textOf(input, task, 'drive_url');
       const design = textOf(input, task, 'design_link');
       const notes = textOf(input, task, 'asset_notes');
-      const production = asObject(task.production_meta);
+      const production = asObject(task.production || task.production_meta);
       const posterCopy = cleanText(production.poster_content, 8000);
       const reelScript = cleanText(production.reel_script, 8000);
       const curriculum = cleanText(production.curriculum, 4000);
@@ -821,8 +840,16 @@ export function planContentTransition(task, action, input = {}, { canManage = fa
       if (!script && !caption && !drive && !design && !notes && !posterCopy && !reelScript && !curriculum && !posterLink && !demoUrl && !demoImage) {
         throw new ContentError(400, 'Add a content demo link or a demo image, then submit.');
       }
+      const writerId = task.assigned_to != null ? String(task.assigned_to) : cleanText(production.content_writer_id, 20);
+      const writerName = cleanText(production.content_writer, 120)
+        || cleanText(task.assignee, 120)
+        || '';
+      if (writerId && !production.content_writer_id) production.content_writer_id = writerId;
+      if (writerName && !production.content_writer) production.content_writer = writerName;
       patch.pipeline_stage = 'content_approval';
       patch.workflow_status = 'pending';
+      patch.assigned_to = null;
+      patch.production_meta = JSON.stringify(cleanProduction(production));
       patch.draft_script = script || posterCopy || reelScript || null;
       patch.draft_caption = caption || null;
       patch.draft_hashtags = textOf(input, task, 'draft_hashtags') || null;
@@ -846,8 +873,11 @@ export function planContentTransition(task, action, input = {}, { canManage = fa
       if (stage !== 'content_approval') throw new ContentError(400, 'This decision belongs to Content Approval.');
       requireFeedback();
       const toStatus = 'needs_revision';
+      const production = asObject(task.production || task.production_meta);
+      const writerId = parseInt(String(production.content_writer_id || ''), 10);
       patch.pipeline_stage = 'content_generation';
       patch.workflow_status = toStatus;
+      patch.assigned_to = Number.isFinite(writerId) ? writerId : null;
       patch.draft_version = Number(task.draft_version || 0) + 1;
       patch.review_comment = feedback;
       return { patch, event: eventBase('content_generation', toStatus), review: true };

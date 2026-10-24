@@ -1,9 +1,10 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   MdAdd,
   MdAssignment,
   MdCheckCircle,
   MdClose,
+  MdDelete,
   MdCloudUpload,
   MdEditNote,
   MdExpandLess,
@@ -512,7 +513,13 @@ function driveFolderHint(task) {
   const branch = String(task?.content_branch || '').trim();
   const brand = /^jz/i.test(branch) ? 'JZ' : /^uc/i.test(branch) ? 'UC' : 'UC or JZ';
   const type = String(task?.content_type || '').toLowerCase();
-  const folder = type === 'poster' ? 'Posters' : type === 'reel' ? 'Reels' : 'Reels or Posters';
+  const folder = type === 'poster' ? 'Posters'
+    : type === 'website' ? 'Website'
+    : type === 'reel' ? 'Reels'
+    : type === 'ad' ? 'Ads'
+    : type === 'carousel' ? 'Carousels'
+    : type === 'gmb' ? 'GMB'
+    : 'the type folder';
   const date = String(task?.production?.sheet_date || task?.due_date || '').slice(0, 10);
   const year = /^\d{4}/.test(date) ? date.slice(0, 4) : String(new Date().getFullYear());
   return `${year} / ${brand} / ${folder}`;
@@ -522,7 +529,7 @@ function isDesignFile(file) {
   return file?.stage === 'designing_editing' || file?.kind === 'final';
 }
 
-function DriveUploads({ task, onTask, onlyStage = '' }) {
+function DriveUploads({ task, onTask, onlyStage = '', readOnly = false }) {
   const [busy, setBusy] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [error, setError] = useState('');
@@ -543,6 +550,7 @@ function DriveUploads({ task, onTask, onlyStage = '' }) {
   }, []);
 
   const upload = async (list) => {
+    if (readOnly) return;
     const chosen = [...(list || [])];
     if (!chosen.length) return;
     setError('');
@@ -601,6 +609,7 @@ function DriveUploads({ task, onTask, onlyStage = '' }) {
   };
 
   const remove = async (file) => {
+    if (readOnly) return;
     if (!(await confirmDialog({
       title: 'Remove this file?',
       message: file.name || 'It will be removed from Drive.',
@@ -625,58 +634,60 @@ function DriveUploads({ task, onTask, onlyStage = '' }) {
           ? `Upload the design here. It is saved in DM Root, then ${driveFolderHint(task)}.`
           : 'Files added in this step are shown here.'}
       </p>
-      <label
-        className={`smc-drive-drop${dragOver ? ' over' : ''}`}
-        onDragOver={(event) => {
-          event.preventDefault();
-          if (!busy) setDragOver(true);
-        }}
-        onDragLeave={() => setDragOver(false)}
-        onDrop={(event) => {
-          event.preventDefault();
-          setDragOver(false);
-          if (!busy) upload(event.dataTransfer.files);
-        }}
-      >
-        <MdCloudUpload size={28} />
-        {progress ? (
-          <div
-            className="smc-drive-progress"
-            role="progressbar"
-            aria-valuemin={0}
-            aria-valuemax={100}
-            aria-valuenow={progress.percent ?? undefined}
-            aria-label={`Uploading ${progress.name}`}
-          >
-            <div className="smc-drive-progress-meta">
-              <span>{progress.name}</span>
-              <span>{progress.saving ? 'Saving to Drive…' : `${progress.percent}%`}</span>
-            </div>
-            {progress.count > 1 ? <small>File {progress.index} of {progress.count}</small> : null}
-            <div className="smc-drive-progress-track">
-              <div
-                className={`smc-drive-progress-bar${progress.saving || progress.percent == null ? ' saving' : ''}`}
-                style={{ width: `${progress.percent ?? 100}%` }}
-              />
-            </div>
-          </div>
-        ) : (
-          <>
-            <span>Drop files here</span>
-            <small>or click to browse. Images, PDFs, and videos.</small>
-          </>
-        )}
-        <input
-          type="file"
-          multiple
-          accept="image/*,application/pdf,video/*"
-          disabled={busy}
-          onChange={(event) => {
-            upload(event.target.files);
-            event.target.value = '';
+      {!readOnly ? (
+        <label
+          className={`smc-drive-drop${dragOver ? ' over' : ''}`}
+          onDragOver={(event) => {
+            event.preventDefault();
+            if (!busy) setDragOver(true);
           }}
-        />
-      </label>
+          onDragLeave={() => setDragOver(false)}
+          onDrop={(event) => {
+            event.preventDefault();
+            setDragOver(false);
+            if (!busy) upload(event.dataTransfer.files);
+          }}
+        >
+          <MdCloudUpload size={28} />
+          {progress ? (
+            <div
+              className="smc-drive-progress"
+              role="progressbar"
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuenow={progress.percent ?? undefined}
+              aria-label={`Uploading ${progress.name}`}
+            >
+              <div className="smc-drive-progress-meta">
+                <span>{progress.name}</span>
+                <span>{progress.saving ? 'Saving to Drive…' : `${progress.percent}%`}</span>
+              </div>
+              {progress.count > 1 ? <small>File {progress.index} of {progress.count}</small> : null}
+              <div className="smc-drive-progress-track">
+                <div
+                  className={`smc-drive-progress-bar${progress.saving || progress.percent == null ? ' saving' : ''}`}
+                  style={{ width: `${progress.percent ?? 100}%` }}
+                />
+              </div>
+            </div>
+          ) : (
+            <>
+              <span>Drop files here</span>
+              <small>or click to browse. Images, PDFs, and videos.</small>
+            </>
+          )}
+          <input
+            type="file"
+            multiple
+            accept="image/*,application/pdf,video/*"
+            disabled={busy}
+            onChange={(event) => {
+              upload(event.target.files);
+              event.target.value = '';
+            }}
+          />
+        </label>
+      ) : null}
       {error ? <p className="smc-note">{error}</p> : null}
       {folder && (!onlyStage || onlyStage === 'content_generation') ? (
         <a className="smc-drive-link" href={folder} target="_blank" rel="noreferrer">
@@ -704,7 +715,9 @@ function DriveUploads({ task, onTask, onlyStage = '' }) {
                   <span>{file.name}</span>
                 </span>
               </a>
-              <button type="button" className="smc-link" disabled={busy} onClick={() => remove(file)}>Remove</button>
+              {!readOnly ? (
+                <button type="button" className="smc-link" disabled={busy} onClick={() => remove(file)}>Remove</button>
+              ) : null}
             </li>
           ))}
         </ul>
@@ -713,40 +726,83 @@ function DriveUploads({ task, onTask, onlyStage = '' }) {
   );
 }
 
-function ContentSheetForm({ task, updateField, updateProduction, onTask }) {
+function ContentSheetForm({ task, updateField, updateProduction, onTask, people = [], onAssign, meId = null }) {
   const production = task.production || {};
+  const writerId = production.content_writer_id || task.assigned_to || '';
+  const writerName = String(production.content_writer || task.assignee || '').trim();
+  const canWriteContent = !writerId || (meId != null && String(writerId) === String(meId));
 
   return (
     <>
+      <label className="smc-field">Who will add the content
+        <select
+          value={writerId}
+          onChange={(event) => {
+            const next = event.target.value ? Number(event.target.value) : null;
+            const person = people.find((item) => String(item.user_id) === String(next || ''));
+            const name = person?.username || '';
+            updateField('assigned_to', next);
+            updateProduction('content_writer', name);
+            updateProduction('content_writer_id', next ? String(next) : '');
+            onAssign?.(next, name);
+          }}
+        >
+          <option value="">Choose who will add the content</option>
+          {people.map((person) => (
+            <option key={person.user_id} value={person.user_id}>
+              {person.username}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label className="smc-field wide">Requirements
+        <textarea
+          className="smc-requirements-box"
+          value={production.requirements || ''}
+          onChange={(event) => updateProduction('requirements', event.target.value)}
+          placeholder="What should this content cover?"
+        />
+      </label>
+      {!canWriteContent ? (
+        <p className="smc-note">
+          Waiting for {writerName || 'the assigned person'} to add the content.
+        </p>
+      ) : null}
       <label className="smc-field wide">Content
         <textarea
           className="smc-content-box"
           value={task.draft_script || ''}
+          disabled={!canWriteContent}
           onChange={(event) => updateField('draft_script', event.target.value)}
-          placeholder="Write the script, caption, or poster copy"
+          placeholder={canWriteContent
+            ? 'Write the script, caption, or poster copy here'
+            : 'Only the assigned person can write the content'}
         />
       </label>
       <label className="smc-field wide">Content demo URL
         <input
           value={production.demo_url || ''}
+          disabled={!canWriteContent}
           onChange={(event) => updateProduction('demo_url', event.target.value)}
           placeholder="https://"
         />
       </label>
-      <DriveUploads task={task} onTask={onTask} onlyStage="content_generation" />
+      <DriveUploads task={task} onTask={onTask} onlyStage="content_generation" readOnly={!canWriteContent} />
       {production.demo_image ? (
         <div className="smc-demo">
           <img src={production.demo_image} alt={production.demo_image_name || 'Demo'} />
-          <button
-            type="button"
-            className="smc-link"
-            onClick={() => {
-              updateProduction('demo_image', '');
-              updateProduction('demo_image_name', '');
-            }}
-          >
-            Remove image
-          </button>
+          {canWriteContent ? (
+            <button
+              type="button"
+              className="smc-link"
+              onClick={() => {
+                updateProduction('demo_image', '');
+                updateProduction('demo_image_name', '');
+              }}
+            >
+              Remove image
+            </button>
+          ) : null}
         </div>
       ) : null}
     </>
@@ -756,7 +812,7 @@ function ContentSheetForm({ task, updateField, updateProduction, onTask }) {
 
 function stageHelp(stage) {
   if (stage === 'requirement') return 'This is only the idea. Press Start content when someone is ready to write the poster or reel.';
-  if (stage === 'content_generation') return 'Write the content, then add a demo link or image if you have one. Submit content moves it to approval.';
+  if (stage === 'content_generation') return 'Add the requirement and choose who will write the content. They fill the content, then submit it for approval.';
   if (stage === 'content_approval') return '';
   if (stage === 'final_approval') return '';
   if (stage === 'designing_editing') return '';
@@ -770,6 +826,7 @@ function TaskPage({
   task,
   branches,
   people,
+  meId = null,
   notice,
   feedback,
   setFeedback,
@@ -780,6 +837,7 @@ function TaskPage({
   updateField,
   updateProduction,
   onTask,
+  onAssign,
   onSave,
   onAction,
   onBack,
@@ -794,7 +852,13 @@ function TaskPage({
   const postUrl = posting ? channelPostUrl(task, stage) : '';
   const links = task.production?.post_links || {};
   const showPosterPick = stage === 'final_approval' || posting;
-
+  const pickingDesigner = !showPosterPick && ['content_approval', 'designing_editing'].includes(stage);
+  const keepCurrent = (person) => String(person.user_id) === String(task.assigned_to || '');
+  const assigneeChoices = pickingDesigner
+    ? people.filter((person) => isDesigner(person) || keepCurrent(person))
+    : showPosterPick
+      ? people.filter((person) => isDigital(person) || keepCurrent(person))
+      : people;
   return (
     <div className={asForm ? 'smc-stage-form' : 'smc-work'}>
       {!asForm && <button type="button" className="smc-back" onClick={onBack}>← Back to board</button>}
@@ -813,10 +877,10 @@ function TaskPage({
         {stageHelp(stage) ? <p className="smc-note">{stageHelp(stage)}</p> : null}
         {notice && <div className="smc-banner ok">{notice}</div>}
         <div className="smc-work-grid">
-          {stage !== 'content_generation' && <label className="smc-field">{showPosterPick ? 'Who will post this' : ['content_approval', 'designing_editing'].includes(stage) ? 'Who will design this' : 'Who is doing this'}
+          {stage !== 'content_generation' && <label className="smc-field">{showPosterPick ? 'Who will post this' : pickingDesigner ? 'Who will design this' : 'Who is doing this'}
             <select value={task.assigned_to || ''} onChange={(event) => updateField('assigned_to', event.target.value ? Number(event.target.value) : null)}>
-              <option value="">{showPosterPick ? 'Choose who will post' : 'Choose a person'}</option>
-              {people.map((person) => (
+              <option value="">{showPosterPick ? 'Choose who will post' : pickingDesigner ? 'Choose a designer' : 'Choose a person'}</option>
+              {assigneeChoices.map((person) => (
                 <option key={person.user_id} value={person.user_id}>
                   {person.username}
                 </option>
@@ -840,7 +904,15 @@ function TaskPage({
           )}
           {stage === 'content_generation' && (
             <div className="smc-work-grid wide">
-              <ContentSheetForm task={task} updateField={updateField} updateProduction={updateProduction} onTask={onTask} />
+              <ContentSheetForm
+                task={task}
+                updateField={updateField}
+                updateProduction={updateProduction}
+                onTask={onTask}
+                people={people}
+                onAssign={onAssign}
+                meId={meId}
+              />
             </div>
           )}
           {(stage === 'content_approval' || stage === 'final_approval' || stage === 'designing_editing') && (
@@ -1003,6 +1075,22 @@ function shownStage(task) {
   return task?.pipeline_stage === 'requirement' ? 'content_generation' : task?.pipeline_stage;
 }
 
+function roleText(person) {
+  const names = person?.role_names;
+  if (Array.isArray(names)) return names.join(' ');
+  return String(names || person?.role || '');
+}
+
+function isDesigner(person) {
+  const text = roleText(person).toLowerCase();
+  return text.includes('creative team') || text.includes('creative_team') || text.includes('designer');
+}
+
+function isDigital(person) {
+  const text = roleText(person).toLowerCase();
+  return text.includes('social media') || text.includes('social_media') || text.includes('digital');
+}
+
 function assignedName(task) {
   if (task?.assigned_to == null || task.assigned_to === '') return '';
   const name = String(task.assignee || '').trim();
@@ -1011,6 +1099,12 @@ function assignedName(task) {
 }
 
 function cellPerson(task, columnKey, hold) {
+  if (columnKey === 'content_generation') {
+    const writer = String(task?.production?.content_writer || '').trim();
+    if (writer) return writer;
+  }
+  // Content Approval waits for a manager. The content writer must not appear here.
+  if (hold && columnKey === 'content_approval') return 'Unassigned';
   if (hold) return assignedName(task) || 'Unassigned';
   const actors = task?.stage_actors || {};
   const named = actors[columnKey]
@@ -1018,7 +1112,16 @@ function cellPerson(task, columnKey, hold) {
   return named || 'Unassigned';
 }
 
+function reworkStageKey(task) {
+  if (String(task?.workflow_status || '') !== 'needs_revision') return '';
+  const stage = shownStage(task);
+  if (stage === 'content_generation') return 'content_approval';
+  if (stage === 'designing_editing') return 'final_approval';
+  return '';
+}
+
 function flowState(task, columnKey) {
+  if (columnKey === reworkStageKey(task)) return 'rework';
   if (isPostingColumn(columnKey)) {
     if (!isPostingOpen(task)) return '';
     return channelPostUrl(task, columnKey) ? 'done' : 'hold';
@@ -1034,11 +1137,16 @@ function flowState(task, columnKey) {
   return '';
 }
 
-function renderStageCell(task, stage, { menuFor, setMenuFor, openTask }) {
-  const waitingForDemo = stage.key === 'content_generation' && shownStage(task) === 'content_generation' && !hasContentDemo(task);
+function renderStageCell(task, stage, { menuFor, setMenuFor, openTask, className = '' }) {
+  const extra = className ? ` ${className}` : '';
+  const writerNamed = String(task?.production?.content_writer || '').trim();
+  const waitingForDemo = stage.key === 'content_generation'
+    && shownStage(task) === 'content_generation'
+    && !hasContentDemo(task)
+    && !writerNamed;
   if (waitingForDemo) {
     return (
-      <div key={stage.key} className="smc-lane-cell wait">
+      <div key={stage.key} className={`smc-lane-cell wait${extra}`}>
         <button type="button" className="smc-lane-add" onClick={() => openTask(task, stage.key)}>
           <MdAdd size={16} /> Add
         </button>
@@ -1046,12 +1154,21 @@ function renderStageCell(task, stage, { menuFor, setMenuFor, openTask }) {
     );
   }
   const state = flowState(task, stage.key);
+  if (state === 'rework') {
+    return (
+      <div key={stage.key} className={`smc-lane-cell rework${extra}`}>
+        <article className="smc-card rework" onClick={() => openTask(task, stage.key)}>
+          <span className="smc-card-label" title="Rework">Rework</span>
+        </article>
+      </div>
+    );
+  }
   if (!state) {
     return (
       <button
         key={stage.key}
         type="button"
-        className="smc-lane-cell empty"
+        className={`smc-lane-cell empty${extra}`}
         onClick={() => openTask(task, stage.key)}
         aria-label={`Open ${stage.label}`}
       />
@@ -1060,7 +1177,7 @@ function renderStageCell(task, stage, { menuFor, setMenuFor, openTask }) {
   const hold = state === 'hold';
   const person = cellPerson(task, stage.key, hold);
   return (
-    <div key={stage.key} className={`smc-lane-cell ${state}`}>
+    <div key={stage.key} className={`smc-lane-cell ${state}${extra}`}>
       <article
         className={`smc-card ${state}`}
         onClick={() => openTask(task, stage.key)}
@@ -1094,7 +1211,12 @@ function renderStageCell(task, stage, { menuFor, setMenuFor, openTask }) {
   );
 }
 
-export default function ContentPipeline({ currentUser, members = [] }) {
+export default function ContentPipeline({
+  currentUser,
+  members = [],
+  focusTaskId = null,
+  onFocusConsumed,
+}) {
   const canManage = useMemo(() => {
     const perms = currentUser?.permissions || [];
     return perms.includes('admin.access') || perms.includes('social_media.manage');
@@ -1139,7 +1261,7 @@ export default function ContentPipeline({ currentUser, members = [] }) {
     if (syncingScroll.current) return;
     const top = event.currentTarget.scrollTop;
     const other = source === 'pin' ? stageScrollRef.current : pinScrollRef.current;
-    if (!other) return;
+    if (!other || other.scrollTop === top) return;
     syncingScroll.current = true;
     other.scrollTop = top;
     requestAnimationFrame(() => {
@@ -1285,6 +1407,41 @@ export default function ContentPipeline({ currentUser, members = [] }) {
     })
   ), [filtered]);
 
+  useLayoutEffect(() => {
+    const pin = pinScrollRef.current;
+    const stage = stageScrollRef.current;
+    if (!pin || !stage) return undefined;
+
+    const laneRows = (root) => [...root.children].filter((node) => (
+      node.classList.contains('smc-lane-head') || node.classList.contains('smc-lane-row')
+    ));
+
+    const align = () => {
+      const inner = stage.querySelector('.smc-board-scroll-inner');
+      if (!inner) return;
+      const left = laneRows(pin);
+      const right = laneRows(inner);
+      const count = Math.min(left.length, right.length);
+      for (let index = 0; index < count; index += 1) {
+        left[index].style.height = '';
+        right[index].style.height = '';
+      }
+      const heights = [];
+      for (let index = 0; index < count; index += 1) {
+        heights.push(Math.max(left[index].offsetHeight, right[index].offsetHeight));
+      }
+      for (let index = 0; index < count; index += 1) {
+        const px = `${heights[index]}px`;
+        left[index].style.height = px;
+        right[index].style.height = px;
+      }
+    };
+
+    align();
+    window.addEventListener('resize', align);
+    return () => window.removeEventListener('resize', align);
+  }, [sorted, loading]);
+
   const columnCounts = useMemo(() => {
     const counts = Object.fromEntries(BOARD_COLUMNS.map((column) => [column.key, 0]));
     matched.forEach((task) => {
@@ -1325,6 +1482,35 @@ export default function ContentPipeline({ currentUser, members = [] }) {
       toastError(err?.response?.data?.message || 'Could not open this task.');
     }
   };
+
+  useEffect(() => {
+    if (!focusTaskId || loading) return undefined;
+    const match = itemsRef.current.find((item) => String(item.id) === String(focusTaskId));
+    let cancelled = false;
+    (async () => {
+      try {
+        if (match) {
+          await openTask(match);
+        } else {
+          const { data } = await itUpdatesApi.getSocialContent(focusTaskId);
+          if (cancelled || !data) return;
+          replaceTask(data);
+          setViewStage(shownStage(data) || data.pipeline_stage);
+          setSelected(data);
+          setEvents(Array.isArray(data.events) ? data.events : []);
+        }
+      } catch {
+        /* ignore — still clear focus */
+      } finally {
+        if (!cancelled) onFocusConsumed?.();
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // Open once when My Tasks hands us a pipeline task id.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusTaskId, loading]);
 
   const closeTask = () => {
     setSelected(null);
@@ -1655,6 +1841,24 @@ export default function ContentPipeline({ currentUser, members = [] }) {
     }
   };
 
+  const removeRow = async (task) => {
+    const ok = await confirmDialog({
+      title: 'Delete this row?',
+      message: `${task.code || task.title || 'This task'} will be removed from the pipeline.`,
+      confirmLabel: 'Delete',
+      danger: true,
+    });
+    if (!ok) return;
+    try {
+      await itUpdatesApi.deleteSocialContent(task.id);
+      setItems((prev) => prev.filter((item) => String(item.id) !== String(task.id)));
+      setSelected((current) => (current && String(current.id) === String(task.id) ? null : current));
+      toastSuccess('Row deleted');
+    } catch (err) {
+      toastError(err?.response?.data?.message || 'Could not delete this row.');
+    }
+  };
+
   const addRow = async () => {
     if (adding) return;
     setAdding(true);
@@ -1865,13 +2069,10 @@ export default function ContentPipeline({ currentUser, members = [] }) {
       {!loading && (
         <div className="smc-board">
           <div className="smc-board-frame">
-            <div
-              className="smc-board-pin"
-              ref={pinScrollRef}
-              onScroll={syncBoardScroll('pin')}
-            >
+            <div className="smc-board-pin" ref={pinScrollRef} onScroll={syncBoardScroll('pin')}>
               <div className="smc-lane-head smc-lane-head--pin">
                 <div className="smc-lane-label">#</div>
+                <div className="smc-lane-label">Delete</div>
                 <div className="smc-lane-label">Date</div>
                 <div className="smc-lane-label">Branch</div>
                 <div className="smc-lane-label">Content Type</div>
@@ -1879,10 +2080,10 @@ export default function ContentPipeline({ currentUser, members = [] }) {
                 <div className="smc-lane-label">Course</div>
                 {PINNED_COLUMNS.map((stage) => (
                   <div key={stage.key} className="smc-lane-label">
-                  <span className="smc-step-icon" style={{ background: stage.color, width: 22, height: 22 }}>
+                    <span className="smc-step-icon" style={{ background: stage.color, width: 22, height: 22 }}>
                       {React.createElement(columnIcon(stage.key), { size: 13 })}
-                  </span>
-                  {stage.label}
+                    </span>
+                    {stage.label}
                   </div>
                 ))}
               </div>
@@ -1899,9 +2100,14 @@ export default function ContentPipeline({ currentUser, members = [] }) {
                     course_type: categoryValue,
                   }]
                   : rowCourses;
-                  return (
+                return (
                   <div key={task.id} className="smc-lane-row smc-lane-row--pin">
                     <div className="smc-lane-meta">{rowIndex + 1}</div>
+                    <div className="smc-lane-meta smc-lane-meta--delete">
+                      <button type="button" className="smc-row-delete" aria-label={`Delete row ${rowIndex + 1}`} onClick={() => removeRow(task)}>
+                        <MdDelete size={16} />
+                      </button>
+                    </div>
                     <div className="smc-lane-meta">
                       <input
                         type="date"
@@ -1936,7 +2142,7 @@ export default function ContentPipeline({ currentUser, members = [] }) {
                           <option key={item.code} value={item.code}>{item.label}</option>
                         ))}
                       </select>
-                          </div>
+                    </div>
                     <div className="smc-lane-meta smc-lane-meta--search">
                       <RowSearchSelect
                         value={categoryValue}
@@ -1947,7 +2153,7 @@ export default function ContentPipeline({ currentUser, members = [] }) {
                         addLabel="Add category"
                         onAdd={(draft) => openCategoryEditor(task, draft)}
                       />
-                      </div>
+                    </div>
                     <div className="smc-lane-meta smc-lane-meta--search">
                       <RowSearchSelect
                         value={courseValue}
@@ -1962,18 +2168,13 @@ export default function ContentPipeline({ currentUser, members = [] }) {
                         addLabel={categoryValue ? 'Add course' : undefined}
                         onAdd={categoryValue ? (draft) => openCourseEditor(task, draft) : undefined}
                       />
-                      </div>
+                    </div>
                     {PINNED_COLUMNS.map((stage) => renderStageCell(task, stage, { menuFor, setMenuFor, openTask }))}
-                      </div>
-                  );
-                })}
-              </div>
-
-            <div
-              className="smc-board-scroll"
-              ref={stageScrollRef}
-              onScroll={syncBoardScroll('stage')}
-            >
+                  </div>
+                );
+              })}
+            </div>
+            <div className="smc-board-scroll" ref={stageScrollRef} onScroll={syncBoardScroll('stage')}>
               <div className="smc-board-scroll-inner">
                 <div className="smc-lane-head smc-lane-head--scroll">
                   {SCROLL_COLUMNS.map((stage) => (
@@ -1984,15 +2185,15 @@ export default function ContentPipeline({ currentUser, members = [] }) {
                       {stage.label}
                     </div>
                   ))}
-        </div>
+                </div>
                 {sorted.map((task) => (
                   <div key={task.id} className="smc-lane-row smc-lane-row--scroll">
                     {SCROLL_COLUMNS.map((stage) => renderStageCell(task, stage, { menuFor, setMenuFor, openTask }))}
-              </div>
-                    ))}
                   </div>
-                </div>
+                ))}
               </div>
+            </div>
+          </div>
 
           <div className="smc-lane-foot">
             <button type="button" className="smc-btn smc-btn-primary smc-add-row" onClick={addRow} disabled={adding}>
@@ -2047,6 +2248,7 @@ export default function ContentPipeline({ currentUser, members = [] }) {
               task={selected}
               branches={branches}
               people={people}
+              meId={meId}
               notice={notice}
               feedback={feedback}
               setFeedback={setFeedback}
@@ -2057,6 +2259,7 @@ export default function ContentPipeline({ currentUser, members = [] }) {
               updateField={updateField}
               updateProduction={updateProduction}
               onTask={replaceTask}
+              onAssign={(assignedTo) => patchRow(selected.id, { assigned_to: assignedTo })}
               onSave={() => saveTask()}
               onAction={runAction}
               onBack={closeTask}
@@ -2084,9 +2287,26 @@ export default function ContentPipeline({ currentUser, members = [] }) {
               }}
             >
               {notice && <div className="smc-banner ok">{notice}</div>}
-              <ContentSheetForm task={selected} updateField={updateField} updateProduction={updateProduction} onTask={replaceTask} />
+              <ContentSheetForm
+                task={selected}
+                updateField={updateField}
+                updateProduction={updateProduction}
+                onTask={replaceTask}
+                people={people}
+                meId={meId}
+                onAssign={(assignedTo, name) => patchRow(selected.id, {
+                  assigned_to: assignedTo,
+                  production: {
+                    ...(selected.production || {}),
+                    content_writer: name || '',
+                    content_writer_id: assignedTo ? String(assignedTo) : '',
+                  },
+                })}
+              />
               <div className="smc-actions">
-                {canActOnView && <button type="submit" className="smc-btn smc-btn-primary" disabled={busy}>Submit content</button>}
+                {canActOnView && actions.some((item) => item.action === 'submit_for_approval') && (
+                  <button type="submit" className="smc-btn smc-btn-primary" disabled={busy}>Submit content</button>
+                )}
                 <button type="button" className="smc-btn" disabled={busy} onClick={() => saveTask()}>Save</button>
                 <button type="button" className="smc-btn" onClick={closeTask}>Cancel</button>
                     </div>

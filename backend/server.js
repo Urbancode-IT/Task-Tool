@@ -13,6 +13,7 @@ import {
   ContentError,
   dbAddContentDriveFile,
   dbCreateContentTask,
+  dbDeleteContentTask,
   dbGetContentTask,
   dbRemoveContentDriveFile,
   listAssignableUsers,
@@ -1408,6 +1409,27 @@ app.post(`${BASE_PATH}/social-content`, async (req, res) => {
     res.status(201).json(task);
   } catch (err) {
     sendContentError(res, err, 'Failed to create the requirement');
+  }
+});
+
+app.delete(`${BASE_PATH}/social-content/:taskId`, async (req, res) => {
+  try {
+    const actor = socialContentActor(req);
+    if (!actor.canView) return res.status(403).json({ message: 'Social Media access is required.' });
+    const task = await dbGetContentTask(req.params.taskId);
+    if (!task) return res.status(404).json({ message: 'Content task not found.' });
+    const files = Array.isArray(task.production?.drive_files) ? task.production.drive_files : [];
+    for (const file of files) {
+      try {
+        await trashContentFile(file.id);
+      } catch (err) {
+        console.error('Drive trash:', err?.message || err);
+      }
+    }
+    await dbDeleteContentTask(req.params.taskId);
+    res.json({ ok: true });
+  } catch (err) {
+    sendContentError(res, err, 'Failed to delete the content task');
   }
 });
 

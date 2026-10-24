@@ -1095,7 +1095,8 @@ export async function dbEnsureTables() {
         ('poster', 'Poster', 2),
         ('ad', 'Ad', 3),
         ('carousel', 'Carousel', 4),
-        ('gmb', 'GMB', 5)
+        ('gmb', 'GMB', 5),
+        ('website', 'Website', 6)
       ON CONFLICT (type_code) DO NOTHING;
     `);
     try {
@@ -1120,7 +1121,8 @@ export async function dbEnsureTables() {
       VALUES
         ('UC-PAL', 'UC Pallikaranai', 'Pallikaranai', 1),
         ('UC-TVL', 'UC Tirunelveli', 'Tirunelveli', 2),
-        ('JZ-PAL', 'JZ Pallikaranai', 'Pallikaranai', 3)
+        ('UC-VEL', 'UC Velachery', 'Velachery', 3),
+        ('JZ-PAL', 'JZ Pallikaranai', 'Pallikaranai', 4)
       ON CONFLICT (branch_code) DO NOTHING;
     `);
     console.log('DB: social media content pipeline columns ensured.');
