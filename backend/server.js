@@ -1291,7 +1291,8 @@ function socialContentActor(req) {
     perms.includes('social_media.manage');
   const canManage = perms.includes('admin.access') || perms.includes('social_media.manage');
   const id = req.user?.id != null ? parseInt(String(req.user.id), 10) : null;
-  return { canView, canManage, id: Number.isFinite(id) ? id : null };
+  const name = String(req.user?.username || req.user?.name || '').trim();
+  return { canView, canManage, id: Number.isFinite(id) ? id : null, name };
 }
 
 function sendContentError(res, err, fallback) {

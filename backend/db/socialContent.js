@@ -451,13 +451,31 @@ function cleanProduction(value) {
     requirements: text('requirements', 8000),
     content_writer: text('content_writer', 120),
     content_writer_id: text('content_writer_id', 20),
+    content_approver: text('content_approver', 120),
+    content_approver_id: text('content_approver_id', 20),
+    final_approver: text('final_approver', 120),
+    final_approver_id: text('final_approver_id', 20),
     demo_url: text('demo_url', 2000),
     demo_image_name: text('demo_image_name', 255),
     demo_image: imageData(source.demo_image),
     post_links: postLinks(source.post_links),
+    post_assignees: sanitizePostAssignees(source.post_assignees),
     drive_files: sanitizeDriveFiles(source.drive_files),
     drive_folder_url: httpOrEmpty(source.drive_folder_url),
   };
+}
+
+function sanitizePostAssignees(value) {
+  const source = asObject(value);
+  const out = {};
+  for (const channel of POSTING_CHANNELS) {
+    const item = asObject(source[channel]);
+    const id = cleanText(item.id ?? item.user_id, 20);
+    const name = cleanText(item.name ?? item.username, 120);
+    if (!id && !name) continue;
+    out[channel] = { id, name };
+  }
+  return out;
 }
 
 function httpOrEmpty(value) {
@@ -756,7 +774,7 @@ function assigneeId(input) {
   return Number.isFinite(id) && id > 0 ? id : null;
 }
 
-export function planContentTransition(task, action, input = {}, { canManage = false, actorId = null } = {}) {
+export function planContentTransition(task, action, input = {}, { canManage = false, actorId = null, actorName = '' } = {}) {
   if (!task?.pipeline_stage) throw new ContentError(400, 'This task is not on the content pipeline.');
   const stage = task.pipeline_stage;
   const status = task.workflow_status || 'pending';
@@ -830,7 +848,10 @@ export function planContentTransition(task, action, input = {}, { canManage = fa
       const drive = textOf(input, task, 'drive_url');
       const design = textOf(input, task, 'design_link');
       const notes = textOf(input, task, 'asset_notes');
-      const production = asObject(task.production || task.production_meta);
+      const production = {
+        ...asObject(task.production || task.production_meta),
+        ...asObject(input.production),
+      };
       const posterCopy = cleanText(production.poster_content, 8000);
       const reelScript = cleanText(production.reel_script, 8000);
       const curriculum = cleanText(production.curriculum, 4000);
@@ -840,12 +861,22 @@ export function planContentTransition(task, action, input = {}, { canManage = fa
       if (!script && !caption && !drive && !design && !notes && !posterCopy && !reelScript && !curriculum && !posterLink && !demoUrl && !demoImage) {
         throw new ContentError(400, 'Add a content demo link or a demo image, then submit.');
       }
-      const writerId = task.assigned_to != null ? String(task.assigned_to) : cleanText(production.content_writer_id, 20);
+      // Keep who wrote it. If nobody was chosen, default to the person submitting (logged-in user).
+      const writerId = task.assigned_to != null
+        ? String(task.assigned_to)
+        : (cleanText(production.content_writer_id, 20) || (actorId != null ? String(actorId) : ''));
       const writerName = cleanText(production.content_writer, 120)
         || cleanText(task.assignee, 120)
+        || cleanText(actorName, 120)
         || '';
-      if (writerId && !production.content_writer_id) production.content_writer_id = writerId;
-      if (writerName && !production.content_writer) production.content_writer = writerName;
+      if (writerId) production.content_writer_id = writerId;
+      if (writerName) production.content_writer = writerName;
+      const approverId = cleanText(production.content_approver_id, 20);
+      const approverName = cleanText(production.content_approver, 120);
+      if (!approverId) throw new ContentError(400, 'Choose who will approve the content.');
+      production.content_approver_id = approverId;
+      if (approverName) production.content_approver = approverName;
+      // Approver is stored on production only. Designer is chosen later on Approve.
       patch.pipeline_stage = 'content_approval';
       patch.workflow_status = 'pending';
       patch.assigned_to = null;
@@ -862,6 +893,11 @@ export function planContentTransition(task, action, input = {}, { canManage = fa
       }
       const designer = assigneeId(input);
       if (!designer) throw new ContentError(400, 'Choose who will design this.');
+      const production = asObject(task.production || task.production_meta);
+      const approverId = cleanText(production.content_approver_id, 20);
+      if (approverId && String(designer) === String(approverId)) {
+        throw new ContentError(400, 'Pick a designer. Content approver and designer are different roles.');
+      }
       patch.assigned_to = designer;
       patch.pipeline_stage = 'designing_editing';
       patch.workflow_status = 'pending';
@@ -891,20 +927,42 @@ export function planContentTransition(task, action, input = {}, { canManage = fa
       if (stage !== 'designing_editing') throw new ContentError(400, 'Finish design from Designing / Editing.');
       const drive = textOf(input, task, 'drive_url');
       if (!isHttpUrl(drive)) throw new ContentError(400, 'Add the Google Drive link.');
+      const production = {
+        ...asObject(task.production || task.production_meta),
+        ...asObject(input.production),
+      };
+      const finalApproverId = cleanText(production.final_approver_id, 20);
+      const finalApproverName = cleanText(production.final_approver, 120);
+      if (!finalApproverId) throw new ContentError(400, 'Choose who will final approve.');
+      production.final_approver_id = finalApproverId;
+      if (finalApproverName) production.final_approver = finalApproverName;
+      const finalApproverNum = parseInt(finalApproverId, 10);
       patch.drive_url = drive;
-      patch.assigned_to = null;
+      patch.assigned_to = Number.isFinite(finalApproverNum) ? finalApproverNum : null;
       patch.pipeline_stage = 'final_approval';
       patch.workflow_status = 'pending';
+      patch.production_meta = JSON.stringify(cleanProduction(production));
       return { patch, event: eventBase('final_approval', 'pending') };
     }
     case 'save_to_drive': {
       if (stage !== 'save_to_drive') throw new ContentError(400, 'A Drive link is added in Save to Drive.');
       const drive = textOf(input, task, 'drive_url');
       if (!isHttpUrl(drive)) throw new ContentError(400, 'Add the final Google Drive file or folder URL.');
+      const production = {
+        ...asObject(task.production || task.production_meta),
+        ...asObject(input.production),
+      };
+      const finalApproverId = cleanText(production.final_approver_id, 20);
+      const finalApproverName = cleanText(production.final_approver, 120);
+      if (!finalApproverId) throw new ContentError(400, 'Choose who will final approve.');
+      production.final_approver_id = finalApproverId;
+      if (finalApproverName) production.final_approver = finalApproverName;
+      const finalApproverNum = parseInt(finalApproverId, 10);
       patch.drive_url = drive;
-      patch.assigned_to = null;
+      patch.assigned_to = Number.isFinite(finalApproverNum) ? finalApproverNum : null;
       patch.pipeline_stage = 'final_approval';
       patch.workflow_status = 'pending';
+      patch.production_meta = JSON.stringify(cleanProduction(production));
       return { patch, event: eventBase('final_approval', 'pending') };
     }
     case 'approve_final': {
@@ -917,6 +975,15 @@ export function planContentTransition(task, action, input = {}, { canManage = fa
       patch.pipeline_stage = 'ready_to_post';
       patch.workflow_status = 'pending';
       patch.review_comment = feedback || null;
+      const production = asObject(task.production || task.production_meta);
+      const incoming = asObject(input.production);
+      if (incoming.post_assignees) {
+        production.post_assignees = sanitizePostAssignees({
+          ...asObject(production.post_assignees),
+          ...asObject(incoming.post_assignees),
+        });
+      }
+      patch.production_meta = JSON.stringify(cleanProduction(production));
       return { patch, event: eventBase('ready_to_post', 'pending'), review: true };
     }
     case 'reject_final':
@@ -1002,7 +1069,11 @@ export async function dbTransitionContentTask(taskId, action, input, actor) {
   if (!p) throw new ContentError(500, 'Database is not available.');
   const existing = await dbGetContentTask(taskId);
   if (!existing) throw new ContentError(404, 'Content task not found.');
-  const plan = planContentTransition(existing, action, input, { canManage: actor.canManage, actorId: actor.id });
+  const plan = planContentTransition(existing, action, input, {
+    canManage: actor.canManage,
+    actorId: actor.id,
+    actorName: actor.name || '',
+  });
   const client = await p.connect();
   try {
     await client.query('BEGIN');

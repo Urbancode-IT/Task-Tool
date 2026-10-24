@@ -13,6 +13,7 @@ import {
   MdFileDownload,
   MdMoreVert,
   MdMovie,
+  MdOpenInNew,
   MdPalette,
   MdScheduleSend,
   MdSearch,
@@ -39,6 +40,8 @@ import {
   actionsFor,
   channelPostUrl,
   contentKindLabel,
+  defaultPostAssignees,
+  findPersonByHint,
   formatDisplayDate,
   formatWhen,
   dueLabel,
@@ -728,9 +731,11 @@ function DriveUploads({ task, onTask, onlyStage = '', readOnly = false }) {
 
 function ContentSheetForm({ task, updateField, updateProduction, onTask, people = [], onAssign, meId = null }) {
   const production = task.production || {};
-  const writerId = production.content_writer_id || task.assigned_to || '';
+  const writerId = production.content_writer_id || task.assigned_to || meId || '';
   const writerName = String(production.content_writer || task.assignee || '').trim();
-  const canWriteContent = !writerId || (meId != null && String(writerId) === String(meId));
+  const approverId = production.content_approver_id || '';
+  const canWriteContent = !production.content_writer_id && !task.assigned_to
+    || (meId != null && String(writerId) === String(meId));
 
   return (
     <>
@@ -749,6 +754,24 @@ function ContentSheetForm({ task, updateField, updateProduction, onTask, people 
         >
           <option value="">Choose who will add the content</option>
           {people.map((person) => (
+            <option key={person.user_id} value={person.user_id}>
+              {person.username}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label className="smc-field">Who will approve the content
+        <select
+          value={approverId}
+          onChange={(event) => {
+            const next = event.target.value ? String(event.target.value) : '';
+            const person = people.find((item) => String(item.user_id) === next);
+            updateProduction('content_approver_id', next);
+            updateProduction('content_approver', person?.username || '');
+          }}
+        >
+          <option value="">Choose who will approve the content</option>
+          {approvalAdmins(people).map((person) => (
             <option key={person.user_id} value={person.user_id}>
               {person.username}
             </option>
@@ -812,8 +835,8 @@ function ContentSheetForm({ task, updateField, updateProduction, onTask, people 
 
 function stageHelp(stage) {
   if (stage === 'requirement') return 'This is only the idea. Press Start content when someone is ready to write the poster or reel.';
-  if (stage === 'content_generation') return 'Add the requirement and choose who will write the content. They fill the content, then submit it for approval.';
-  if (stage === 'content_approval') return '';
+  if (stage === 'content_generation') return 'Add the requirement, choose who writes the content, and which admin will approve it. Then submit for approval.';
+  if (stage === 'content_approval') return 'Admin reviews the content here. When approving, pick a Creative Team designer — not the content approver.';
   if (stage === 'final_approval') return '';
   if (stage === 'designing_editing') return '';
   if (stage === 'save_to_drive') return '';
@@ -853,11 +876,22 @@ function TaskPage({
   const links = task.production?.post_links || {};
   const showPosterPick = stage === 'final_approval' || posting;
   const pickingDesigner = !showPosterPick && ['content_approval', 'designing_editing'].includes(stage);
-  const keepCurrent = (person) => String(person.user_id) === String(task.assigned_to || '');
+  const contentApproverId = String(task.production?.content_approver_id || '');
+  const contentApproverName = String(task.production?.content_approver || '').trim();
+  // Designer pick must not reuse the content approver id left on assigned_to.
+  const designerSelectValue = pickingDesigner && stage === 'content_approval'
+    && String(task.assigned_to || '') === contentApproverId
+    ? ''
+    : (task.assigned_to || '');
+  const keepCurrent = (person) => {
+    if (String(person.user_id) !== String(task.assigned_to || '')) return false;
+    if (stage === 'content_approval' && String(person.user_id) === contentApproverId) return false;
+    return true;
+  };
   const assigneeChoices = pickingDesigner
     ? people.filter((person) => isDesigner(person) || keepCurrent(person))
     : showPosterPick
-      ? people.filter((person) => isDigital(person) || keepCurrent(person))
+      ? people.filter((person) => isPoster(person) || keepCurrent(person))
       : people;
   return (
     <div className={asForm ? 'smc-stage-form' : 'smc-work'}>
@@ -877,8 +911,14 @@ function TaskPage({
         {stageHelp(stage) ? <p className="smc-note">{stageHelp(stage)}</p> : null}
         {notice && <div className="smc-banner ok">{notice}</div>}
         <div className="smc-work-grid">
+          {stage === 'content_approval' && contentApproverName ? (
+            <p className="smc-note">Content approver: <strong>{contentApproverName}</strong> (admin). Choose a designer below when you approve.</p>
+          ) : null}
           {stage !== 'content_generation' && <label className="smc-field">{showPosterPick ? 'Who will post this' : pickingDesigner ? 'Who will design this' : 'Who is doing this'}
-            <select value={task.assigned_to || ''} onChange={(event) => updateField('assigned_to', event.target.value ? Number(event.target.value) : null)}>
+            <select
+              value={pickingDesigner && stage === 'content_approval' ? designerSelectValue : (task.assigned_to || '')}
+              onChange={(event) => updateField('assigned_to', event.target.value ? Number(event.target.value) : null)}
+            >
               <option value="">{showPosterPick ? 'Choose who will post' : pickingDesigner ? 'Choose a designer' : 'Choose a person'}</option>
               {assigneeChoices.map((person) => (
                 <option key={person.user_id} value={person.user_id}>
@@ -929,6 +969,26 @@ function TaskPage({
                 </a>
               )}
             </div>
+          )}
+          {stage === 'designing_editing' && canAct && (
+            <label className="smc-field">Who will final approve
+              <select
+                value={task.production?.final_approver_id || ''}
+                onChange={(event) => {
+                  const next = event.target.value ? String(event.target.value) : '';
+                  const person = people.find((item) => String(item.user_id) === next);
+                  updateProduction('final_approver_id', next);
+                  updateProduction('final_approver', person?.username || '');
+                }}
+              >
+                <option value="">Choose who will final approve</option>
+                {approvalAdmins(people).map((person) => (
+                  <option key={person.user_id} value={person.user_id}>
+                    {person.username}
+                  </option>
+                ))}
+              </select>
+            </label>
           )}
           {stage === 'designing_editing' && canAct && task.workflow_status === 'in_progress' && (
             <label className="smc-field wide">Google Drive link
@@ -1086,9 +1146,59 @@ function isDesigner(person) {
   return text.includes('creative team') || text.includes('creative_team') || text.includes('designer');
 }
 
-function isDigital(person) {
-  const text = roleText(person).toLowerCase();
-  return text.includes('social media') || text.includes('social_media') || text.includes('digital');
+/** Only Yogesh and Vidhya Lakshmi post to channels. */
+function isPoster(person) {
+  const name = String(person?.username || '').toLowerCase();
+  return name.includes('yogesh') || name.includes('vidhya');
+}
+
+/** Admins who approve content and final approval. */
+const APPROVAL_ADMIN_HINTS = ['sivagaminathan', 'ruban', 'jayapradh', 'krithika', 'pushparaj'];
+
+function isApprovalAdmin(person) {
+  const name = String(person?.username || '').toLowerCase();
+  return APPROVAL_ADMIN_HINTS.some((hint) => name.includes(hint));
+}
+
+function approvalAdmins(people = []) {
+  return (people || []).filter(isApprovalAdmin);
+}
+
+function PostAssigneePick({ task, channel, people, onChange, onOpen }) {
+  const stored = task?.production?.post_assignees?.[channel] || {};
+  const fallback = defaultPostAssignees(people)[channel] || {};
+  const current = stored.id ? stored : fallback;
+  const choices = (people || []).filter(isPoster);
+  const label = stageMeta(channel).label;
+  return (
+    <div className="smc-lane-meta smc-lane-meta--post">
+      <select
+        className="smc-inline"
+        value={current.id || ''}
+        aria-label={`${label} assignee`}
+        title="Who will post this channel"
+        onClick={(event) => event.stopPropagation()}
+        onChange={(event) => onChange?.(task.id, channel, event.target.value)}
+      >
+        <option value="">Assignee</option>
+        {choices.map((person) => (
+          <option key={person.user_id} value={String(person.user_id)}>{person.username}</option>
+        ))}
+      </select>
+      <button
+        type="button"
+        className="smc-post-open"
+        title={`Open ${label} — paste the live URL to mark green`}
+        aria-label={`Open ${label} post link`}
+        onClick={(event) => {
+          event.stopPropagation();
+          onOpen?.();
+        }}
+      >
+        <MdOpenInNew size={15} />
+      </button>
+    </div>
+  );
 }
 
 function assignedName(task) {
@@ -1102,9 +1212,26 @@ function cellPerson(task, columnKey, hold) {
   if (columnKey === 'content_generation') {
     const writer = String(task?.production?.content_writer || '').trim();
     if (writer) return writer;
+    const actor = String(task?.stage_actors?.content_generation || '').trim();
+    if (actor) return actor;
+    if (hold) return assignedName(task) || 'Unassigned';
   }
-  // Content Approval waits for a manager. The content writer must not appear here.
-  if (hold && columnKey === 'content_approval') return 'Unassigned';
+  if (hold && columnKey === 'content_approval') {
+    return String(task?.production?.content_approver || '').trim()
+      || assignedName(task)
+      || 'Unassigned';
+  }
+  if (hold && columnKey === 'final_approval') {
+    return String(task?.production?.final_approver || '').trim()
+      || assignedName(task)
+      || 'Unassigned';
+  }
+  if (isPostingColumn(columnKey)) {
+    const poster = task?.production?.post_assignees?.[columnKey];
+    const named = String(poster?.name || '').trim();
+    if (named) return named;
+    if (hold) return 'Unassigned';
+  }
   if (hold) return assignedName(task) || 'Unassigned';
   const actors = task?.stage_actors || {};
   const named = actors[columnKey]
@@ -1137,7 +1264,7 @@ function flowState(task, columnKey) {
   return '';
 }
 
-function renderStageCell(task, stage, { menuFor, setMenuFor, openTask, className = '' }) {
+function renderStageCell(task, stage, { menuFor, setMenuFor, openTask, className = '', people = [], onPostAssignee }) {
   const extra = className ? ` ${className}` : '';
   const writerNamed = String(task?.production?.content_writer || '').trim();
   const waitingForDemo = stage.key === 'content_generation'
@@ -1154,6 +1281,32 @@ function renderStageCell(task, stage, { menuFor, setMenuFor, openTask, className
     );
   }
   const state = flowState(task, stage.key);
+  // Before Final Approval: incomplete light-red, no name.
+  if (stage.posting && !isPostingOpen(task)) {
+    return (
+      <button
+        key={stage.key}
+        type="button"
+        className={`smc-lane-cell empty${extra}`}
+        onClick={() => openTask(task, stage.key)}
+        aria-label={`Open ${stage.label}`}
+      />
+    );
+  }
+  // After Final Approval: solid red + Branch-style dropdown (Yogesh / Vidhya).
+  if (stage.posting && state === 'hold') {
+    return (
+      <div key={stage.key} className={`smc-lane-cell hold smc-lane-cell--post-assign${extra}`}>
+        <PostAssigneePick
+          task={task}
+          channel={stage.key}
+          people={people}
+          onChange={onPostAssignee}
+          onOpen={() => openTask(task, stage.key)}
+        />
+      </div>
+    );
+  }
   if (state === 'rework') {
     return (
       <div key={stage.key} className={`smc-lane-cell rework${extra}`}>
@@ -1532,6 +1685,18 @@ export default function ContentPipeline({
     setBusy(true);
     setNotice('');
     try {
+      const production = { ...(selected.production || {}) };
+      let assignedTo = selected.assigned_to || null;
+      // Like before: if nobody was chosen, default to the logged-in person.
+      if (!assignedTo && !production.content_writer_id && meId != null) {
+        const me = people.find((person) => String(person.user_id) === String(meId));
+        assignedTo = meId;
+        production.content_writer_id = String(meId);
+        production.content_writer = me?.username
+          || currentUser?.username
+          || currentUser?.name
+          || '';
+      }
       const { data } = await itUpdatesApi.updateSocialContent(selected.id, {
         task_title: selected.task_title,
         task_description: selected.task_description,
@@ -1544,7 +1709,7 @@ export default function ContentPipeline({
         cta: selected.cta,
         platforms: selected.platforms,
         priority: selected.priority,
-        assigned_to: selected.assigned_to || null,
+        assigned_to: assignedTo,
         due_date: selected.due_date ? String(selected.due_date).slice(0, 10) : null,
         reference_urls: selected.reference_urls,
         progress: selected.progress,
@@ -1556,7 +1721,7 @@ export default function ContentPipeline({
         drive_url: selected.drive_url,
         asset_notes: selected.asset_notes,
         scheduled_at: selected.scheduled_at || null,
-        production: selected.production || {},
+        production,
       });
       replaceTask(data);
       if (!quiet) {
@@ -1573,7 +1738,7 @@ export default function ContentPipeline({
   };
 
   const runAction = async (action, source) => {
-    const task = source || selected;
+    let task = source || selected;
     if (!task) return;
     const needsFeedback = ['reject_content', 'revise_content', 'reject_final', 'revise_final'].includes(action);
     if (needsFeedback && feedback.trim().length < 5) {
@@ -1596,23 +1761,40 @@ export default function ContentPipeline({
         toastError('Write the content first.');
         return;
       }
+      if (!String(selected.production?.content_approver_id || '').trim()) {
+        toastError('Choose who will approve the content.');
+        return;
+      }
       const saved = await saveTask({ quiet: true });
       if (!saved) return;
     }
-    if (action === 'approve_content' && !task.assigned_to) {
-      setSelected(task);
-      toastError('Choose who will design this.');
-      return;
+    if (action === 'approve_content') {
+      const designerId = task.assigned_to;
+      const approverId = String(task.production?.content_approver_id || '');
+      if (!designerId || String(designerId) === approverId) {
+        setSelected(task);
+        toastError('Choose who will design this (Creative Team).');
+        return;
+      }
     }
     if (action === 'approve_final' && !task.assigned_to) {
-      setSelected(task);
-      toastError('Choose who will post this.');
-      return;
+      const poster = findPersonByHint(people, 'yogesh') || findPersonByHint(people, 'vidhya');
+      if (!poster) {
+        setSelected(task);
+        toastError('Choose who will post this.');
+        return;
+      }
+      task = { ...task, assigned_to: poster.user_id };
     }
     if (action === 'complete_design' || action === 'save_to_drive') {
       if (!/^https?:\/\//i.test(String(task.drive_url || '').trim())) {
         setSelected(task);
         toastError('Add the Google Drive link.');
+        return;
+      }
+      if (!String(task.production?.final_approver_id || '').trim()) {
+        setSelected(task);
+        toastError('Choose who will final approve.');
         return;
       }
     }
@@ -1647,6 +1829,16 @@ export default function ContentPipeline({
     try {
       const channel = channelKey || null;
       const links = { ...(task.production?.post_links || {}) };
+      let production = task.production || {};
+      if (action === 'approve_final') {
+        const defaults = defaultPostAssignees(people);
+        const existing = production.post_assignees || {};
+        const post_assignees = { ...defaults };
+        Object.keys(existing).forEach((key) => {
+          if (existing[key]?.id) post_assignees[key] = existing[key];
+        });
+        production = { ...production, post_assignees };
+      }
       const payload = {
         action: action === 'confirm_publish' ? 'save_channel_post' : action,
         feedback: feedback.trim(),
@@ -1659,7 +1851,7 @@ export default function ContentPipeline({
         scheduled_at: task.scheduled_at,
         published_url: task.published_url,
         platforms: task.platforms || [],
-        production: task.production || {},
+        production,
         publication_confirmed: true,
         assigned_to: task.assigned_to || undefined,
       };
@@ -1765,7 +1957,23 @@ export default function ContentPipeline({
           content_topics: courseName || category,
         },
       });
+      return;
     }
+  };
+
+  const savePostAssignee = (taskId, channel, userId) => {
+    const task = latestTask(taskId);
+    if (!task || !channel) return;
+    const person = people.find((item) => String(item.user_id) === String(userId || ''));
+    const current = { ...(task.production?.post_assignees || {}) };
+    if (!person) delete current[channel];
+    else current[channel] = { id: String(person.user_id), name: person.username };
+    patchRow(task.id, {
+      production: {
+        ...(task.production || {}),
+        post_assignees: current,
+      },
+    });
   };
 
   const applyCourseSelection = async (taskId, course) => {
@@ -2169,7 +2377,9 @@ export default function ContentPipeline({
                         onAdd={categoryValue ? (draft) => openCourseEditor(task, draft) : undefined}
                       />
                     </div>
-                    {PINNED_COLUMNS.map((stage) => renderStageCell(task, stage, { menuFor, setMenuFor, openTask }))}
+                    {PINNED_COLUMNS.map((stage) => renderStageCell(task, stage, {
+                      menuFor, setMenuFor, openTask, people, onPostAssignee: savePostAssignee,
+                    }))}
                   </div>
                 );
               })}
@@ -2188,7 +2398,9 @@ export default function ContentPipeline({
                 </div>
                 {sorted.map((task) => (
                   <div key={task.id} className="smc-lane-row smc-lane-row--scroll">
-                    {SCROLL_COLUMNS.map((stage) => renderStageCell(task, stage, { menuFor, setMenuFor, openTask }))}
+                    {SCROLL_COLUMNS.map((stage) => renderStageCell(task, stage, {
+                      menuFor, setMenuFor, openTask, people, onPostAssignee: savePostAssignee,
+                    }))}
                   </div>
                 ))}
               </div>

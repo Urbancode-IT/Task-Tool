@@ -22,6 +22,30 @@ export const POSTING_CHANNELS = [
   { value: 'gmb', label: 'GMB', color: '#34A853' },
 ];
 
+/** Meta Ads + Google Ads → Vidhya; all other posting columns → Yogesh. */
+export const DEFAULT_POST_OWNER = {
+  meta_ads: 'vidhya',
+  google_ads: 'vidhya',
+};
+
+export function findPersonByHint(people = [], hint) {
+  const needle = String(hint || '').trim().toLowerCase();
+  if (!needle) return null;
+  return (people || []).find((person) => String(person?.username || '').toLowerCase().includes(needle)) || null;
+}
+
+export function defaultPostAssignees(people = []) {
+  const vidhya = findPersonByHint(people, 'vidhya');
+  const yogesh = findPersonByHint(people, 'yogesh');
+  const map = {};
+  POSTING_CHANNELS.forEach((channel) => {
+    const pick = DEFAULT_POST_OWNER[channel.value] === 'vidhya' ? vidhya : yogesh;
+    if (!pick) return;
+    map[channel.value] = { id: String(pick.user_id), name: pick.username };
+  });
+  return map;
+}
+
 export const CONTENT_TYPES = [
   { value: 'reel', label: 'Reel' },
   { value: 'poster', label: 'Poster' },
