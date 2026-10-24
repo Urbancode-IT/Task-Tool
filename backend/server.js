@@ -1417,6 +1417,15 @@ app.delete(`${BASE_PATH}/social-content/:taskId`, async (req, res) => {
   try {
     const actor = socialContentActor(req);
     if (!actor.canView) return res.status(403).json({ message: 'Social Media access is required.' });
+    const reason = deleteReasonFrom(req);
+    if (reason.length < DELETE_REASON_MIN) {
+      return res.status(400).json({
+        message: `Please give a reason of at least ${DELETE_REASON_MIN} characters for deleting this row.`,
+      });
+    }
+    if (reason.length > DELETE_REASON_MAX) {
+      return res.status(400).json({ message: `Keep the reason under ${DELETE_REASON_MAX} characters.` });
+    }
     const task = await dbGetContentTask(req.params.taskId);
     if (!task) return res.status(404).json({ message: 'Content task not found.' });
     const files = Array.isArray(task.production?.drive_files) ? task.production.drive_files : [];
@@ -1427,7 +1436,11 @@ app.delete(`${BASE_PATH}/social-content/:taskId`, async (req, res) => {
         console.error('Drive trash:', err?.message || err);
       }
     }
-    await dbDeleteContentTask(req.params.taskId);
+    await dbDeleteContentTask(req.params.taskId, {
+      reason,
+      deletedBy: req.user?.id ?? actor.id ?? null,
+      ipAddress: req.ip,
+    });
     res.json({ ok: true });
   } catch (err) {
     sendContentError(res, err, 'Failed to delete the content task');

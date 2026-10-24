@@ -573,16 +573,83 @@ function validateCreate(body) {
   };
 }
 
-export async function dbDeleteContentTask(taskId) {
+/**
+ * Hard-delete a content-pipeline row and write a snapshot to task_delete_log
+ * (team = social_content) in the same transaction.
+ */
+export async function dbDeleteContentTask(taskId, meta = {}) {
   const task = await dbGetContentTask(taskId);
   if (!task) throw new ContentError(404, 'Content task not found.');
+  const reason = String(meta.reason || '').replace(/\s+/g, ' ').trim();
+  if (reason.length < 5) {
+    throw new ContentError(400, 'Please give a reason of at least 5 characters for deleting this row.');
+  }
+  if (reason.length > 500) {
+    throw new ContentError(400, 'Keep the reason under 500 characters.');
+  }
   const p = getPool();
-  const { rowCount } = await p.query(
-    `DELETE FROM social_media_tasks WHERE task_id = $1 AND pipeline_stage IS NOT NULL`,
-    [task.task_id]
-  );
-  if (!rowCount) throw new ContentError(404, 'Content task not found.');
-  return true;
+  if (!p) throw new ContentError(500, 'Database is not available.');
+  const client = await p.connect();
+  try {
+    await client.query('BEGIN');
+    const { rowCount } = await client.query(
+      `DELETE FROM social_media_tasks WHERE task_id = $1 AND pipeline_stage IS NOT NULL`,
+      [task.task_id]
+    );
+    if (!rowCount) {
+      await client.query('ROLLBACK');
+      throw new ContentError(404, 'Content task not found.');
+    }
+    const stage = task.pipeline_stage || '';
+    const branch = task.content_branch || '';
+    const type = task.content_type || '';
+    const descParts = [
+      task.task_description || task.title || '',
+      stage ? `stage=${stage}` : '',
+      branch ? `branch=${branch}` : '',
+      type ? `type=${type}` : '',
+      task.code ? `code=${task.code}` : '',
+    ].filter(Boolean);
+    const { rows } = await client.query(
+      `INSERT INTO task_delete_log
+         (task_id, team, task_title, task_description, task_status, priority, project_id,
+          project_name, assigned_to, assigned_by, task_date, due_date, requirement_count,
+          reason, deleted_by, ip_address)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+       RETURNING log_id, deleted_at`,
+      [
+        task.task_id,
+        'social_content',
+        task.title || task.task_title || null,
+        descParts.join(' | ') || null,
+        task.workflow_status || task.status || null,
+        task.priority || null,
+        null,
+        type || 'content-pipeline',
+        task.assigned_to ?? null,
+        task.assigned_by ?? task.created_by ?? null,
+        task.task_date || task.production?.sheet_date || null,
+        task.due_date || null,
+        0,
+        reason,
+        meta.deletedBy ?? null,
+        meta.ipAddress ?? null,
+      ]
+    );
+    await client.query('COMMIT');
+    return rows[0] || true;
+  } catch (err) {
+    try {
+      await client.query('ROLLBACK');
+    } catch {
+      /* releasing anyway */
+    }
+    if (err instanceof ContentError) throw err;
+    console.error('dbDeleteContentTask:', err.message);
+    throw err;
+  } finally {
+    client.release();
+  }
 }
 
 export async function dbCreateContentTask(body, actorId) {

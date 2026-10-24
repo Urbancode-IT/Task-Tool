@@ -30,7 +30,7 @@ import {
 import { SiGoogleads, SiMeta } from 'react-icons/si';
 import itUpdatesApi from '../../api/itUpdatesApi';
 import useDebouncedValue from '../../utils/useDebouncedValue';
-import { confirmDialog } from '../../utils/confirm';
+import { confirmDialog, reasonDialog } from '../../utils/confirm';
 import { toastError, toastSuccess } from '../../utils/toast';
 import {
   ACTION_LABELS,
@@ -2050,15 +2050,18 @@ export default function ContentPipeline({
   };
 
   const removeRow = async (task) => {
-    const ok = await confirmDialog({
+    const label = task.code || task.title || 'This row';
+    const reason = await reasonDialog({
       title: 'Delete this row?',
-      message: `${task.code || task.title || 'This task'} will be removed from the pipeline.`,
+      message: `${label} will be removed from the pipeline. A copy is kept in the delete log.`,
       confirmLabel: 'Delete',
       danger: true,
+      reasonLabel: 'Why are you deleting this row?',
+      placeholder: 'e.g. duplicate row, created by mistake, cancelled',
     });
-    if (!ok) return;
+    if (!reason) return;
     try {
-      await itUpdatesApi.deleteSocialContent(task.id);
+      await itUpdatesApi.deleteSocialContent(task.id, reason);
       setItems((prev) => prev.filter((item) => String(item.id) !== String(task.id)));
       setSelected((current) => (current && String(current.id) === String(task.id) ? null : current));
       toastSuccess('Row deleted');

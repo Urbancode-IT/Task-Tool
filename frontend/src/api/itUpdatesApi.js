@@ -226,7 +226,8 @@ const itUpdatesApi = {
   getSocialContentList: (params = {}) => apiClient.get(`${BASE_PATH}/social-content`, { params }),
   getSocialContent: (taskId) => apiClient.get(`${BASE_PATH}/social-content/${taskId}`),
   createSocialContent: (data) => apiClient.post(`${BASE_PATH}/social-content`, data),
-  deleteSocialContent: (taskId) => apiClient.delete(`${BASE_PATH}/social-content/${taskId}`),
+  deleteSocialContent: (taskId, reason) =>
+    apiClient.delete(`${BASE_PATH}/social-content/${taskId}`, { data: { reason } }),
   updateSocialContent: (taskId, data) => apiClient.put(`${BASE_PATH}/social-content/${taskId}`, data),
   transitionSocialContent: (taskId, data) =>
     apiClient.post(`${BASE_PATH}/social-content/${taskId}/transition`, data),
