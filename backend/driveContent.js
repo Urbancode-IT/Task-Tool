@@ -103,15 +103,46 @@ function courseName(task) {
 }
 
 function extensionOf(originalName, mime) {
-  const match = String(originalName || '').toLowerCase().match(/\.([a-z0-9]{1,5})$/);
+  const match = String(originalName || '').toLowerCase().match(/\.([a-z0-9]{1,8})$/);
   if (match) return match[1];
-  if (mime === 'image/jpeg') return 'jpg';
-  if (mime === 'image/png') return 'png';
-  if (mime === 'image/webp') return 'webp';
-  if (mime === 'image/gif') return 'gif';
-  if (mime === 'application/pdf') return 'pdf';
-  if (mime === 'video/mp4') return 'mp4';
-  return 'file';
+  const map = {
+    'image/jpeg': 'jpg',
+    'image/png': 'png',
+    'image/webp': 'webp',
+    'image/gif': 'gif',
+    'image/heic': 'heic',
+    'image/heif': 'heif',
+    'image/avif': 'avif',
+    'image/svg+xml': 'svg',
+    'image/tiff': 'tiff',
+    'application/pdf': 'pdf',
+    'video/mp4': 'mp4',
+    'video/quicktime': 'mov',
+    'video/webm': 'webm',
+    'video/x-msvideo': 'avi',
+    'audio/mpeg': 'mp3',
+    'audio/wav': 'wav',
+    'application/zip': 'zip',
+  };
+  return map[String(mime || '').toLowerCase()] || 'bin';
+}
+
+function resolveUploadMime(mime, originalName) {
+  const type = String(mime || '').toLowerCase().trim();
+  if (type && type !== 'application/octet-stream') return type;
+  const ext = String(originalName || '').toLowerCase().match(/\.([a-z0-9]{1,8})$/)?.[1] || '';
+  const byExt = {
+    jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif',
+    webp: 'image/webp', heic: 'image/heic', heif: 'image/heif', avif: 'image/avif',
+    bmp: 'image/bmp', tif: 'image/tiff', tiff: 'image/tiff', svg: 'image/svg+xml',
+    pdf: 'application/pdf',
+    mp4: 'video/mp4', mov: 'video/quicktime', webm: 'video/webm', avi: 'video/x-msvideo',
+    mkv: 'video/x-matroska', m4v: 'video/mp4', mpeg: 'video/mpeg', mpg: 'video/mpeg',
+    mp3: 'audio/mpeg', wav: 'audio/wav', aac: 'audio/aac', m4a: 'audio/mp4',
+    zip: 'application/zip', rar: 'application/x-rar-compressed',
+    psd: 'image/vnd.adobe.photoshop', ai: 'application/postscript',
+  };
+  return byExt[ext] || type || 'application/octet-stream';
 }
 
 async function ensureFolder(parentId, name) {
@@ -204,11 +235,9 @@ function placeFor(task, mime, uploadStage) {
 }
 
 export async function uploadContentFile({ task, kind, buffer, mime, originalName, stage }) {
-  const fileMime = String(mime || '').toLowerCase();
+  const fileMime = resolveUploadMime(mime, originalName);
   if (!KINDS.has(kind) && kind !== 'media') throw new ContentError(400, 'Choose a poster, image, or reference.');
-  if (!/^(image\/|video\/|application\/pdf)/.test(fileMime)) {
-    throw new ContentError(400, 'Drop an image, PDF, or video.');
-  }
+  if (!buffer?.length) throw new ContentError(400, 'Choose a file to upload.');
   const root = String(process.env.GOOGLE_DRIVE_FOLDER_ID || '').trim();
   if (!root) throw new ContentError(500, 'Google Drive folder is not configured.');
 

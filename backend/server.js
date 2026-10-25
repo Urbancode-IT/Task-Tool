@@ -33,6 +33,7 @@ import {
   listCourses,
 } from './db/courses.js';
 import { sendMail, isMailConfigured, renderMail, applyEmailBranding } from './mailer.js';
+import { notifyContentAssigneeChanges, notifyContentCreated, notifyContentTransition } from './contentNotify.js';
 import { startEodDirectorReport, startEodMemberReminders, startEodMidnightLock } from './eodReminder.js';
 import { requireMasterScope } from './middlewares/masterMiddleware.js';
 import { JWT_SECRET, requireAuth, attachUserPermissions, requirePermission, signAccessToken, signRefreshToken, verifyRefreshToken } from './middlewares/authMiddleware.js';
@@ -585,27 +586,34 @@ app.post('/auth/master-login', asyncMw(async (req, res) => {
 
 // ---- IT Updates API (JWT auth; any authenticated user can access — attach permissions for UI) ----
 const BASE_PATH = '/api/it-updates';
+const CONTENT_UPLOAD_MAX_BYTES = 100 * 1024 * 1024;
+
 const contentFileUpload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 20 * 1024 * 1024 },
+  limits: { fileSize: CONTENT_UPLOAD_MAX_BYTES },
 }).single('file');
 
 function receiveContentFile(req, res, next) {
   contentFileUpload(req, res, (err) => {
     if (!err) return next();
     if (err.code === 'LIMIT_FILE_SIZE') {
-      return res.status(400).json({ message: 'File must be 20 MB or smaller.' });
+      return res.status(400).json({ message: 'File must be 100 MB or smaller.' });
     }
     return res.status(400).json({ message: 'Could not read the file.' });
   });
 }
 
-const CONTENT_FILE_KINDS = {
-  poster: /^image\//,
-  image: /^image\//,
-  reference: /^(image\/|application\/pdf|video\/)/,
-  media: /^(image\/|application\/pdf|video\/)/,
-};
+/** Block only obvious executables; browser MIME is often wrong/empty for HEIC/MOV/PSD. */
+const CONTENT_BLOCKED_EXT = /\.(exe|bat|cmd|com|msi|scr|ps1|sh|bash|dll|sys|js|mjs|cjs|vbs|wsf)$/i;
+
+function contentUploadAllowed(mime, originalName) {
+  const name = String(originalName || '');
+  if (!name && !mime) return false;
+  if (CONTENT_BLOCKED_EXT.test(name)) return false;
+  return true;
+}
+
+const CONTENT_FILE_KINDS = new Set(['poster', 'image', 'reference', 'media']);
 app.use(BASE_PATH, requireAuth, asyncMw(attachUserPermissions));
 
 // Serve a user's avatar as a real, cacheable image. List/detail endpoints now
@@ -1408,6 +1416,12 @@ app.post(`${BASE_PATH}/social-content`, async (req, res) => {
     if (req.body?.assigned_to && !(await assigneeActiveOrReject(res, req.body.assigned_to))) return;
     const task = await dbCreateContentTask(req.body || {}, actor.id);
     res.status(201).json(task);
+    notifyContentCreated({
+      task,
+      actorId: actor.id,
+      actorName: actor.name || req.user?.username || '',
+      ctaUrl: `${appLink()}/social-media`,
+    }).catch((err) => console.error('notifyContentCreated:', err?.message || err));
   } catch (err) {
     sendContentError(res, err, 'Failed to create the requirement');
   }
@@ -1454,8 +1468,15 @@ app.put(`${BASE_PATH}/social-content/:taskId`, async (req, res) => {
     if (req.body?.assigned_to !== undefined && req.body.assigned_to !== '' && req.body.assigned_to != null) {
       if (!(await assigneeActiveOrReject(res, req.body.assigned_to))) return;
     }
+    const before = await dbGetContentTask(req.params.taskId);
     const task = await dbUpdateContentTask(req.params.taskId, req.body || {});
     res.json(task);
+    notifyContentAssigneeChanges({
+      before,
+      after: task,
+      actorName: actor.name || req.user?.username || '',
+      ctaUrl: `${appLink()}/social-media`,
+    }).catch((err) => console.error('notifyContentAssigneeChanges:', err?.message || err));
   } catch (err) {
     sendContentError(res, err, 'Failed to update the content task');
   }
@@ -1466,12 +1487,13 @@ app.post(`${BASE_PATH}/social-content/:taskId/files`, receiveContentFile, async 
     const actor = socialContentActor(req);
     if (!actor.canView) return res.status(403).json({ message: 'Social Media access is required.' });
     const kind = String(req.body?.kind || '').trim().toLowerCase();
-    const accept = CONTENT_FILE_KINDS[kind];
-    if (!accept) return res.status(400).json({ message: 'Choose a poster, image, or reference.' });
+    if (!CONTENT_FILE_KINDS.has(kind)) {
+      return res.status(400).json({ message: 'Choose a poster, image, or reference.' });
+    }
     const file = req.file;
     if (!file?.buffer?.length) return res.status(400).json({ message: 'Choose a file to upload.' });
     const mime = String(file.mimetype || '').toLowerCase();
-    if (!accept.test(mime)) {
+    if (!contentUploadAllowed(mime, file.originalname)) {
       return res.status(400).json({ message: 'That file type is not allowed for this upload.' });
     }
     let task = await dbGetContentTask(req.params.taskId);
@@ -1550,9 +1572,19 @@ app.post(`${BASE_PATH}/social-content/:taskId/transition`, async (req, res) => {
   try {
     const actor = socialContentActor(req);
     if (!actor.canView) return res.status(403).json({ message: 'Social Media access is required.' });
-    const task = await dbTransitionContentTask(req.params.taskId, req.body?.action, req.body || {}, actor);
+    const before = await dbGetContentTask(req.params.taskId);
+    const action = req.body?.action;
+    const task = await dbTransitionContentTask(req.params.taskId, action, req.body || {}, actor);
     const events = await dbListContentEvents(req.params.taskId);
     res.json({ ...task, events });
+    notifyContentTransition({
+      action,
+      before,
+      after: task,
+      actorName: actor.name || req.user?.username || '',
+      feedback: req.body?.feedback,
+      ctaUrl: `${appLink()}/social-media`,
+    }).catch((err) => console.error('notifyContentTransition:', err?.message || err));
   } catch (err) {
     sendContentError(res, err, 'Failed to move the content task');
   }

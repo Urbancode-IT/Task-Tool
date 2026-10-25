@@ -64,6 +64,48 @@ export const MAIL_TEMPLATE_DEFAULTS = {
     body: 'Hi {name},\n\nThe task **{task}** is overdue (was due {date}).',
     cta: 'Open task',
   },
+  content_created: {
+    subject: 'New content added: "{task}"',
+    heading: 'New content created',
+    body: 'Hi {name},\n\n**{who}** added a new content item: **{task}**.\n\nIt is in the content pipeline under **{role}**.',
+    cta: 'Open pipeline',
+  },
+  content_submitted: {
+    subject: 'Content ready for approval: "{task}"',
+    heading: 'Content submitted for approval',
+    body: 'Hi {name},\n\n**{who}** submitted **{task}** for **{role}**.\n\nPlease review it in the content pipeline.',
+    cta: 'Open pipeline',
+  },
+  content_rework: {
+    subject: 'Rework needed: "{task}"',
+    heading: 'Content sent back for rework',
+    body: 'Hi {name},\n\n**{who}** sent **{task}** back for rework.\n\n{quote}',
+    cta: 'Open pipeline',
+  },
+  content_approved: {
+    subject: 'Design needed: "{task}"',
+    heading: 'Content approved — design next',
+    body: 'Hi {name},\n\n**{who}** approved the content for **{task}**. You are assigned for **{role}**.',
+    cta: 'Open pipeline',
+  },
+  design_completed: {
+    subject: 'Final approval needed: "{task}"',
+    heading: 'Design ready for final approval',
+    body: 'Hi {name},\n\n**{who}** finished design on **{task}**. Please complete **{role}**.',
+    cta: 'Open pipeline',
+  },
+  final_approved: {
+    subject: 'Ready to post: "{task}"',
+    heading: 'Final approved — ready to post',
+    body: 'Hi {name},\n\n**{who}** gave final approval on **{task}**. You are assigned for posting.',
+    cta: 'Open pipeline',
+  },
+  content_assigned: {
+    subject: '{who} assigned you on "{task}"',
+    heading: 'You were assigned on the content pipeline',
+    body: 'Hi {name},\n\n**{who}** assigned you as **{role}** for **{task}**.',
+    cta: 'Open pipeline',
+  },
   eod_reminder: {
     subject: 'Reminder: your EOD report for {date} is pending',
     heading: 'Reminder: submit your EOD report for {date}',

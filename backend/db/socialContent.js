@@ -938,12 +938,7 @@ export function planContentTransition(task, action, input = {}, { canManage = fa
         || '';
       if (writerId) production.content_writer_id = writerId;
       if (writerName) production.content_writer = writerName;
-      const approverId = cleanText(production.content_approver_id, 20);
-      const approverName = cleanText(production.content_approver, 120);
-      if (!approverId) throw new ContentError(400, 'Choose who will approve the content.');
-      production.content_approver_id = approverId;
-      if (approverName) production.content_approver = approverName;
-      // Approver is stored on production only. Designer is chosen later on Approve.
+      // Content approver is chosen on the Content Approval stage, not here.
       patch.pipeline_stage = 'content_approval';
       patch.workflow_status = 'pending';
       patch.assigned_to = null;
@@ -958,17 +953,17 @@ export function planContentTransition(task, action, input = {}, { canManage = fa
       if (stage !== 'content_approval' || status !== 'pending') {
         throw new ContentError(400, 'Content Approval can move forward only while it is pending.');
       }
+      const production = {
+        ...asObject(task.production || task.production_meta),
+        ...asObject(input.production),
+      };
+      // Optional designer now; otherwise the next-assign popup / board can set them.
       const designer = assigneeId(input);
-      if (!designer) throw new ContentError(400, 'Choose who will design this.');
-      const production = asObject(task.production || task.production_meta);
-      const approverId = cleanText(production.content_approver_id, 20);
-      if (approverId && String(designer) === String(approverId)) {
-        throw new ContentError(400, 'Pick a designer. Content approver and designer are different roles.');
-      }
       patch.assigned_to = designer;
       patch.pipeline_stage = 'designing_editing';
       patch.workflow_status = 'pending';
       patch.review_comment = feedback || null;
+      patch.production_meta = JSON.stringify(cleanProduction(production));
       return { patch, event: eventBase('designing_editing', 'pending'), review: true };
     }
     case 'reject_content':
@@ -992,20 +987,17 @@ export function planContentTransition(task, action, input = {}, { canManage = fa
     }
     case 'complete_design': {
       if (stage !== 'designing_editing') throw new ContentError(400, 'Finish design from Designing / Editing.');
-      const drive = textOf(input, task, 'drive_url');
-      if (!isHttpUrl(drive)) throw new ContentError(400, 'Add the Google Drive link.');
       const production = {
         ...asObject(task.production || task.production_meta),
         ...asObject(input.production),
       };
-      const finalApproverId = cleanText(production.final_approver_id, 20);
-      const finalApproverName = cleanText(production.final_approver, 120);
-      if (!finalApproverId) throw new ContentError(400, 'Choose who will final approve.');
-      production.final_approver_id = finalApproverId;
-      if (finalApproverName) production.final_approver = finalApproverName;
-      const finalApproverNum = parseInt(finalApproverId, 10);
-      patch.drive_url = drive;
-      patch.assigned_to = Number.isFinite(finalApproverNum) ? finalApproverNum : null;
+      const files = Array.isArray(production.drive_files) ? production.drive_files : [];
+      const hasDesign = files.some((file) => (
+        file?.stage === 'designing_editing' || file?.kind === 'final'
+      ));
+      if (!hasDesign) throw new ContentError(400, 'Upload the design file before sending for final approval.');
+      // Final approver can be assigned after this step (optional popup).
+      patch.assigned_to = null;
       patch.pipeline_stage = 'final_approval';
       patch.workflow_status = 'pending';
       patch.production_meta = JSON.stringify(cleanProduction(production));
@@ -1019,14 +1011,8 @@ export function planContentTransition(task, action, input = {}, { canManage = fa
         ...asObject(task.production || task.production_meta),
         ...asObject(input.production),
       };
-      const finalApproverId = cleanText(production.final_approver_id, 20);
-      const finalApproverName = cleanText(production.final_approver, 120);
-      if (!finalApproverId) throw new ContentError(400, 'Choose who will final approve.');
-      production.final_approver_id = finalApproverId;
-      if (finalApproverName) production.final_approver = finalApproverName;
-      const finalApproverNum = parseInt(finalApproverId, 10);
       patch.drive_url = drive;
-      patch.assigned_to = Number.isFinite(finalApproverNum) ? finalApproverNum : null;
+      patch.assigned_to = null;
       patch.pipeline_stage = 'final_approval';
       patch.workflow_status = 'pending';
       patch.production_meta = JSON.stringify(cleanProduction(production));
@@ -1036,20 +1022,19 @@ export function planContentTransition(task, action, input = {}, { canManage = fa
       if (stage !== 'final_approval' || status !== 'pending') {
         throw new ContentError(400, 'Final Approval can move forward only while it is pending.');
       }
+      const production = {
+        ...asObject(task.production || task.production_meta),
+        ...asObject(input.production),
+      };
       const poster = assigneeId(input);
       if (!poster) throw new ContentError(400, 'Choose who will post this.');
+      if (production.post_assignees) {
+        production.post_assignees = sanitizePostAssignees(production.post_assignees);
+      }
       patch.assigned_to = poster;
       patch.pipeline_stage = 'ready_to_post';
       patch.workflow_status = 'pending';
       patch.review_comment = feedback || null;
-      const production = asObject(task.production || task.production_meta);
-      const incoming = asObject(input.production);
-      if (incoming.post_assignees) {
-        production.post_assignees = sanitizePostAssignees({
-          ...asObject(production.post_assignees),
-          ...asObject(incoming.post_assignees),
-        });
-      }
       patch.production_meta = JSON.stringify(cleanProduction(production));
       return { patch, event: eventBase('ready_to_post', 'pending'), review: true };
     }
