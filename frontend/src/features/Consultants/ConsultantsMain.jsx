@@ -23,14 +23,19 @@ import { isTaskOverdue } from '../../utils/taskDue';
 import { toastSuccess, toastError, toastInfo } from '../../utils/toast';
 import { loadEodSections, sectionsToText, localToday } from '../../utils/eodSummary';
 import { reasonDialog } from '../../utils/confirm';
-import { taskInPeriod, CURRENT_MONTH_PERIOD } from '../../utils/taskPeriod';
+import { taskInPeriod, CURRENT_MONTH_PERIOD, EMPTY_PERIOD, isAllDates, periodEmptyText } from '../../utils/taskPeriod';
 import { controlKeys, textareaSubmit, escapeCloses } from '../../utils/formKeys';
 import PeriodFilter from '../../components/PeriodFilter';
 import TaskComments from '../../components/TaskComments';
 import ModalKebabMenu from '../../components/ModalKebabMenu';
 import ProjectLogo from '../../components/ProjectLogo';
 import DuplicateTaskButton from '../../components/DuplicateTaskButton';
-import MyTaskList from '../../components/MyTaskList';
+import DeleteTaskButton from '../../components/DeleteTaskButton';
+import MyTaskList, { TaskRows, ViewSwitch, QuickCreateRow } from '../../components/MyTaskList';
+import useTaskView from '../../utils/useTaskView';
+import BulkImportButton from '../../components/BulkImportButton';
+import EodDateRange from '../../components/EodDateRange';
+import { filterEodByRange, eodRangeActive, EMPTY_EOD_RANGE } from '../../utils/eodRange';
 import { makeTaskDuplicate, toSubtaskDrafts } from '../../utils/taskDuplicate';
 import SidebarUser from '../../components/SidebarUser';
 import useSidebarCollapsed from '../../utils/useSidebarCollapsed';
@@ -126,6 +131,9 @@ export default function ConsultantsMain({ currentUser, onLogout }) {
 
   const [tasks, setTasks] = useState([]);
   const [eodReports, setEodReports] = useState([]);
+  // EOD Updates: From / To date filter; reports are listed newest day first.
+  const [eodRange, setEodRange] = useState(EMPTY_EOD_RANGE);
+  const filteredEodReports = useMemo(() => filterEodByRange(eodReports, eodRange), [eodReports, eodRange]);
   const [teamOverview, setTeamOverview] = useState([]);
   const [adminUsers, setAdminUsers] = useState([]);
 
@@ -373,14 +381,58 @@ export default function ConsultantsMain({ currentUser, onLogout }) {
     }
   };
 
+  // Bulk import (My Tasks): every CSV row becomes a task assigned to me.
+  const handleBulkImport = async (rows) => {
+    try {
+      const { data } = await itUpdatesApi.bulkCreateTasks(rows, MODULE_TEAM);
+      await refreshTasksOnly();
+      if (data?.created) toastSuccess(`${data.created} task${data.created === 1 ? '' : 's'} imported`);
+      if (data?.failed?.length) toastError(`${data.failed.length} row(s) could not be saved`);
+      return data;
+    } catch (e) {
+      toastError(e?.response?.data?.message || 'Import failed');
+      return null;
+    }
+  };
+
+  // Bulk delete: one reason covers the batch; the server still checks and logs each task.
+  const handleBulkDelete = async (list) => {
+    const n = list.length;
+    const reason = await reasonDialog({
+      title: `Delete ${n} task${n === 1 ? '' : 's'}?`,
+      message: `${n === 1 ? 'This task' : `These ${n} tasks`} and their requirements will be permanently removed. This cannot be undone.`,
+      confirmLabel: `Delete ${n}`,
+      danger: true,
+      reasonLabel: 'Why are you deleting these tasks?',
+      placeholder: 'e.g. duplicates, created by mistake, cancelled by the client',
+    });
+    if (!reason) return false;
+    try {
+      const { data } = await itUpdatesApi.bulkDeleteTasks(list.map((t) => t.id), MODULE_TEAM, reason);
+      const gone = new Set((data?.deleted || []).map(String));
+      setTasks((prev) => prev.filter((t) => !gone.has(String(t.id))));
+      refreshTasksOnly().catch(() => {});
+      if (gone.size) toastSuccess(`${gone.size} task${gone.size === 1 ? '' : 's'} deleted`);
+      if (data?.skipped?.length) toastError(`${data.skipped.length} task(s) were not deleted (not yours or already gone)`);
+      return true;
+    } catch (e) {
+      toastError(e?.response?.data?.message || 'Failed to delete tasks');
+      return false;
+    }
+  };
+
+  // All Tasks: Horizontal (rows) or Vertical (card board); the board stays the default here.
+  const [allTasksView, setAllTasksView] = useTaskView('allTasks.view', 'vertical');
+
   // My Tasks list: "+ Create" adds a task from its title alone, assigned to me.
-  const handleQuickCreateTask = async ({ title, status }) => {
+  // Admins may pick the assignee and assigner; otherwise the task is the user's own.
+  const handleQuickCreateTask = async ({ title, status, assigned_to, assigned_by }) => {
     try {
       await itUpdatesApi.createTask({
         title,
         status,
-        assigned_to: userId,
-        assigned_by: userId,
+        assigned_to: assigned_to ?? userId,
+        assigned_by: assigned_by ?? userId,
         team: MODULE_TEAM,
       });
       await refreshTasksOnly();
@@ -476,6 +528,7 @@ export default function ConsultantsMain({ currentUser, onLogout }) {
                     onClick={() => openTaskModal(task)}
                   >
                     <div className="it-updates-task-card-toprow">
+                      {canDeleteTask(task) ? <DeleteTaskButton onDelete={() => handleDeleteTask(task)} /> : null}
                       <DuplicateTaskButton onDuplicate={() => duplicateTask(task)} />
                       <div
                         className="it-updates-task-card-priority"
@@ -751,6 +804,23 @@ export default function ConsultantsMain({ currentUser, onLogout }) {
               onUpdateTask={handleInlineTaskUpdate}
               onQuickCreate={handleQuickCreateTask}
               currentUser={user}
+              // Vertical view: the module's usual card board, drag-and-drop included.
+              assignees={isAdmin ? teamOverview.filter((u) => u.is_active !== false) : undefined}
+              assigners={isAdmin ? adminUsers : undefined}
+              onBulkImport={handleBulkImport}
+              onBulkDelete={handleBulkDelete}
+              canDelete={canDeleteTask}
+              renderBoard={(list) => (
+                <DragDropContext onDragEnd={handleDragEnd}>
+                  <div className="it-updates-kanban-wrap">
+                    <section className="it-updates-columns">
+                      {['todo', 'in_progress', 'review', 'rework', 'completed'].map((statusKey) =>
+                        renderKanbanColumn(statusKey, groupTasksByStatus(list)[statusKey] || [])
+                      )}
+                    </section>
+                  </div>
+                </DragDropContext>
+              )}
             />
           )}
 
@@ -813,19 +883,61 @@ export default function ConsultantsMain({ currentUser, onLogout }) {
                     setAllTasksFiltersApplied((f) => ({ ...f, period }))
                   }
                 />
+                <BulkImportButton
+                  onImport={handleBulkImport}
+                  currentUser={user}
+                  statuses={['todo', 'in_progress', 'review', 'rework', 'completed']}
+                  statusLabel={(k) => statusTextFor(STATUS_LABELS, k)}
+                  assignees={isAdmin ? teamOverview.filter((u) => u.is_active !== false) : undefined}
+                  assigners={isAdmin ? adminUsers : undefined}
+                />
+                <ViewSwitch view={allTasksView} onChange={setAllTasksView} />
               </div>
-              <DragDropContext onDragEnd={handleDragEnd}>
-                <div className="it-updates-kanban-wrap">
-                  <section className="it-updates-columns">
-                    {['todo', 'in_progress', 'review', 'rework', 'completed'].map((statusKey) =>
-                      renderKanbanColumn(
-                        statusKey,
-                        groupTasksByStatus(filteredTasks)[statusKey] || []
-                      )
-                    )}
-                  </section>
-                </div>
-              </DragDropContext>
+              {allTasksView === 'horizontal' ? (
+                <TaskRows
+                  tasks={filteredTasks}
+                  statuses={['todo', 'in_progress', 'review', 'rework', 'completed']}
+                  statusLabel={(k) => statusTextFor(STATUS_LABELS, k)}
+                  statusColors={STATUS_COLORS}
+                  keyPrefix="CON"
+                  onOpenTask={openTaskModal}
+                  onStatusChange={handleListStatusChange}
+                  onUpdateTask={handleInlineTaskUpdate}
+                  onBulkDelete={handleBulkDelete}
+                  canDelete={canDeleteTask}
+                  emptyText={periodEmptyText(allTasksFiltersApplied.period) || 'No tasks match these filters.'}
+                  emptyAction={
+                    isAllDates(allTasksFiltersApplied.period)
+                      ? undefined
+                      : {
+                          label: 'Show all dates',
+                          onClick: () => setAllTasksFiltersApplied((f) => ({ ...f, period: EMPTY_PERIOD })),
+                        }
+                  }
+                />
+              ) : null}
+              {allTasksView === 'horizontal' ? (
+                <QuickCreateRow
+                  status="todo"
+                  onCreate={handleQuickCreateTask}
+                  currentUser={user}
+                  assignees={isAdmin ? teamOverview.filter((u) => u.is_active !== false) : undefined}
+                  assigners={isAdmin ? adminUsers : undefined}
+                />
+              ) : (
+                <DragDropContext onDragEnd={handleDragEnd}>
+                  <div className="it-updates-kanban-wrap">
+                    <section className="it-updates-columns">
+                      {['todo', 'in_progress', 'review', 'rework', 'completed'].map((statusKey) =>
+                        renderKanbanColumn(
+                          statusKey,
+                          groupTasksByStatus(filteredTasks)[statusKey] || []
+                        )
+                      )}
+                    </section>
+                  </div>
+                </DragDropContext>
+              )}
             </>
           )}
 
@@ -934,15 +1046,18 @@ export default function ConsultantsMain({ currentUser, onLogout }) {
                   <MdAdd size={18} />
                   Submit EOD
                 </button>
+                <EodDateRange value={eodRange} onChange={setEodRange} />
               </div>
               <p className="it-updates-eod-intro">
                 Your end-of-day reports. Click <strong>Submit EOD</strong> or the EOD button in the header.
               </p>
               <div className="it-updates-eod-list">
-                {eodReports.length === 0 ? (
-                  <div className="it-updates-empty">No EOD reports yet.</div>
+                {filteredEodReports.length === 0 ? (
+                  <div className="it-updates-empty">
+                    {eodRangeActive(eodRange) ? 'No EOD reports between the selected dates.' : 'No EOD reports yet.'}
+                  </div>
                 ) : (
-                  eodReports.map((report) => (
+                  filteredEodReports.map((report) => (
                     <div
                       key={report.report_id ?? report.id}
                       className="it-updates-eod-card"

@@ -307,3 +307,226 @@
     min-width: 0;
   }
 }
+
+/* Horizontal / Vertical layout switch: two icon buttons at the right end of the filter
+   bar. It stretches to the row's height so it lines up with the selects beside it. */
+.mtl-view-switch {
+  display: inline-flex;
+  flex: none;
+  align-self: stretch;
+  gap: 2px;
+  margin-left: auto;
+  padding: 3px;
+  border: 1px solid var(--clr-slate-200);
+  border-radius: var(--radius-md);
+  background: var(--surface-card, #fff);
+}
+
+.mtl-view-switch button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  aspect-ratio: 1;
+  min-width: 2rem;
+  padding: 0 0.4rem;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--clr-slate-500);
+  cursor: pointer;
+}
+
+.mtl-view-switch button:hover {
+  color: var(--clr-slate-800);
+}
+
+.mtl-view-switch button.active {
+  background: var(--clr-primary-50, #eaf2fd);
+  color: var(--clr-primary-600, #0054c4);
+}
+
+.mtl-view-switch button:focus-visible {
+  outline: 2px solid var(--clr-primary-400, #337bd4);
+  outline-offset: 1px;
+}
+
+@media (max-width: 760px) {
+  .mtl-view-switch {
+    margin-left: 0;
+  }
+}
+
+/* ── Bulk import button (filter bar) ── */
+.mtl-import-btn {
+  display: inline-flex;
+  align-items: center;
+  align-self: stretch;
+  gap: 0.35rem;
+  padding: 0 0.85rem;
+  border: 1px solid var(--clr-slate-200);
+  border-radius: var(--radius-md);
+  background: var(--surface-card, #fff);
+  color: var(--clr-slate-700);
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.mtl-import-btn:hover {
+  border-color: var(--clr-primary-400, #337bd4);
+  color: var(--clr-primary-600, #0054c4);
+}
+
+/* ── Bulk delete: row checkboxes and the selection bar ── */
+.mtl-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.mtl-check {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  cursor: pointer;
+}
+
+.mtl-check input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--clr-primary-600, #0054c4);
+  cursor: pointer;
+}
+
+.mtl-check input:disabled {
+  cursor: not-allowed;
+  opacity: 0.35;
+}
+
+.mtl-row-selected {
+  background: var(--clr-primary-50, #eaf2fd);
+}
+
+.mtl-row-selected:hover {
+  background: var(--clr-primary-50, #eaf2fd);
+}
+
+.mtl-bulkbar {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-height: 2.5rem;
+  padding: 0.3rem 1rem;
+  border: 1px solid var(--clr-slate-200);
+  border-radius: var(--radius-lg);
+  background: var(--surface-card, #fff);
+}
+
+.mtl-bulkbar-active {
+  border-color: #fecaca;
+  background: #fff7f7;
+}
+
+.mtl-bulkbar-text {
+  flex: 1 1 auto;
+  color: var(--clr-slate-500);
+  font-size: 0.82rem;
+}
+
+.mtl-bulkbar-active .mtl-bulkbar-text {
+  color: var(--clr-slate-800);
+  font-weight: 600;
+}
+
+.mtl-bulkbar-clear {
+  padding: 0.3rem 0.6rem;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--clr-slate-600);
+  font: inherit;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.mtl-bulkbar-clear:hover {
+  background: var(--clr-slate-100);
+}
+
+.mtl-bulkbar-delete {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.35rem 0.8rem;
+  border: none;
+  border-radius: 6px;
+  background: #dc2626;
+  color: #fff;
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.mtl-bulkbar-delete:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* Admin pickers on the "+ Create" row: a small caption above each compact select. */
+.mtl-create-person {
+  display: inline-flex;
+  flex-direction: column;
+  flex: 0 1 9.5rem;
+  min-width: 0;
+  gap: 1px;
+}
+
+.mtl-create-person span {
+  color: var(--clr-slate-400);
+  font-size: 0.66rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.mtl-create-person select {
+  width: 100%;
+  padding: 0.2rem 0.35rem;
+  border: 1px solid var(--clr-slate-200);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--clr-slate-700);
+  font: inherit;
+  font-size: 0.8rem;
+}
+
+@media (max-width: 760px) {
+  .mtl-create {
+    flex-wrap: wrap;
+  }
+  .mtl-create-input {
+    flex-basis: 100%;
+  }
+}
+
+/* "Show all dates" under an empty list's message. */
+.mtl-empty-action {
+  display: block;
+  margin: 0.6rem auto 0;
+  padding: 0.35rem 0.85rem;
+  border: 1px solid var(--clr-primary-400, #337bd4);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--clr-primary-600, #0054c4);
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.mtl-empty-action:hover {
+  background: var(--clr-primary-50, #eaf2fd);
+}

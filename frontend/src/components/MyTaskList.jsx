@@ -2,15 +2,20 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   MdAdd,
   MdCalendarToday,
-  MdCheckBox,
+  MdOutlineAssignment,
+  MdDeleteOutline,
   MdErrorOutline,
   MdKeyboardArrowDown,
   MdKeyboardReturn,
+  MdViewKanban,
+  MdViewList,
 } from 'react-icons/md';
 import { isTaskOverdue } from '../utils/taskDue';
-import { taskInPeriod, CURRENT_MONTH_PERIOD } from '../utils/taskPeriod';
+import { taskInPeriod, CURRENT_MONTH_PERIOD, EMPTY_PERIOD, isAllDates, periodEmptyText } from '../utils/taskPeriod';
 import { newestFirst } from '../utils/taskSort';
+import useTaskView from '../utils/useTaskView';
 import PeriodFilter from './PeriodFilter';
+import BulkImportButton from './BulkImportButton';
 import './MyTaskList.css';
 
 const PRIORITIES = ['low', 'medium', 'high', 'critical'];
@@ -74,6 +79,13 @@ function Avatar({ name, src }) {
  *   onStatusChange(task, status) / onUpdateTask(task, patch) — inline edits
  *   onQuickCreate({ title, status, projectId }) — async, truthy on success
  *   projects / requireProject — optional project picker on the create row
+ *   renderBoard(tasks) — draws the module's card board for the filtered tasks; when
+ *                        given, a Horizontal / Vertical switch appears and the choice
+ *                        is remembered per browser
+ *   onBulkImport(rows) — async; adds an "Import" button (CSV) — see BulkImportModal
+ *   onBulkDelete(tasks) / canDelete(task) — tick rows in the horizontal view and
+ *                        delete them together
+ *   assignees / assigners — admins only: Assignee and Assigned-by pickers on "+ Create"
  */
 export default function MyTaskList({
   tasks = [],
@@ -88,7 +100,16 @@ export default function MyTaskList({
   projects,
   requireProject = false,
   currentUser,
+  renderBoard,
+  onBulkImport,
+  onBulkDelete,
+  canDelete,
+  assignees,
+  assigners,
 }) {
+  const [view, setView] = useTaskView('myTasks.view');
+  const showBoard = Boolean(renderBoard) && view === 'vertical';
+
   // Same filters as the All Tasks board, and the same default: this month's tasks.
   const [filters, setFilters] = useState({ status: '', priority: '', project: '', period: CURRENT_MONTH_PERIOD });
   const setFilter = (key, value) => setFilters((f) => ({ ...f, [key]: value }));
@@ -142,42 +163,216 @@ export default function MyTaskList({
           </select>
         ) : null}
         <PeriodFilter value={filters.period} onChange={(period) => setFilter('period', period)} />
+        {onBulkImport ? (
+          <BulkImportButton
+            onImport={onBulkImport}
+            statuses={statuses}
+            statusLabel={statusLabel}
+            projects={projects}
+            assignees={assignees}
+            assigners={assigners}
+            currentUser={currentUser}
+          />
+        ) : null}
+        {renderBoard ? <ViewSwitch view={view} onChange={setView} /> : null}
       </div>
-      {visible.length ? (
-        <ul className="mtl-list">
-          {visible.map((task) => (
-            <TaskRow
-              key={task.id}
-              task={task}
-              statuses={statuses}
-              statusLabel={statusLabel}
-              statusColors={statusColors}
-              keyPrefix={keyPrefix}
-              onOpenTask={onOpenTask}
-              onStatusChange={onStatusChange}
-              onUpdateTask={onUpdateTask}
-            />
-          ))}
-        </ul>
+      {showBoard ? (
+        renderBoard(visible)
       ) : (
-        <div className="mtl-empty">
-          {tasks.length ? 'No tasks match these filters.' : 'No tasks assigned to you yet.'}
-        </div>
+        <TaskRows
+          tasks={visible}
+          statuses={statuses}
+          statusLabel={statusLabel}
+          statusColors={statusColors}
+          keyPrefix={keyPrefix}
+          onOpenTask={onOpenTask}
+          onStatusChange={onStatusChange}
+          onUpdateTask={onUpdateTask}
+          emptyText={
+            !tasks.length
+              ? 'No tasks assigned to you yet.'
+              : periodEmptyText(filters.period) || 'No tasks match these filters.'
+          }
+          emptyAction={
+            tasks.length && !isAllDates(filters.period)
+              ? { label: 'Show all dates', onClick: () => setFilter('period', EMPTY_PERIOD) }
+              : undefined
+          }
+          onBulkDelete={onBulkDelete}
+          canDelete={canDelete}
+        />
       )}
       {onQuickCreate ? (
-        <CreateRow
+        <QuickCreateRow
           status={statuses[0] || 'todo'}
           onCreate={onQuickCreate}
           projects={projects}
           requireProject={requireProject}
           currentUser={currentUser}
+          assignees={assignees}
+          assigners={assigners}
         />
       ) : null}
     </div>
   );
 }
 
-function TaskRow({ task, statuses, statusLabel, statusColors, keyPrefix, onOpenTask, onStatusChange, onUpdateTask }) {
+/** The Horizontal / Vertical layout switch shown at the end of a filter bar. */
+export function ViewSwitch({ view, onChange }) {
+  return (
+    <div className="mtl-view-switch" role="group" aria-label="Card layout">
+      <button
+        type="button"
+        className={view === 'horizontal' ? 'active' : ''}
+        aria-pressed={view === 'horizontal'}
+        onClick={() => onChange('horizontal')}
+        title="Horizontal: one row per task"
+        aria-label="Horizontal view"
+      >
+        <MdViewList size={18} />
+      </button>
+      <button
+        type="button"
+        className={view === 'vertical' ? 'active' : ''}
+        aria-pressed={view === 'vertical'}
+        onClick={() => onChange('vertical')}
+        title="Vertical: cards in status columns"
+        aria-label="Vertical view"
+      >
+        <MdViewKanban size={18} />
+      </button>
+    </div>
+  );
+}
+
+/**
+ * The horizontal layout on its own: one row per task, newest first, with inline
+ * status / due date / priority. Used by My Tasks and by the All Tasks pages, which
+ * keep their own filter bars.
+ */
+export function TaskRows({
+  tasks = [],
+  statuses = [],
+  statusLabel = (k) => k,
+  statusColors = {},
+  keyPrefix = 'TASK',
+  onOpenTask,
+  onStatusChange,
+  onUpdateTask,
+  emptyText = 'No tasks match these filters.',
+  emptyAction, // optional { label, onClick } shown under the empty message
+  onBulkDelete,
+  canDelete = () => true,
+}) {
+  const rows = useMemo(() => newestFirst(tasks), [tasks]);
+  // Bulk delete: tick rows, then delete them together. Only tasks the user may delete
+  // can be ticked; ids that leave the list (filtered out, deleted) drop from the selection.
+  const [picked, setPicked] = useState(() => new Set());
+  const deletable = useMemo(
+    () => (onBulkDelete ? rows.filter((t) => canDelete(t)) : []),
+    [rows, onBulkDelete, canDelete]
+  );
+  const selected = deletable.filter((t) => picked.has(String(t.id)));
+  const allPicked = deletable.length > 0 && selected.length === deletable.length;
+  const [deleting, setDeleting] = useState(false);
+
+  const toggle = (id) =>
+    setPicked((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  const toggleAll = () =>
+    setPicked(allPicked ? new Set() : new Set(deletable.map((t) => String(t.id))));
+  const deleteSelected = async () => {
+    if (!selected.length || deleting) return;
+    setDeleting(true);
+    const done = await onBulkDelete(selected);
+    setDeleting(false);
+    if (done) setPicked(new Set());
+  };
+
+  if (!rows.length) {
+    return (
+      <div className="mtl-empty">
+        {emptyText}
+        {emptyAction ? (
+          <button type="button" className="mtl-empty-action" onClick={emptyAction.onClick}>
+            {emptyAction.label}
+          </button>
+        ) : null}
+      </div>
+    );
+  }
+  return (
+    <div className="mtl-rows">
+      {onBulkDelete && deletable.length ? (
+        <div className={`mtl-bulkbar${selected.length ? ' mtl-bulkbar-active' : ''}`}>
+          <label className="mtl-check">
+            <input
+              type="checkbox"
+              checked={allPicked}
+              ref={(el) => {
+                if (el) el.indeterminate = selected.length > 0 && !allPicked;
+              }}
+              onChange={toggleAll}
+              aria-label="Select all tasks"
+            />
+          </label>
+          <span className="mtl-bulkbar-text">
+            {selected.length ? `${selected.length} selected` : 'Select tasks to delete them together'}
+          </span>
+          {selected.length ? (
+            <>
+              <button type="button" className="mtl-bulkbar-clear" onClick={() => setPicked(new Set())}>
+                Clear
+              </button>
+              <button type="button" className="mtl-bulkbar-delete" onClick={deleteSelected} disabled={deleting}>
+                <MdDeleteOutline size={16} />
+                {deleting ? 'Deleting…' : `Delete ${selected.length}`}
+              </button>
+            </>
+          ) : null}
+        </div>
+      ) : null}
+      <ul className="mtl-list">
+        {rows.map((task) => (
+          <TaskRow
+            key={task.id}
+            task={task}
+            statuses={statuses}
+            statusLabel={statusLabel}
+            statusColors={statusColors}
+            keyPrefix={keyPrefix}
+            onOpenTask={onOpenTask}
+            onStatusChange={onStatusChange}
+            onUpdateTask={onUpdateTask}
+            selectable={Boolean(onBulkDelete)}
+            canSelect={Boolean(onBulkDelete) && canDelete(task)}
+            selected={picked.has(String(task.id))}
+            onToggle={() => toggle(String(task.id))}
+          />
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function TaskRow({
+  task,
+  statuses,
+  statusLabel,
+  statusColors,
+  keyPrefix,
+  onOpenTask,
+  onStatusChange,
+  onUpdateTask,
+  selectable = false,
+  canSelect = false,
+  selected = false,
+  onToggle,
+}) {
   const dateRef = useRef(null);
   const overdue = isTaskOverdue(task);
   const ymd = dueYmd(task);
@@ -188,11 +383,22 @@ function TaskRow({ task, statuses, statusLabel, statusColors, keyPrefix, onOpenT
 
   return (
     <li
-      className={`mtl-row${task.status === 'completed' ? ' mtl-row-done' : ''}`}
+      className={`mtl-row${task.status === 'completed' ? ' mtl-row-done' : ''}${selected ? ' mtl-row-selected' : ''}`}
       onClick={() => onOpenTask?.(task)}
     >
+      {selectable ? (
+        <label className="mtl-check" onClick={stop} title={canSelect ? 'Select' : 'Only the owner or an admin can delete this task'}>
+          <input
+            type="checkbox"
+            checked={selected}
+            disabled={!canSelect}
+            onChange={onToggle}
+            aria-label={`Select ${task.title}`}
+          />
+        </label>
+      ) : null}
       <span className={`mtl-type${overdue ? ' mtl-type-overdue' : ''}`} title={overdue ? 'Past due date' : 'Task'}>
-        {overdue ? <MdErrorOutline size={17} /> : <MdCheckBox size={17} />}
+        {overdue ? <MdErrorOutline size={17} /> : <MdOutlineAssignment size={17} />}
       </span>
       <span className="mtl-key">
         {keyPrefix}-{task.id}
@@ -264,17 +470,35 @@ function TaskRow({ task, statuses, statusLabel, statusColors, keyPrefix, onOpenT
   );
 }
 
+const memberId = (m) => m?.user_id ?? m?.id;
+const memberName = (m) => m?.username || m?.name || m?.email || 'Unknown';
+// "Me" is always the first choice, so a picker lists everyone else; null hides the picker.
+const othersThan = (list, meId) =>
+  Array.isArray(list)
+    ? list.filter((m) => memberId(m) != null && String(memberId(m)) !== String(meId))
+    : null;
+
 /**
- * "+ Create" at the foot of the list. Enter adds the task and keeps the row open for
+ * "+ Create" at the foot of a list. Enter adds the task and keeps the row open for
  * the next one; Escape, or clicking away from an empty row, closes it.
+ *
+ * With `assignees` / `assigners` (admins), the row also has Assignee and Assigned-by
+ * pickers so a task can be created for someone else; both default to "Me". Without
+ * them the task is the current user's own.
  */
-function CreateRow({ status, onCreate, projects, requireProject, currentUser }) {
+export function QuickCreateRow({ status, onCreate, projects, requireProject, currentUser, assignees, assigners }) {
   const [open, setOpen] = useState(false);
   const [title, setTitle] = useState('');
   const [projectId, setProjectId] = useState('');
+  const [assigneeId, setAssigneeId] = useState('');
+  const [assignerId, setAssignerId] = useState('');
   const [saving, setSaving] = useState(false);
   const inputRef = useRef(null);
   const hasProjects = Array.isArray(projects) && projects.length > 0;
+  const meId = currentUser?.id ?? currentUser?.user_id;
+  const assigneeChoices = useMemo(() => othersThan(assignees, meId), [assignees, meId]);
+  const assignerChoices = useMemo(() => othersThan(assigners, meId), [assigners, meId]);
+  const chosenAssignee = assigneeId ? assigneeChoices?.find((m) => String(memberId(m)) === assigneeId) : null;
 
   useEffect(() => {
     if (open) inputRef.current?.focus();
@@ -290,7 +514,14 @@ function CreateRow({ status, onCreate, projects, requireProject, currentUser }) 
     const text = title.trim();
     if (!text || saving || (requireProject && !projectId)) return;
     setSaving(true);
-    const ok = await onCreate({ title: text, status, projectId: projectId || null });
+    const ok = await onCreate({
+      title: text,
+      status,
+      projectId: projectId || null,
+      // Only sent when an admin picked someone; otherwise the task is the user's own.
+      ...(assigneeId ? { assigned_to: assigneeId } : {}),
+      ...(assignerId ? { assigned_by: assignerId } : {}),
+    });
     setSaving(false);
     if (ok) setTitle('');
     // Re-enabling the input drops focus, so put it back for the next task.
@@ -321,7 +552,7 @@ function CreateRow({ status, onCreate, projects, requireProject, currentUser }) 
       }}
     >
       <span className="mtl-type">
-        <MdCheckBox size={17} />
+        <MdOutlineAssignment size={17} />
       </span>
       <input
         ref={inputRef}
@@ -350,7 +581,37 @@ function CreateRow({ status, onCreate, projects, requireProject, currentUser }) 
           })}
         </select>
       ) : null}
-      <Avatar name={currentUser?.name || currentUser?.username} src={currentUser?.profile_image} />
+      {assigneeChoices ? (
+        <label className="mtl-create-person">
+          <span>Assignee</span>
+          <select value={assigneeId} onChange={(e) => setAssigneeId(e.target.value)} aria-label="Assignee">
+            <option value="">Me</option>
+            {assigneeChoices.map((m) => (
+              <option key={memberId(m)} value={String(memberId(m))}>
+                {memberName(m)}
+              </option>
+            ))}
+          </select>
+        </label>
+      ) : null}
+      {assignerChoices ? (
+        <label className="mtl-create-person">
+          <span>Assigned by</span>
+          <select value={assignerId} onChange={(e) => setAssignerId(e.target.value)} aria-label="Assigned by">
+            <option value="">Me</option>
+            {assignerChoices.map((m) => (
+              <option key={memberId(m)} value={String(memberId(m))}>
+                {memberName(m)}
+              </option>
+            ))}
+          </select>
+        </label>
+      ) : null}
+      {chosenAssignee ? (
+        <Avatar name={memberName(chosenAssignee)} src={chosenAssignee.profile_image} />
+      ) : (
+        <Avatar name={currentUser?.name || currentUser?.username} src={currentUser?.profile_image} />
+      )}
       <button
         type="submit"
         className="mtl-create-submit"

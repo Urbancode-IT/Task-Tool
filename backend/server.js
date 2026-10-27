@@ -560,6 +560,40 @@ app.post('/auth/master-login', asyncMw(async (req, res) => {
   res.json({ user });
 }));
 
+// ---- In Out attendance integration (server-to-server) ----
+// The In Out app calls this the moment it marks someone absent or present. It is not a
+// user session, so it is authorised by a shared secret in the X-InOut-Key header,
+// compared in constant time. With INOUT_WEBHOOK_SECRET unset the endpoint is off.
+// Body: { email, date: 'YYYY-MM-DD', status: 'absent' | 'present' } or { records: [...] }.
+const INOUT_MAX_RECORDS = 500;
+
+function inoutKeyValid(req) {
+  const secret = process.env.INOUT_WEBHOOK_SECRET || '';
+  const given = String(req.get('x-inout-key') || '');
+  if (secret.length < 24 || !given) return false;
+  const a = crypto.createHash('sha256').update(given).digest();
+  const b = crypto.createHash('sha256').update(secret).digest();
+  return crypto.timingSafeEqual(a, b);
+}
+
+app.post('/api/integrations/inout/attendance', asyncMw(async (req, res) => {
+  if (!process.env.INOUT_WEBHOOK_SECRET) {
+    return res.status(503).json({ message: 'In Out integration is not configured.' });
+  }
+  if (!inoutKeyValid(req)) return res.status(401).json({ message: 'Invalid integration key.' });
+  if (!db.useDb()) return res.status(503).json({ message: 'Database unavailable.' });
+
+  const records = Array.isArray(req.body?.records) ? req.body.records : [req.body];
+  if (!records.length || records.length > INOUT_MAX_RECORDS) {
+    return res.status(400).json({ message: `Send between 1 and ${INOUT_MAX_RECORDS} records.` });
+  }
+  const result = await db.dbApplyInOutAttendance(records);
+  if (result.unmatched.length) {
+    console.warn('In Out attendance: no Seyal user for', result.unmatched.map((u) => u.email).join(', '));
+  }
+  res.json(result);
+}));
+
 // ---- IT Updates API (JWT auth; any authenticated user can access — attach permissions for UI) ----
 const BASE_PATH = '/api/it-updates';
 app.use(BASE_PATH, requireAuth, asyncMw(attachUserPermissions));
@@ -1165,10 +1199,12 @@ app.post(`${BASE_PATH}/tasks`, async (req, res) => {
       if (isLegalFinanceTeamString(teamForCreate) && !requireLegalFinanceAccess(req, res)) return;
       if (isDirectorTeamString(teamForCreate) && !requireDirectorManage(req, res)) return;
       if (!(await assigneeActiveOrReject(res, req.body?.assigned_to))) return;
-      const task = await db.dbCreateTask({ ...req.body, team: teamForCreate });
+      // The creator is the signed-in user, never taken from the body, so whoever adds a
+      // card — including a Client CRM lead with no assignee — can delete it later.
+      const assignerId = req.user?.id != null ? parseInt(String(req.user.id), 10) : null;
+      const task = await db.dbCreateTask({ ...req.body, created_by: assignerId, team: teamForCreate });
       if (!task) return res.status(500).json({ message: 'Failed to create task' });
       // Notify the assignee that a card was added to them (skip self-assignment).
-      const assignerId = req.user?.id != null ? parseInt(String(req.user.id), 10) : null;
       if (task.assigned_to != null && task.assigned_to !== assignerId) {
         const assignerName =
           req.user?.name ||
@@ -1295,6 +1331,114 @@ app.delete(`${BASE_PATH}/tasks/:taskId`, async (req, res) => {
     res.status(500).json({ message: 'Failed to delete task' });
   }
 });
+
+// ---- Bulk task actions (My Tasks / All Tasks) ----
+const BULK_TASK_LIMIT = 200;
+
+// Bulk import: rows are created one by one, so a bad row is reported back without
+// stopping the rest. The caller is always the creator. Admins may set each row's
+// assignee and assigner (active users only); for everyone else both are the caller.
+app.post(`${BASE_PATH}/tasks/bulk`, asyncMw(async (req, res) => {
+  if (!db.useDb()) return res.status(400).json({ message: 'Database connection required' });
+  const team = req.body?.team || req.query?.team;
+  if (isLegalFinanceTeamString(team) && !requireLegalFinanceAccess(req, res)) return;
+  if (isDirectorTeamString(team) && !requireDirectorManage(req, res)) return;
+  const me = req.user?.id != null ? parseInt(String(req.user.id), 10) : null;
+  if (me == null) return res.status(401).json({ message: 'Sign in again to import tasks.' });
+
+  const rows = Array.isArray(req.body?.tasks) ? req.body.tasks : [];
+  if (!rows.length || rows.length > BULK_TASK_LIMIT) {
+    return res.status(400).json({ message: `Import between 1 and ${BULK_TASK_LIMIT} tasks at a time.` });
+  }
+
+  const isAdmin = (req.user?.permissions || []).includes('admin.access');
+  const personId = (v) => {
+    const n = parseInt(String(v ?? ''), 10);
+    return Number.isFinite(n) ? n : null;
+  };
+
+  const created = [];
+  const failed = [];
+  for (let i = 0; i < rows.length; i += 1) {
+    const r = rows[i] || {};
+    const title = String(r.title || '').trim();
+    if (!title) {
+      failed.push({ row: i + 1, message: 'Title is required' });
+      continue;
+    }
+    const assignee = (isAdmin && personId(r.assigned_to)) || me;
+    const assigner = (isAdmin && personId(r.assigned_by)) || me;
+    if (assignee !== me && !(await db.dbIsUserActive(assignee))) {
+      failed.push({ row: i + 1, message: 'Assignee is inactive' });
+      continue;
+    }
+    try {
+      const task = await db.dbCreateTask({
+        title: title.slice(0, 500),
+        task_description: r.task_description ? String(r.task_description) : null,
+        status: r.status || undefined,
+        priority: r.priority || undefined,
+        task_date: r.task_date || undefined,
+        dueDate: r.dueDate || null,
+        projectId: r.projectId || null,
+        assigned_to: assignee,
+        assigned_by: assigner,
+        created_by: me,
+        is_crm: false,
+        team,
+      });
+      if (task) created.push(task.id ?? task.task_id);
+      else failed.push({ row: i + 1, message: 'Could not be saved' });
+    } catch (err) {
+      failed.push({ row: i + 1, message: 'Could not be saved' });
+      console.error('bulk import row', i + 1, err.message);
+    }
+  }
+  res.status(created.length ? 201 : 400).json({ created: created.length, failed });
+}));
+
+// Bulk delete: one reason covers every task in the batch, but each task is still checked
+// and logged on its own, exactly as a single delete — owner-or-admin only, snapshot and
+// reason written to task_delete_log. Tasks the caller may not delete are skipped.
+app.post(`${BASE_PATH}/tasks/bulk-delete`, asyncMw(async (req, res) => {
+  if (!db.useDb()) return res.status(400).json({ message: 'Database connection required' });
+  const reason = deleteReasonFrom(req);
+  if (reason.length < DELETE_REASON_MIN) {
+    return res.status(400).json({ message: `Please give a reason of at least ${DELETE_REASON_MIN} characters.` });
+  }
+  if (reason.length > DELETE_REASON_MAX) {
+    return res.status(400).json({ message: `Keep the reason under ${DELETE_REASON_MAX} characters.` });
+  }
+  const ids = [...new Set((Array.isArray(req.body?.task_ids) ? req.body.task_ids : []).map(String))];
+  if (!ids.length || ids.length > BULK_TASK_LIMIT) {
+    return res.status(400).json({ message: `Delete between 1 and ${BULK_TASK_LIMIT} tasks at a time.` });
+  }
+  const hintTeam = req.body?.team || req.query?.team || null;
+  if (isLegalFinanceTeamString(hintTeam) && !requireLegalFinanceAccess(req, res)) return;
+  if (isDirectorTeamString(hintTeam) && !requireDirectorManage(req, res)) return;
+
+  const deleted = [];
+  const skipped = [];
+  for (const id of ids) {
+    const existing = await db.dbGetTaskById(id, hintTeam);
+    if (!existing) {
+      skipped.push({ id, message: 'Not found' });
+      continue;
+    }
+    if (!canDeleteTaskRow(req, existing)) {
+      skipped.push({ id, message: 'Not yours to delete' });
+      continue;
+    }
+    const logged = await db.dbDeleteTaskWithLog(id, existing.team || hintTeam, existing, {
+      reason,
+      deletedBy: req.user?.id ?? null,
+      ipAddress: req.ip,
+    });
+    if (logged) deleted.push(id);
+    else skipped.push({ id, message: 'Could not be deleted' });
+  }
+  res.json({ deleted, skipped });
+}));
 
 // Task comments
 app.get(`${BASE_PATH}/tasks/:taskId/comments`, async (req, res) => {

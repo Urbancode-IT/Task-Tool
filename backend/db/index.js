@@ -1083,6 +1083,9 @@ export async function dbEnsureTables() {
       );
     `);
     await p.query('CREATE INDEX IF NOT EXISTS idx_member_leaves_user ON member_leaves(user_id, leave_date);');
+    // Where a leave day came from: 'manual' (entered in Seyal) or 'inout' (an absence
+    // pushed by the In Out attendance app). In Out may only undo its own leave days.
+    await p.query(`ALTER TABLE member_leaves ADD COLUMN IF NOT EXISTS source VARCHAR(20) NOT NULL DEFAULT 'manual';`);
     console.log('DB: member_leaves table ensured.');
   } catch (err) {
     console.warn('dbEnsureTables: member_leaves:', err.message);
@@ -1802,6 +1805,7 @@ export async function dbGetTasks(filters = {}) {
     assignee: r.assignee_name || (r.assigned_to ? String(r.assigned_to) : 'Unassigned'),
     assigned_to: r.assigned_to,
     assigned_by: r.assigned_by,
+    created_by: r.created_by ?? null,
     assigned_by_name: r.assigned_by_name,
     projectId: r.project_id ? String(r.project_id) : null,
     dueDate: r.due_date,
@@ -1932,6 +1936,8 @@ export async function dbGetTasksSimple(filters = {}) {
       assigned_to: r.assigned_to,
       assignee_branch: r.assignee_branch ?? null,
       assigned_by: r.assigned_by,
+      // Lets the delete rule (owner = assignee, assigner or creator) see the creator.
+      created_by: r.created_by ?? null,
       assigned_by_name: r.assigned_by_username,
       assignee_profile_image: avatarUrlFor(r.assigned_to, r.assignee_profile_image),
       assigned_by_profile_image: avatarUrlFor(r.assigned_by, r.assigned_by_profile_image),
@@ -4286,6 +4292,64 @@ export async function dbGetLeaves(userId, from, to) {
     console.error('dbGetLeaves:', err.message);
     return [];
   }
+}
+
+/**
+ * Apply attendance pushed by the In Out app. Each record names a person by email
+ * (matched case-insensitively to an active or inactive Seyal user) and a day:
+ *   - 'absent'  → that day becomes a leave day (source 'inout'). A leave the member
+ *                 already entered themselves is left as it is. If the member had
+ *                 already been EOD-locked for that very day, the lock is cleared,
+ *                 since leave days are never locked.
+ *   - 'present' → removes In Out's leave for that day; leave entered in Seyal stays.
+ * Returns per-outcome counts plus the records that could not be applied.
+ */
+export async function dbApplyInOutAttendance(records = []) {
+  const p = getPool();
+  const result = { absent: 0, present: 0, unlocked: 0, unmatched: [], invalid: [] };
+  if (!p) return result;
+
+  const emails = [...new Set(records.map((r) => String(r?.email || '').trim().toLowerCase()).filter(Boolean))];
+  const { rows: users } = emails.length
+    ? await p.query('SELECT user_id, LOWER(TRIM(email)) AS email FROM users WHERE LOWER(TRIM(email)) = ANY($1)', [emails])
+    : { rows: [] };
+  const byEmail = new Map(users.map((u) => [u.email, u.user_id]));
+
+  for (const r of records) {
+    const email = String(r?.email || '').trim().toLowerCase();
+    const date = String(r?.date || '').slice(0, 10);
+    const status = String(r?.status || '').trim().toLowerCase();
+    if (!email || !/^\d{4}-\d{2}-\d{2}$/.test(date) || !['absent', 'present'].includes(status)) {
+      result.invalid.push({ email: r?.email ?? null, date: r?.date ?? null, status: r?.status ?? null });
+      continue;
+    }
+    const uid = byEmail.get(email);
+    if (uid == null) {
+      result.unmatched.push({ email, date, status });
+      continue;
+    }
+    if (status === 'absent') {
+      await p.query(
+        `INSERT INTO member_leaves (user_id, leave_date, source) VALUES ($1, $2, 'inout')
+         ON CONFLICT (user_id, leave_date) DO NOTHING`,
+        [uid, date]
+      );
+      const { rowCount } = await p.query(
+        `UPDATE users SET eod_locked = false, eod_lock_date = NULL
+          WHERE user_id = $1 AND eod_locked = true AND eod_lock_date = $2::date`,
+        [uid, date]
+      );
+      result.absent += 1;
+      result.unlocked += rowCount;
+    } else {
+      await p.query(
+        `DELETE FROM member_leaves WHERE user_id = $1 AND leave_date = $2 AND source = 'inout'`,
+        [uid, date]
+      );
+      result.present += 1;
+    }
+  }
+  return result;
 }
 
 /** Toggle a member's leave for a single day. `on=true` adds it, `on=false` removes it. */

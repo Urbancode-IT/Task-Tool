@@ -1,0 +1,103 @@
+/* Bulk task import window (BulkImportModal.jsx). */
+
+.bim-modal {
+  width: min(820px, calc(100vw - 2rem));
+}
+
+.bim-body {
+  padding: 1rem 1.25rem 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.bim-intro,
+.bim-result p {
+  margin: 0;
+  color: var(--clr-slate-600);
+  font-size: 0.86rem;
+  line-height: 1.5;
+}
+
+.bim-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.bim-file {
+  color: var(--clr-slate-500);
+  font-size: 0.8rem;
+}
+
+.bim-error {
+  padding: 0.6rem 0.8rem;
+  border: 1px solid #fecaca;
+  border-radius: var(--radius-md);
+  background: #fef2f2;
+  color: #b91c1c;
+  font-size: 0.84rem;
+}
+
+.bim-summary {
+  display: flex;
+  gap: 0.5rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.bim-ok,
+.bim-bad {
+  padding: 0.15rem 0.6rem;
+  border-radius: 999px;
+}
+
+.bim-ok { background: #dcfce7; color: #15803d; }
+.bim-bad { background: #fee2e2; color: #b91c1c; }
+
+.bim-table-wrap {
+  max-height: 320px;
+  overflow: auto;
+  border: 1px solid var(--clr-slate-200);
+  border-radius: var(--radius-md);
+}
+
+.bim-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8rem;
+}
+
+.bim-table th,
+.bim-table td {
+  padding: 0.4rem 0.6rem;
+  border-bottom: 1px solid var(--clr-slate-100);
+  text-align: left;
+  vertical-align: top;
+}
+
+.bim-table th {
+  position: sticky;
+  top: 0;
+  background: var(--clr-slate-50);
+  color: var(--clr-slate-500);
+  font-weight: 600;
+}
+
+.bim-title {
+  max-width: 260px;
+  overflow-wrap: anywhere;
+}
+
+.bim-row-bad td {
+  background: #fef2f2;
+  color: #991b1b;
+}
+
+.bim-warn { color: #b45309 !important; }
+.bim-muted { color: var(--clr-slate-400) !important; }
+
+.bim-cap {
+  text-transform: capitalize;
+}

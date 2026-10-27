@@ -73,6 +73,13 @@ const itUpdatesApi = {
 
   // The reason travels in the request body: the server refuses a delete without one
   // and records it in the deletion log.
+  // Bulk import: rows become tasks assigned to the caller. Returns { created, failed }.
+  bulkCreateTasks: (tasks, team) => apiClient.post(`${BASE_PATH}/tasks/bulk`, { tasks, team }),
+
+  // Bulk delete with one reason. Returns { deleted: [ids], skipped: [{ id, message }] }.
+  bulkDeleteTasks: (taskIds, team, reason) =>
+    apiClient.post(`${BASE_PATH}/tasks/bulk-delete`, { task_ids: taskIds, team, reason }),
+
   deleteTask: (taskId, params = {}, reason) => {
     return apiClient.delete(`${BASE_PATH}/tasks/${taskId}`, {
       params,

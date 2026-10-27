@@ -31,14 +31,19 @@ import { isTaskOverdue, splitByDue } from '../../utils/taskDue';
 import { matchesProjectFilters } from '../../utils/projectFilters';
 import { toastSuccess, toastError, toastInfo } from '../../utils/toast';
 import { loadEodSections, sectionsToHtml, localToday } from '../../utils/eodSummary';
-import { taskInPeriod, CURRENT_MONTH_PERIOD } from '../../utils/taskPeriod';
+import { taskInPeriod, CURRENT_MONTH_PERIOD, EMPTY_PERIOD, isAllDates, periodEmptyText } from '../../utils/taskPeriod';
 import { controlKeys, textareaSubmit, escapeCloses } from '../../utils/formKeys';
 import ProjectSearchSelect from '../../components/ProjectSearchSelect';
 import PeriodFilter from '../../components/PeriodFilter';
 import TaskComments from '../../components/TaskComments';
 import ProjectLogo from '../../components/ProjectLogo';
 import DuplicateTaskButton from '../../components/DuplicateTaskButton';
-import MyTaskList from '../../components/MyTaskList';
+import DeleteTaskButton from '../../components/DeleteTaskButton';
+import MyTaskList, { TaskRows, ViewSwitch, QuickCreateRow } from '../../components/MyTaskList';
+import useTaskView from '../../utils/useTaskView';
+import BulkImportButton from '../../components/BulkImportButton';
+import EodDateRange from '../../components/EodDateRange';
+import { filterEodByRange, eodRangeActive, EMPTY_EOD_RANGE } from '../../utils/eodRange';
 import { makeTaskDuplicate, toSubtaskDrafts } from '../../utils/taskDuplicate';
 import ProjectRequirements from '../../components/ProjectRequirements';
 import MemberPicker from '../../components/MemberPicker';
@@ -227,9 +232,10 @@ function Avatar({ user, size = 'md' }) {
  *   onDragEnd   — @hello-pangea/dnd drag handler (move card → new status)
  *   onCardClick — open the task (edit/requirements)
  *   onCardDuplicate — open a prefilled copy of the card (omit to hide the action)
+ *   onCardDelete / canDeleteCard — hover Delete on cards the user may delete (omit to hide)
  *   projectById — Map of projectId → project (pass an empty Map when N/A)
  */
-export function TaskBoard({ tasks = [], onDragEnd, onCardClick, onCardDuplicate, projectById, statusLabels = STATUS_LABELS, statuses = DEFAULT_STATUSES }) {
+export function TaskBoard({ tasks = [], onDragEnd, onCardClick, onCardDuplicate, onCardDelete, canDeleteCard, projectById, statusLabels = STATUS_LABELS, statuses = DEFAULT_STATUSES }) {
   const groups = useMemo(() => groupTasksByStatus(tasks), [tasks]);
   const pById = projectById || new Map();
 
@@ -273,6 +279,9 @@ export function TaskBoard({ tasks = [], onDragEnd, onCardClick, onCardDuplicate,
                       onClick={() => onCardClick?.(task)}
                     >
                       <div className="it-updates-task-card-toprow">
+                        {onCardDelete && canDeleteCard?.(task) ? (
+                          <DeleteTaskButton onDelete={() => onCardDelete(task)} />
+                        ) : null}
                         {onCardDuplicate ? (
                           <DuplicateTaskButton onDuplicate={() => onCardDuplicate(task)} />
                         ) : null}
@@ -423,7 +432,7 @@ const ITUpdatesMain = ({ currentUser, onLogout, scope = 'internal' }) => {
   const [overviewFiltersApplied, setOverviewFiltersApplied] = useState(EMPTY_OVERVIEW_FILTERS);
   const [eodReports, setEodReports] = useState([]);
   // EOD tab: optional date filter + pagination (20 per page).
-  const [eodDateFilter, setEodDateFilter] = useState('');
+  const [eodRange, setEodRange] = useState(EMPTY_EOD_RANGE);
   // Projects tab filters. Hidden behind a button so the grid stays uncluttered; the
   // button carries a count when something is filtering the list.
   const EMPTY_PROJECT_FILTERS = { q: '', status: '', priority: '', owner: '' };
@@ -442,17 +451,12 @@ const ITUpdatesMain = ({ currentUser, onLogout, scope = 'internal' }) => {
   const scrollListToTop = useCallback(() => {
     mainRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
   }, []);
-  const filteredEodReports = useMemo(
-    () =>
-      eodDateFilter
-        ? eodReports.filter((r) => String(r.report_date ?? '').slice(0, 10) === eodDateFilter)
-        : eodReports,
-    [eodReports, eodDateFilter]
-  );
+  // Reports between the From / To dates (inclusive), newest day first.
+  const filteredEodReports = useMemo(() => filterEodByRange(eodReports, eodRange), [eodReports, eodRange]);
   const eodPageCount = Math.max(1, Math.ceil(filteredEodReports.length / EOD_PAGE_SIZE));
   useEffect(() => {
     setEodPage(0);
-  }, [eodDateFilter, eodReports]);
+  }, [eodRange, eodReports]);
   const pagedEodReports = useMemo(() => {
     const start = eodPage * EOD_PAGE_SIZE;
     return filteredEodReports.slice(start, start + EOD_PAGE_SIZE);
@@ -1260,15 +1264,59 @@ const ITUpdatesMain = ({ currentUser, onLogout, scope = 'internal' }) => {
     setDashboardData(statsRes?.data ?? null);
   };
 
+  // Bulk import (My Tasks): every CSV row becomes a task assigned to me.
+  const handleBulkImport = async (rows) => {
+    try {
+      const { data } = await itUpdatesApi.bulkCreateTasks(rows, MODULE_TEAM);
+      await reloadTasksAndStats();
+      if (data?.created) toastSuccess(`${data.created} task${data.created === 1 ? '' : 's'} imported`);
+      if (data?.failed?.length) toastError(`${data.failed.length} row(s) could not be saved`);
+      return data;
+    } catch (e) {
+      toastError(e?.response?.data?.message || 'Import failed');
+      return null;
+    }
+  };
+
+  // Bulk delete: one reason covers the batch; the server still checks and logs each task.
+  const handleBulkDelete = async (list) => {
+    const n = list.length;
+    const reason = await reasonDialog({
+      title: `Delete ${n} task${n === 1 ? '' : 's'}?`,
+      message: `${n === 1 ? 'This task' : `These ${n} tasks`} and their requirements will be permanently removed. This cannot be undone.`,
+      confirmLabel: `Delete ${n}`,
+      danger: true,
+      reasonLabel: 'Why are you deleting these tasks?',
+      placeholder: 'e.g. duplicates, created by mistake, cancelled by the client',
+    });
+    if (!reason) return false;
+    try {
+      const { data } = await itUpdatesApi.bulkDeleteTasks(list.map((t) => t.id), MODULE_TEAM, reason);
+      const gone = new Set((data?.deleted || []).map(String));
+      setTasks((prev) => prev.filter((t) => !gone.has(String(t.id))));
+      reloadTasksAndStats().catch(() => {});
+      if (gone.size) toastSuccess(`${gone.size} task${gone.size === 1 ? '' : 's'} deleted`);
+      if (data?.skipped?.length) toastError(`${data.skipped.length} task(s) were not deleted (not yours or already gone)`);
+      return true;
+    } catch (e) {
+      toastError(e?.response?.data?.message || 'Failed to delete tasks');
+      return false;
+    }
+  };
+
+  // All Tasks: Horizontal (rows) or Vertical (card board); the board stays the default here.
+  const [allTasksView, setAllTasksView] = useTaskView('allTasks.view', 'vertical');
+
   // My Tasks list: "+ Create" adds a task from its title alone, assigned to me.
-  const handleQuickCreateTask = async ({ title, status, projectId }) => {
+  // Admins may pick the assignee and assigner; otherwise the task is the user's own.
+  const handleQuickCreateTask = async ({ title, status, projectId, assigned_to, assigned_by }) => {
     try {
       await itUpdatesApi.createTask({
         title,
         status,
         projectId,
-        assigned_to: myId,
-        assigned_by: myId,
+        assigned_to: assigned_to ?? myId,
+        assigned_by: assigned_by ?? myId,
         is_crm: false,
         team: MODULE_TEAM,
       });
@@ -1666,6 +1714,25 @@ const ITUpdatesMain = ({ currentUser, onLogout, scope = 'internal' }) => {
               // External boards only list cards that belong to an external project.
               requireProject={isExternalScope}
               currentUser={user}
+              // Vertical view: the usual card board, drag-and-drop included.
+              assignees={isAdmin ? developers : undefined}
+              assigners={isAdmin ? managers : undefined}
+              onBulkImport={handleBulkImport}
+              onBulkDelete={handleBulkDelete}
+              canDelete={canDeleteTask}
+              renderBoard={(list) => (
+                <TaskBoard
+                  tasks={list}
+                  onDragEnd={handleDragEnd}
+                  onCardClick={openTaskModal}
+                  onCardDuplicate={duplicateTask}
+                  onCardDelete={handleDeleteTask}
+                  canDeleteCard={canDeleteTask}
+                  projectById={projectById}
+                  statusLabels={boardStatusLabels}
+                  statuses={boardStatuses}
+                />
+              )}
             />
           )}
 
@@ -1745,7 +1812,55 @@ const ITUpdatesMain = ({ currentUser, onLogout, scope = 'internal' }) => {
                     <span className="it-updates-backlog-toggle-count">{overdueTasks.length}</span>
                   )}
                 </button>
+                {activeTab === 'All Tasks' ? (
+                  <>
+                    <BulkImportButton
+                      onImport={handleBulkImport}
+                      currentUser={user}
+                      statuses={boardStatuses}
+                      statusLabel={(k) => boardStatusLabels[k] || k}
+                      projects={projects}
+                      assignees={isAdmin ? developers : undefined}
+                      assigners={isAdmin ? managers : undefined}
+                    />
+                    <ViewSwitch view={allTasksView} onChange={setAllTasksView} />
+                  </>
+                ) : null}
               </div>
+              {activeTab === 'All Tasks' && allTasksView === 'horizontal' ? (
+                <TaskRows
+                  tasks={allTasksFiltered.filter((t) => t.is_crm !== true)}
+                  statuses={boardStatuses}
+                  statusLabel={(k) => boardStatusLabels[k] || k}
+                  statusColors={STATUS_COLORS}
+                  keyPrefix={isExternalScope ? 'EXT' : 'INT'}
+                  onOpenTask={openTaskModal}
+                  onStatusChange={handleListStatusChange}
+                  onUpdateTask={handleInlineTaskUpdate}
+                  onBulkDelete={handleBulkDelete}
+                  canDelete={canDeleteTask}
+                  emptyText={periodEmptyText(allTasksFiltersApplied.period) || 'No tasks match these filters.'}
+                  emptyAction={
+                    isAllDates(allTasksFiltersApplied.period)
+                      ? undefined
+                      : {
+                          label: 'Show all dates',
+                          onClick: () => setAllTasksFiltersApplied((f) => ({ ...f, period: EMPTY_PERIOD })),
+                        }
+                  }
+                />
+              ) : null}
+              {allTasksView === 'horizontal' && activeTab === 'All Tasks' ? (
+                <QuickCreateRow
+                  status={boardStatuses[0] || 'todo'}
+                  onCreate={handleQuickCreateTask}
+                  currentUser={user}
+                  assignees={isAdmin ? developers : undefined}
+                  assigners={isAdmin ? managers : undefined}
+                  projects={projects}
+                  requireProject={isExternalScope}
+                />
+              ) : (
               <TaskBoard
                 tasks={allTasksFiltered.filter((t) =>
                   activeTab === 'Tasks' ? t.is_crm === true : t.is_crm !== true
@@ -1753,10 +1868,13 @@ const ITUpdatesMain = ({ currentUser, onLogout, scope = 'internal' }) => {
                 onDragEnd={handleDragEnd}
                 onCardClick={activeTab === 'Tasks' ? openLeadModal : openTaskModal}
                 onCardDuplicate={activeTab === 'Tasks' ? undefined : duplicateTask}
+                onCardDelete={handleDeleteTask}
+                canDeleteCard={canDeleteTask}
                 projectById={projectById}
                 statusLabels={boardStatusLabels}
                 statuses={boardStatuses}
               />
+              )}
             </>
           )}
 
@@ -2265,23 +2383,7 @@ const ITUpdatesMain = ({ currentUser, onLogout, scope = 'internal' }) => {
                   <MdAdd size={18} />
                   Submit EOD
                 </button>
-                <div className="it-updates-eod-filter">
-                  <input
-                    type="date"
-                    value={eodDateFilter}
-                    onChange={(e) => setEodDateFilter(e.target.value)}
-                    title="Filter reports by date"
-                  />
-                  {eodDateFilter && (
-                    <button
-                      type="button"
-                      className="it-updates-btn it-updates-btn-secondary"
-                      onClick={() => setEodDateFilter('')}
-                    >
-                      Clear
-                    </button>
-                  )}
-                </div>
+                <EodDateRange value={eodRange} onChange={setEodRange} />
               </div>
               <p className="it-updates-eod-intro">
                 View end-of-day reports submitted by the team. Use the <strong>EOD</strong> button in the header to submit your own report.
@@ -2289,8 +2391,8 @@ const ITUpdatesMain = ({ currentUser, onLogout, scope = 'internal' }) => {
               <div className="it-updates-eod-list">
                 {filteredEodReports.length === 0 ? (
                   <div className="it-updates-empty">
-                    {eodDateFilter
-                      ? 'No EOD reports for the selected date.'
+                    {eodRangeActive(eodRange)
+                      ? 'No EOD reports between the selected dates.'
                       : 'No EOD reports yet. Click "Submit EOD" or the EOD button in the header to add one.'}
                   </div>
                 ) : (

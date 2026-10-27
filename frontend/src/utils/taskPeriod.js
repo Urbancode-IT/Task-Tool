@@ -76,6 +76,23 @@ export function resolvePeriodRange(period) {
   return [from, to];
 }
 
+/** True when no period limit is applied ("All dates"). */
+export const isAllDates = (period) => {
+  const [from, to] = resolvePeriodRange(period);
+  return !from && !to;
+};
+
+/**
+ * Empty-list message that names the period, so an empty board under the default
+ * "This month" is not mistaken for "no filters". Null when no period applies.
+ */
+export function periodEmptyText(period) {
+  if (isAllDates(period)) return null;
+  if (period?.from || period?.to) return 'No tasks with a start date in the selected range.';
+  const names = { today: 'today', yesterday: 'yesterday', week: 'this week', month: 'this month' };
+  return `No tasks with a start date ${names[period?.preset] || 'in this period'}.`;
+}
+
 /** True when the task's date falls inside the period. */
 export function taskInPeriod(task, period) {
   const [from, to] = resolvePeriodRange(period);
