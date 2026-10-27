@@ -9,7 +9,31 @@ import bcrypt from 'bcrypt';
 import crypto from 'node:crypto';
 import jwt from 'jsonwebtoken';
 import * as db from './db/index.js';
+import {
+  ContentError,
+  dbAddContentDriveFile,
+  dbCreateContentTask,
+  dbDeleteContentTask,
+  dbGetContentTask,
+  dbRemoveContentDriveFile,
+  listAssignableUsers,
+  listContentTypes,
+  sanitizeDriveFiles,
+  dbListContentEvents,
+  dbListContentTasks,
+  dbTransitionContentTask,
+  dbUpdateContentTask,
+} from './db/socialContent.js';
+import { openContentFile, shareStoredLinks, trashContentFile, uploadContentFile } from './driveContent.js';
+import multer from 'multer';
+import {
+  CourseError,
+  createCourse,
+  listCourseCategories,
+  listCourses,
+} from './db/courses.js';
 import { sendMail, isMailConfigured, renderMail, applyEmailBranding } from './mailer.js';
+import { notifyContentAssigneeChanges, notifyContentCreated, notifyContentTransition } from './contentNotify.js';
 import { startEodDirectorReport, startEodMemberReminders, startEodMidnightLock } from './eodReminder.js';
 import { requireMasterScope } from './middlewares/masterMiddleware.js';
 import { JWT_SECRET, requireAuth, attachUserPermissions, requirePermission, signAccessToken, signRefreshToken, verifyRefreshToken } from './middlewares/authMiddleware.js';
@@ -596,6 +620,34 @@ app.post('/api/integrations/inout/attendance', asyncMw(async (req, res) => {
 
 // ---- IT Updates API (JWT auth; any authenticated user can access — attach permissions for UI) ----
 const BASE_PATH = '/api/it-updates';
+const CONTENT_UPLOAD_MAX_BYTES = 100 * 1024 * 1024;
+
+const contentFileUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: CONTENT_UPLOAD_MAX_BYTES },
+}).single('file');
+
+function receiveContentFile(req, res, next) {
+  contentFileUpload(req, res, (err) => {
+    if (!err) return next();
+    if (err.code === 'LIMIT_FILE_SIZE') {
+      return res.status(400).json({ message: 'File must be 100 MB or smaller.' });
+    }
+    return res.status(400).json({ message: 'Could not read the file.' });
+  });
+}
+
+/** Block only obvious executables; browser MIME is often wrong/empty for HEIC/MOV/PSD. */
+const CONTENT_BLOCKED_EXT = /\.(exe|bat|cmd|com|msi|scr|ps1|sh|bash|dll|sys|js|mjs|cjs|vbs|wsf)$/i;
+
+function contentUploadAllowed(mime, originalName) {
+  const name = String(originalName || '');
+  if (!name && !mime) return false;
+  if (CONTENT_BLOCKED_EXT.test(name)) return false;
+  return true;
+}
+
+const CONTENT_FILE_KINDS = new Set(['poster', 'image', 'reference', 'media']);
 app.use(BASE_PATH, requireAuth, asyncMw(attachUserPermissions));
 
 // Serve a user's avatar as a real, cacheable image. List/detail endpoints now
@@ -1244,6 +1296,18 @@ app.put(`${BASE_PATH}/tasks/:taskId`, async (req, res) => {
       if (isLegalFinanceTeamString(team) && !requireLegalFinanceAccess(req, res)) return;
       if ((existing?.team === 'director' || isDirectorTeamString(team)) && !requireDirectorManage(req, res)) return;
       if (req.body?.assigned_to !== undefined && !(await assigneeActiveOrReject(res, req.body.assigned_to))) return;
+      if (existing?.pipeline_stage) {
+        const nextStatus = req.body?.status;
+        const movesStage =
+          (nextStatus !== undefined && nextStatus !== existing.status && nextStatus !== 'content_pipeline') ||
+          req.body?.pipeline_stage !== undefined ||
+          req.body?.workflow_status !== undefined;
+        if (movesStage) {
+          return res.status(400).json({
+            message: 'This item lives on the content pipeline. Move it from Content Pipeline so its history stays on the same task.',
+          });
+        }
+      }
       const body = mergeTaskReviewTransition(existing, { ...req.body, team }, req.user);
       const task = await db.dbUpdateTask(taskId, body);
       if (!task) return res.status(404).json({ message: 'Task not found' });
@@ -1260,6 +1324,305 @@ app.put(`${BASE_PATH}/tasks/:taskId`, async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: 'Failed to update task' });
+  }
+});
+
+function socialContentActor(req) {
+  const perms = req.user?.permissions || [];
+  const canView =
+    perms.includes('admin.access') ||
+    perms.includes('social_media.view') ||
+    perms.includes('social_media.manage');
+  const canManage = perms.includes('admin.access') || perms.includes('social_media.manage');
+  const id = req.user?.id != null ? parseInt(String(req.user.id), 10) : null;
+  const name = String(req.user?.username || req.user?.name || '').trim();
+  return { canView, canManage, id: Number.isFinite(id) ? id : null, name };
+}
+
+function sendContentError(res, err, fallback) {
+  if (err instanceof ContentError) return res.status(err.status).json({ message: err.message });
+  console.error(err);
+  return res.status(500).json({ message: fallback });
+}
+
+// Active users with their roles, for the content assignee dropdown.
+app.get(`${BASE_PATH}/content-users`, async (req, res) => {
+  try {
+    const actor = socialContentActor(req);
+    if (!actor.canView) return res.status(403).json({ message: 'Social Media access is required.' });
+    res.json(await listAssignableUsers());
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Failed to load users' });
+  }
+});
+
+// Content types live in social_media_content_types. The dropdown reads this list.
+app.get(`${BASE_PATH}/content-types`, async (req, res) => {
+  try {
+    const actor = socialContentActor(req);
+    if (!actor.canView) return res.status(403).json({ message: 'Social Media access is required.' });
+    res.json(await listContentTypes());
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Failed to load content types' });
+  }
+});
+
+// Course catalog (category = course_type) for the content pipeline board.
+app.get(`${BASE_PATH}/courses`, async (req, res) => {
+  try {
+    const actor = socialContentActor(req);
+    if (!actor.canView) return res.status(403).json({ message: 'Social Media access is required.' });
+    const [courses, categories] = await Promise.all([listCourses(), listCourseCategories()]);
+    res.json({ courses, categories });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Failed to load courses' });
+  }
+});
+
+app.post(`${BASE_PATH}/courses`, async (req, res) => {
+  try {
+    const actor = socialContentActor(req);
+    if (!actor.canView) return res.status(403).json({ message: 'Social Media access is required.' });
+    const course = await createCourse(req.body || {});
+    res.status(201).json(course);
+  } catch (err) {
+    if (err instanceof CourseError) {
+      return res.status(err.status || 400).json({ message: err.message });
+    }
+    console.error(err);
+    res.status(500).json({ message: 'Failed to add course' });
+  }
+});
+
+// Active branches from public.branches, ordered for the content dropdown.
+app.get(`${BASE_PATH}/branches`, async (req, res) => {
+  try {
+    const actor = socialContentActor(req);
+    if (!actor.canView) return res.status(403).json({ message: 'Social Media access is required.' });
+    res.json(await db.listBranches());
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Failed to load branches' });
+  }
+});
+
+app.get(`${BASE_PATH}/social-content`, async (req, res) => {
+  try {
+    const actor = socialContentActor(req);
+    if (!actor.canView) return res.status(403).json({ message: 'Social Media access is required.' });
+    const list = await dbListContentTasks({
+      q: req.query.q || '',
+      branch: req.query.branch || '',
+      content_type: req.query.content_type || '',
+      status: req.query.status || '',
+      assigned_to: req.query.assigned_to || '',
+      deadline: req.query.deadline || '',
+    });
+    res.json(list);
+  } catch (err) {
+    sendContentError(res, err, 'Failed to load content tasks');
+  }
+});
+
+app.get(`${BASE_PATH}/social-content/:taskId`, async (req, res) => {
+  try {
+    const actor = socialContentActor(req);
+    if (!actor.canView) return res.status(403).json({ message: 'Social Media access is required.' });
+    const task = await dbGetContentTask(req.params.taskId);
+    if (!task) return res.status(404).json({ message: 'Content task not found.' });
+    try {
+      await shareStoredLinks(task);
+    } catch (shareErr) {
+      console.warn('Drive public link:', shareErr?.message || shareErr);
+    }
+    const events = await dbListContentEvents(req.params.taskId);
+    res.json({ ...task, events });
+  } catch (err) {
+    sendContentError(res, err, 'Failed to load content task');
+  }
+});
+
+app.post(`${BASE_PATH}/social-content`, async (req, res) => {
+  try {
+    const actor = socialContentActor(req);
+    if (!actor.canView) return res.status(403).json({ message: 'Social Media access is required.' });
+    if (req.body?.assigned_to && !(await assigneeActiveOrReject(res, req.body.assigned_to))) return;
+    const task = await dbCreateContentTask(req.body || {}, actor.id);
+    res.status(201).json(task);
+    notifyContentCreated({
+      task,
+      actorId: actor.id,
+      actorName: actor.name || req.user?.username || '',
+      ctaUrl: `${appLink()}/social-media`,
+    }).catch((err) => console.error('notifyContentCreated:', err?.message || err));
+  } catch (err) {
+    sendContentError(res, err, 'Failed to create the requirement');
+  }
+});
+
+app.delete(`${BASE_PATH}/social-content/:taskId`, async (req, res) => {
+  try {
+    const actor = socialContentActor(req);
+    if (!actor.canView) return res.status(403).json({ message: 'Social Media access is required.' });
+    const reason = deleteReasonFrom(req);
+    if (reason.length < DELETE_REASON_MIN) {
+      return res.status(400).json({
+        message: `Please give a reason of at least ${DELETE_REASON_MIN} characters for deleting this row.`,
+      });
+    }
+    if (reason.length > DELETE_REASON_MAX) {
+      return res.status(400).json({ message: `Keep the reason under ${DELETE_REASON_MAX} characters.` });
+    }
+    const task = await dbGetContentTask(req.params.taskId);
+    if (!task) return res.status(404).json({ message: 'Content task not found.' });
+    const files = Array.isArray(task.production?.drive_files) ? task.production.drive_files : [];
+    for (const file of files) {
+      try {
+        await trashContentFile(file.id);
+      } catch (err) {
+        console.error('Drive trash:', err?.message || err);
+      }
+    }
+    await dbDeleteContentTask(req.params.taskId, {
+      reason,
+      deletedBy: req.user?.id ?? actor.id ?? null,
+      ipAddress: req.ip,
+    });
+    res.json({ ok: true });
+  } catch (err) {
+    sendContentError(res, err, 'Failed to delete the content task');
+  }
+});
+
+app.put(`${BASE_PATH}/social-content/:taskId`, async (req, res) => {
+  try {
+    const actor = socialContentActor(req);
+    if (!actor.canView) return res.status(403).json({ message: 'Social Media access is required.' });
+    if (req.body?.assigned_to !== undefined && req.body.assigned_to !== '' && req.body.assigned_to != null) {
+      if (!(await assigneeActiveOrReject(res, req.body.assigned_to))) return;
+    }
+    const before = await dbGetContentTask(req.params.taskId);
+    const task = await dbUpdateContentTask(req.params.taskId, req.body || {});
+    res.json(task);
+    notifyContentAssigneeChanges({
+      before,
+      after: task,
+      actorName: actor.name || req.user?.username || '',
+      ctaUrl: `${appLink()}/social-media`,
+    }).catch((err) => console.error('notifyContentAssigneeChanges:', err?.message || err));
+  } catch (err) {
+    sendContentError(res, err, 'Failed to update the content task');
+  }
+});
+
+app.post(`${BASE_PATH}/social-content/:taskId/files`, receiveContentFile, async (req, res) => {
+  try {
+    const actor = socialContentActor(req);
+    if (!actor.canView) return res.status(403).json({ message: 'Social Media access is required.' });
+    const kind = String(req.body?.kind || '').trim().toLowerCase();
+    if (!CONTENT_FILE_KINDS.has(kind)) {
+      return res.status(400).json({ message: 'Choose a poster, image, or reference.' });
+    }
+    const file = req.file;
+    if (!file?.buffer?.length) return res.status(400).json({ message: 'Choose a file to upload.' });
+    const mime = String(file.mimetype || '').toLowerCase();
+    if (!contentUploadAllowed(mime, file.originalname)) {
+      return res.status(400).json({ message: 'That file type is not allowed for this upload.' });
+    }
+    let task = await dbGetContentTask(req.params.taskId);
+    if (!task) return res.status(404).json({ message: 'Content task not found.' });
+    const sheetDate = String(req.body?.sheet_date || '').slice(0, 10);
+    const dueDate = String(req.body?.due_date || '').slice(0, 10);
+    const patch = {};
+    if (req.body?.content_branch) patch.content_branch = req.body.content_branch;
+    if (req.body?.content_type) patch.content_type = req.body.content_type;
+    if (req.body?.task_title) patch.task_title = req.body.task_title;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(dueDate)) patch.due_date = dueDate;
+    if (req.body?.course || /^\d{4}-\d{2}-\d{2}$/.test(sheetDate)) {
+      patch.production = {
+        ...(task.production || {}),
+        ...(req.body?.course ? { course: req.body.course } : {}),
+        ...( /^\d{4}-\d{2}-\d{2}$/.test(sheetDate) ? { sheet_date: sheetDate } : {}),
+      };
+    }
+    if (Object.keys(patch).length) task = await dbUpdateContentTask(task.id, patch);
+    const stored = await uploadContentFile({
+      task,
+      kind,
+      buffer: file.buffer,
+      mime,
+      originalName: file.originalname,
+      stage: String(req.body?.stage || ''),
+    });
+    const updated = await dbAddContentDriveFile(req.params.taskId, stored.file, stored.folderUrl);
+    res.status(201).json(updated);
+  } catch (err) {
+    sendContentError(res, err, 'Failed to upload the file to Drive');
+  }
+});
+
+app.get(`${BASE_PATH}/social-content/:taskId/files/:fileId`, async (req, res) => {
+  try {
+    const actor = socialContentActor(req);
+    if (!actor.canView) return res.status(403).json({ message: 'Social Media access is required.' });
+    const task = await dbGetContentTask(req.params.taskId);
+    if (!task) return res.status(404).json({ message: 'Content task not found.' });
+    const known = sanitizeDriveFiles(task.production?.drive_files);
+    const match = known.find((file) => file.id === req.params.fileId);
+    if (!match) return res.status(404).json({ message: 'That file is not on this task.' });
+    const opened = await openContentFile(match.id);
+    res.setHeader('Content-Type', opened.mime || match.mime || 'application/octet-stream');
+    res.setHeader('Cache-Control', 'private, max-age=300');
+    opened.stream.on('error', (err) => {
+      console.error('Drive file stream:', err?.message || err);
+      if (!res.headersSent) res.status(502).end();
+      else res.destroy();
+    });
+    opened.stream.pipe(res);
+  } catch (err) {
+    sendContentError(res, err, 'Failed to load the Drive file');
+  }
+});
+
+app.delete(`${BASE_PATH}/social-content/:taskId/files/:fileId`, async (req, res) => {
+  try {
+    const actor = socialContentActor(req);
+    if (!actor.canView) return res.status(403).json({ message: 'Social Media access is required.' });
+    const task = await dbGetContentTask(req.params.taskId);
+    if (!task) return res.status(404).json({ message: 'Content task not found.' });
+    const known = sanitizeDriveFiles(task.production?.drive_files);
+    const match = known.find((file) => file.id === req.params.fileId);
+    if (!match) return res.status(404).json({ message: 'That file is not on this task.' });
+    await trashContentFile(match.id);
+    const updated = await dbRemoveContentDriveFile(req.params.taskId, match.id);
+    res.json(updated);
+  } catch (err) {
+    sendContentError(res, err, 'Failed to remove the Drive file');
+  }
+});
+
+app.post(`${BASE_PATH}/social-content/:taskId/transition`, async (req, res) => {
+  try {
+    const actor = socialContentActor(req);
+    if (!actor.canView) return res.status(403).json({ message: 'Social Media access is required.' });
+    const before = await dbGetContentTask(req.params.taskId);
+    const action = req.body?.action;
+    const task = await dbTransitionContentTask(req.params.taskId, action, req.body || {}, actor);
+    const events = await dbListContentEvents(req.params.taskId);
+    res.json({ ...task, events });
+    notifyContentTransition({
+      action,
+      before,
+      after: task,
+      actorName: actor.name || req.user?.username || '',
+      feedback: req.body?.feedback,
+      ctaUrl: `${appLink()}/social-media`,
+    }).catch((err) => console.error('notifyContentTransition:', err?.message || err));
+  } catch (err) {
+    sendContentError(res, err, 'Failed to move the content task');
   }
 });
 

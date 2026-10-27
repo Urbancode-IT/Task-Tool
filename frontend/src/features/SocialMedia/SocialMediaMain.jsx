@@ -15,6 +15,7 @@ import {
   MdRefresh,
   MdTableChart,
   MdViewKanban,
+  MdAccountTree,
   MdEdit,
   MdDelete,
   MdReplay,
@@ -50,10 +51,13 @@ import Preloader from '../../components/Preloader';
 import { sanitizeCommentHtml } from '../../utils/sanitizeHtml';
 import '../ITUpdates/ITUpdatesMain.css';
 import DueTasksPanel from '../../components/DueTasksPanel';
+import ContentPipeline from './ContentPipeline';
+import { POSTING_CHANNELS, STAGES, stageMeta } from './contentModel';
 import { useNav } from '../../branding/BrandingContext';
 import { statusTextFor } from '../../branding/labels';
 
 const TABS = [
+  { key: 'Content Pipeline', labelId: 'section.content_pipeline', label: 'Content Pipeline', icon: MdAccountTree },
   { key: 'Dashboard', labelId: 'section.home', label: 'Home', icon: MdHome },
   { key: 'My Dashboard', labelId: 'section.dashboard', label: 'Dashboard', icon: MdInsights },
   { key: 'My Tasks', labelId: 'section.my_tasks', label: 'My Tasks', icon: MdChecklist },
@@ -68,39 +72,23 @@ const MODULE_TEAM = 'social_media';
 const EMPTY_ALL_TASKS_FILTERS = { status: '', priority: '', assignee: '', branch: '', period: CURRENT_MONTH_PERIOD };
 const EMPTY_OVERVIEW_FILTERS = { from_date: '', to_date: '', assigned_to: '' };
 
-const STATUS_LABELS = {
-  requirement: 'Requirement',
-  idea: 'Idea',
-  instagram: 'Instagram',
-  meta_ads: 'Meta Ads',
-  linkedin: 'Linkedin',
-  youtube: 'Youtube',
-  google_ads: 'Google Ads',
-  gmb: 'GMB',
-  completed: 'Completed',
-  todo: 'Requirement',
-  in_progress: 'Idea',
-  review: 'Instagram',
-  rework: 'Meta Ads',
-};
+/** Same columns as Content Pipeline board (no legacy Requirement / Idea). */
+const PIPELINE_COLUMNS = [
+  ...STAGES.filter((stage) => !['requirement', 'ready_to_post', 'published'].includes(stage.key)),
+  ...POSTING_CHANNELS.map((channel) => ({
+    key: channel.value,
+    label: channel.label,
+    color: channel.color,
+  })),
+];
 
-const STATUS_COLORS = {
-  requirement: '#94a3b8',
-  idea: '#6366f1',
-  instagram: '#e11d48',
-  meta_ads: '#2563eb',
-  linkedin: '#0284c7',
-  youtube: '#dc2626',
-  google_ads: '#f59e0b',
-  gmb: '#0f766e',
-  completed: '#10b981',
-  todo: '#94a3b8',
-  in_progress: '#6366f1',
-  review: '#e11d48',
-  rework: '#2563eb',
-};
+const STATUS_ORDER = PIPELINE_COLUMNS.map((column) => column.key);
+const STATUS_LABELS = Object.fromEntries(PIPELINE_COLUMNS.map((column) => [column.key, column.label]));
+const STATUS_COLORS = Object.fromEntries(PIPELINE_COLUMNS.map((column) => [column.key, column.color]));
+const MY_TASK_STATUSES = STATUS_ORDER;
 
-const STATUS_ORDER = [
+/** Legacy channel-task statuses — only for the "+ Add task" form. */
+const CHANNEL_STATUS_ORDER = [
   'requirement',
   'idea',
   'instagram',
@@ -111,17 +99,94 @@ const STATUS_ORDER = [
   'gmb',
   'completed',
 ];
-
-const LEGACY_STATUS_ALIASES = {
-  todo: 'requirement',
-  in_progress: 'idea',
-  review: 'instagram',
-  rework: 'meta_ads',
+const CHANNEL_STATUS_LABELS = {
+  requirement: 'Requirement',
+  idea: 'Idea',
+  instagram: 'Instagram',
+  meta_ads: 'Meta Ads',
+  linkedin: 'LinkedIn',
+  youtube: 'YouTube',
+  google_ads: 'Google Ads',
+  gmb: 'GMB',
+  completed: 'Completed',
 };
 
-const normalizeStatusKey = (status) => LEGACY_STATUS_ALIASES[status] || status || 'requirement';
-const getStatusLabel = (status) => statusTextFor(STATUS_LABELS, normalizeStatusKey(status)) || status;
-const getStatusColor = (status) => STATUS_COLORS[normalizeStatusKey(status)] || '#374151';
+function ymd(value) {
+  if (!value) return null;
+  const s = String(value);
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+  const t = Date.parse(s);
+  if (Number.isNaN(t)) return null;
+  const d = new Date(t);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+/** Kanban column for a pipeline row — mirrors Content Pipeline board placement. */
+function boardColumnForPipeline(task) {
+  let stage = task?.pipeline_stage || 'content_generation';
+  if (stage === 'requirement') stage = 'content_generation';
+  if (stage === 'ready_to_post' || stage === 'published') {
+    const links = task?.production?.post_links || {};
+    const open = POSTING_CHANNELS.find((channel) => !links[channel.value]);
+    if (open) return open.value;
+    const posted = [...POSTING_CHANNELS].reverse().find((channel) => links[channel.value]);
+    return posted?.value || 'instagram_post';
+  }
+  if (STATUS_ORDER.includes(stage)) return stage;
+  return 'content_generation';
+}
+
+function boardColumnForTask(task) {
+  if (task?.pipeline_stage || task?.is_pipeline) return boardColumnForPipeline(task);
+  const legacy = {
+    requirement: 'content_generation',
+    idea: 'content_generation',
+    todo: 'content_generation',
+    in_progress: 'content_generation',
+    instagram: 'instagram_post',
+    review: 'instagram_post',
+    meta_ads: 'meta_ads',
+    rework: 'meta_ads',
+    linkedin: 'linkedin',
+    youtube: 'youtube',
+    google_ads: 'google_ads',
+    gmb: 'gmb',
+    completed: 'instagram_post',
+  };
+  return legacy[task?.status] || 'content_generation';
+}
+
+/** Shape a pipeline row for My Tasks / All Tasks (status = pipeline column). */
+function asPipelineInboxTask(t) {
+  const due = ymd(t.dueDate || t.due_date || t.production?.sheet_date || t.task_date || t.created_at);
+  const stage = t.pipeline_stage || 'content_generation';
+  const column = boardColumnForPipeline(t);
+  const stageLabel = stageMeta(column)?.label || stageMeta(stage)?.label || 'Content';
+  const title = t.title || t.task_title || stageLabel;
+  return {
+    ...t,
+    id: String(t.id ?? t.task_id),
+    task_id: t.task_id ?? t.id,
+    title,
+    task_title: title,
+    due_date: due,
+    dueDate: due,
+    task_date: ymd(t.task_date) || due,
+    project_name: t.content_branch || t.project_name || 'Content Pipeline',
+    status: column,
+    priority: t.priority || 'medium',
+    is_pipeline: true,
+    pipeline_stage: stage,
+    workflow_status: t.workflow_status || null,
+  };
+}
+
+const normalizeStatusKey = (status) => status || 'content_generation';
+const getStatusLabel = (status) => {
+  const key = normalizeStatusKey(status);
+  return STATUS_LABELS[key] || stageMeta(key)?.label || statusTextFor(CHANNEL_STATUS_LABELS, key) || status;
+};
+const getStatusColor = (status) => STATUS_COLORS[normalizeStatusKey(status)] || stageMeta(status)?.color || '#374151';
 
 const PRIORITY_COLORS = {
   low: '#10b981',
@@ -147,11 +212,11 @@ const CHANNEL_COLORS = {
   Email: '#4f46e5',
 };
 
-// Newest cards first in every column.
+// Newest cards first in every Content Pipeline column.
 const groupTasksByStatus = (tasks) =>
   newestFirst(tasks).reduce(
     (acc, task) => {
-      const key = normalizeStatusKey(task.status);
+      const key = boardColumnForTask(task);
       if (!acc[key]) acc[key] = [];
       acc[key].push(task);
       return acc;
@@ -183,7 +248,8 @@ function Avatar({ user }) {
 export default function SocialMediaMain({ currentUser, onLogout }) {
   const nav = useNav();
   const visibleTabs = useMemo(() => nav.apply(TABS, 'module.social_media'), [nav]);
-  const [activeTab, setActiveTab] = useState('Dashboard');
+  const [activeTab, setActiveTab] = useState('Content Pipeline');
+  const [pipelineFocusId, setPipelineFocusId] = useState(null);
   const [loading, setLoading] = useState(false);
   const [booted, setBooted] = useState(false);
   const [error, setError] = useState('');
@@ -257,17 +323,34 @@ export default function SocialMediaMain({ currentUser, onLogout }) {
     }
   };
 
+  /** Channel tasks + content-pipeline rows (pipeline API is the source of truth for assignments). */
+  const mergeTaskLists = useCallback((channelList, pipelineList) => {
+    const byId = new Map();
+    (Array.isArray(channelList) ? channelList : []).forEach((t) => {
+      if (!t) return;
+      byId.set(String(t.id ?? t.task_id), t);
+    });
+    (Array.isArray(pipelineList) ? pipelineList : []).forEach((t) => {
+      if (!t?.pipeline_stage) return;
+      const id = String(t.id ?? t.task_id);
+      const prev = byId.get(id);
+      byId.set(id, prev ? { ...prev, ...t, pipeline_stage: t.pipeline_stage } : t);
+    });
+    return [...byId.values()];
+  }, []);
+
   const loadMyTasks = useCallback(async () => {
     if (!userId) return;
     setLoading(true);
     setError('');
     try {
-      const [tasksRes, teamRes, adminRes] = await Promise.all([
-        itUpdatesApi.getTasks({ team: MODULE_TEAM }),
+      const [tasksSettled, pipelineSettled, teamRes, adminRes] = await Promise.all([
+        itUpdatesApi.getTasks({ team: MODULE_TEAM }).then((r) => r).catch(() => ({ data: [] })),
+        itUpdatesApi.getSocialContentList().then((r) => r).catch(() => ({ data: [] })),
         itUpdatesApi.getTeamOverview({ team: MODULE_TEAM }).catch(() => ({ data: [] })),
         itUpdatesApi.getTeamOverview({ team: 'it' }).catch(() => ({ data: [] })),
       ]);
-      setTasks(Array.isArray(tasksRes.data) ? tasksRes.data : []);
+      setTasks(mergeTaskLists(tasksSettled?.data, pipelineSettled?.data));
       setTeamOverview(Array.isArray(teamRes.data) ? teamRes.data : []);
       const itTeam = Array.isArray(adminRes.data) ? adminRes.data : [];
       setAdminUsers(itTeam.filter((u) => u?.is_it_manager));
@@ -279,18 +362,22 @@ export default function SocialMediaMain({ currentUser, onLogout }) {
       setLoading(false);
       setBooted(true);
     }
-  }, [userId]);
+  }, [userId, mergeTaskLists]);
 
   const refreshTasksOnly = useCallback(async () => {
     if (!userId) return;
     setError('');
     try {
-      const tasksRes = await itUpdatesApi.getTasks({ team: MODULE_TEAM });
-      setTasks(Array.isArray(tasksRes?.data) ? tasksRes.data : []);
+      // Don't let a channel-tasks failure wipe pipeline rows (or the reverse).
+      const [tasksSettled, pipelineSettled] = await Promise.all([
+        itUpdatesApi.getTasks({ team: MODULE_TEAM }).then((r) => r).catch(() => ({ data: [] })),
+        itUpdatesApi.getSocialContentList().then((r) => r).catch(() => ({ data: [] })),
+      ]);
+      setTasks(mergeTaskLists(tasksSettled?.data, pipelineSettled?.data));
     } catch {
       setError('Failed to load tasks');
     }
-  }, [userId]);
+  }, [userId, mergeTaskLists]);
 
   const refreshEodReportsOnly = useCallback(async () => {
     if (!userId) return;
@@ -307,6 +394,19 @@ export default function SocialMediaMain({ currentUser, onLogout }) {
     loadMyTasks();
   }, [loadMyTasks]);
 
+  // Re-fetch when opening personal / board views so pipeline assignments show up.
+  useEffect(() => {
+    if (!userId || !booted) return;
+    if (
+      activeTab === 'My Tasks'
+      || activeTab === 'All Tasks'
+      || activeTab === 'Dashboard'
+      || activeTab === 'My Dashboard'
+    ) {
+      refreshTasksOnly();
+    }
+  }, [activeTab, userId, booted, refreshTasksOnly]);
+
   useEffect(() => {
     if (!userId) return;
     if (activeTab === 'EOD Updates') {
@@ -317,32 +417,53 @@ export default function SocialMediaMain({ currentUser, onLogout }) {
     }
   }, [activeTab, userId]);
 
+  // Overview / Calendar / Link Hub stay on channel (non-pipeline) tasks.
+  const channelTasks = useMemo(() => tasks.filter((t) => !t.pipeline_stage), [tasks]);
+
+  /** All Tasks board: same stage columns as Content Pipeline. */
+  const allBoardTasks = useMemo(
+    () =>
+      tasks.map((t) =>
+        t.pipeline_stage
+          ? asPipelineInboxTask(t)
+          : { ...t, status: boardColumnForTask(t), channel_status: t.status }
+      ),
+    [tasks]
+  );
+
+  /**
+   * Same rule as Internal Projects → My Tasks:
+   * anything with assigned_to = me (or assignee name match) lands in this list,
+   * including Content Pipeline rows.
+   */
   const myTasks = useMemo(() => {
-    if (!userId) return tasks;
-    return tasks.filter(
+    if (!user) return [];
+    const key = user.name || user.username || user.email;
+    const id = user.id ?? user.user_id;
+    return allBoardTasks.filter(
       (t) =>
-        String(t.assigned_to) === String(userId) ||
-        (user && (t.assignee === user.name || t.assignee === user.username))
+        t.assignee === key || (id != null && String(t.assigned_to) === String(id))
     );
-  }, [tasks, userId, user]);
+  }, [allBoardTasks, user]);
 
   const myTaskGroups = useMemo(() => groupTasksByStatus(myTasks), [myTasks]);
 
   const filteredTasks = useMemo(() => {
-    let result = tasks;
+    let result = allBoardTasks;
     if (allTasksFiltersApplied.status) result = result.filter((t) => t.status === allTasksFiltersApplied.status);
-    if (allTasksFiltersApplied.priority) result = result.filter((t) => t.priority === allTasksFiltersApplied.priority);
+    if (allTasksFiltersApplied.priority) result = result.filter((t) => (t.priority || 'medium') === allTasksFiltersApplied.priority);
     if (allTasksFiltersApplied.assignee)
       result = result.filter((t) => String(t.assigned_to) === String(allTasksFiltersApplied.assignee));
     if (allTasksFiltersApplied.branch)
-      result = result.filter((t) => t.assignee_branch === allTasksFiltersApplied.branch);
+      result = result.filter((t) => t.assignee_branch === allTasksFiltersApplied.branch || t.content_branch === allTasksFiltersApplied.branch);
+    // Pipeline rows often only have sheet/due dates — still include them in the period.
     if (allTasksFiltersApplied.period)
       result = result.filter((t) => taskInPeriod(t, allTasksFiltersApplied.period));
     return result;
-  }, [tasks, allTasksFiltersApplied]);
+  }, [allBoardTasks, allTasksFiltersApplied]);
 
   const overviewTasks = useMemo(() => {
-    let result = tasks;
+    let result = channelTasks;
     if (overviewFiltersApplied.from_date)
       result = result.filter((t) => t.task_date && t.task_date.slice(0, 10) >= overviewFiltersApplied.from_date);
     if (overviewFiltersApplied.to_date)
@@ -350,25 +471,25 @@ export default function SocialMediaMain({ currentUser, onLogout }) {
     if (overviewFiltersApplied.assigned_to)
       result = result.filter((t) => String(t.assigned_to) === String(overviewFiltersApplied.assigned_to));
     return result;
-  }, [tasks, overviewFiltersApplied]);
+  }, [channelTasks, overviewFiltersApplied]);
 
   const calendarTasks = useMemo(() => {
     const toKey = (t) =>
       t.target_date || t.publish_date || (t.task_date ? String(t.task_date).slice(0, 10) : '');
-    return [...tasks]
+    return [...channelTasks]
       .filter((t) => Boolean(toKey(t)))
       .sort((a, b) => String(toKey(a)).localeCompare(String(toKey(b))));
-  }, [tasks]);
+  }, [channelTasks]);
 
   const linkHubTasks = useMemo(() => {
     const hasAnyLink = (t) => Boolean(t.design_link || t.content_doc_link || t.publish_link);
     const hasMissingLink = (t) => !t.design_link || !t.content_doc_link || !t.publish_link;
-    return tasks.filter((t) => {
+    return channelTasks.filter((t) => {
       if (!hasAnyLink(t)) return false;
       if (!linkHubMissingOnly) return true;
       return hasMissingLink(t);
     });
-  }, [tasks, linkHubMissingOnly]);
+  }, [channelTasks, linkHubMissingOnly]);
 
   const handleCopyLink = useCallback(async (link) => {
     try {
@@ -393,6 +514,12 @@ export default function SocialMediaMain({ currentUser, onLogout }) {
     [myTasks, today]
   );
 
+  const openPipelineTask = useCallback((task) => {
+    if (!task?.id) return;
+    setPipelineFocusId(String(task.id));
+    setActiveTab('Content Pipeline');
+  }, []);
+
   const handleDragEnd = useCallback(
     async (result) => {
       if (!result.destination) return;
@@ -400,32 +527,35 @@ export default function SocialMediaMain({ currentUser, onLogout }) {
       const newStatus = destination.droppableId;
       const taskId = draggableId.replace('task-', '');
       const task = tasks.find((t) => String(t.id) === String(taskId));
-      if (!task || task.status === newStatus) return;
-      setTasks((prev) =>
-        prev.map((t) =>
-          String(t.id) === String(taskId) ? { ...t, status: newStatus } : t
-        )
-      );
-      try {
-        await itUpdatesApi.updateTask(taskId, { status: newStatus, team: MODULE_TEAM });
-        toastSuccess(`Task moved to ${getStatusLabel(newStatus)}`);
-      } catch {
-        setTasks((prev) =>
-          prev.map((t) =>
-            String(t.id) === String(taskId) ? { ...t, status: task.status } : t
-          )
-        );
-        setError('Failed to update task status');
-        toastError('Failed to update task status');
+      if (!task) return;
+      // Columns match Content Pipeline — stage changes happen on that board.
+      if (task.pipeline_stage || task.is_pipeline) {
+        openPipelineTask(task);
+        return;
       }
+      const currentColumn = boardColumnForTask(task);
+      if (currentColumn === newStatus) return;
+      toastInfo('Open the task to update it, or move work on Content Pipeline.');
     },
-    [tasks]
+    [tasks, openPipelineTask]
   );
 
-  const openTaskModal = (task = null) => setTaskModal({ open: true, task });
+  const openTaskModal = (task = null) => {
+    if (task?.pipeline_stage || task?.is_pipeline) {
+      openPipelineTask(task);
+      return;
+    }
+    setTaskModal({ open: true, task });
+  };
   // Duplicate: open the create form prefilled from the card, so nothing has to be
   // retyped. Saving creates a new task; the original is untouched.
-  const duplicateTask = (task) => setTaskModal({ open: true, task: makeTaskDuplicate(task) });
+  const duplicateTask = (task) => {
+    if (task?.pipeline_stage || task?.is_pipeline) {
+      openPipelineTask(task);
+      return;
+    }
+    setTaskModal({ open: true, task: makeTaskDuplicate(task) });
+  };
   const closeTaskModal = () => setTaskModal({ open: false, task: null });
 
   const handleSaveTask = async (payload) => {
@@ -523,16 +653,25 @@ export default function SocialMediaMain({ currentUser, onLogout }) {
   // All Tasks: Horizontal (rows) or Vertical (card board); the board stays the default here.
   const [allTasksView, setAllTasksView] = useTaskView('allTasks.view', 'vertical');
 
-  // My Tasks list: "+ Create" adds a task from its title alone, assigned to me.
-  // Admins may pick the assignee and assigner; otherwise the task is the user's own.
-  const handleQuickCreateTask = async ({ title, status, assigned_to, assigned_by }) => {
+  // "+ Create" adds a Content Pipeline row. Admins may pick the assignee; otherwise it
+  // is the user's own. The pipeline records the creator as the assigner itself.
+  const handleQuickCreateTask = async ({ title, assigned_to }) => {
     try {
-      await itUpdatesApi.createTask({
-        title,
-        status,
+      const due = ymd(new Date().toISOString()) || localToday();
+      await itUpdatesApi.createSocialContent({
+        task_title: title,
+        task_description: title,
         assigned_to: assigned_to ?? userId,
-        assigned_by: assigned_by ?? userId,
-        team: MODULE_TEAM,
+        due_date: due,
+        platforms: [],
+        priority: 'medium',
+        production: {
+          course: '',
+          course_type: '',
+          course_id: '',
+          sheet_date: due,
+          content_topics: title,
+        },
       });
       await refreshTasksOnly();
       toastSuccess('Task created');
@@ -545,6 +684,10 @@ export default function SocialMediaMain({ currentUser, onLogout }) {
 
   // My Tasks list: inline due date / priority edits.
   const handleInlineTaskUpdate = async (task, patch) => {
+    if (task?.pipeline_stage || task?.is_pipeline) {
+      openPipelineTask(task);
+      return;
+    }
     const local = 'dueDate' in patch ? { ...patch, due_date: patch.dueDate } : patch;
     setTasks((prev) => prev.map((t) => (String(t.id) === String(task.id) ? { ...t, ...local } : t)));
     try {
@@ -556,12 +699,17 @@ export default function SocialMediaMain({ currentUser, onLogout }) {
   };
 
   // The list's status dropdown moves the card exactly as a drag on the board would.
-  const handleListStatusChange = (task, status) =>
-    handleDragEnd({
+  const handleListStatusChange = (task, status) => {
+    if (task?.pipeline_stage || task?.is_pipeline) {
+      openPipelineTask(task);
+      return;
+    }
+    return handleDragEnd({
       draggableId: `task-${task.id}`,
       source: { droppableId: task.status, index: 0 },
       destination: { droppableId: status, index: 0 },
     });
+  };
 
   const handleSaveEod = async (payload) => {
     try {
@@ -592,7 +740,7 @@ export default function SocialMediaMain({ currentUser, onLogout }) {
       style={{ borderTopColor: STATUS_COLORS[statusKey] }}
     >
       <div className="it-updates-column-header">
-        <span>{statusTextFor(STATUS_LABELS, statusKey)}</span>
+        <span>{getStatusLabel(statusKey)}</span>
         <span className="it-updates-column-count">{items.length}</span>
       </div>
       <Droppable droppableId={statusKey}>
@@ -650,25 +798,53 @@ export default function SocialMediaMain({ currentUser, onLogout }) {
                     </div>
                     <div className="it-updates-task-card-title">{task.title}</div>
                     <div className="it-updates-task-card-desc">
-                      <span
-                        className="it-updates-status-badge"
-                        style={{
-                          backgroundColor: `${CONTENT_TYPE_COLORS[task.content_type] || '#64748b'}18`,
-                          color: CONTENT_TYPE_COLORS[task.content_type] || '#334155',
-                          marginRight: '0.4rem',
-                        }}
-                      >
-                        {(task.content_type || 'asset').replace('_', ' ')}
-                      </span>
-                      <span
-                        className="it-updates-status-badge"
-                        style={{
-                          backgroundColor: `${CHANNEL_COLORS[task.channel] || '#64748b'}18`,
-                          color: CHANNEL_COLORS[task.channel] || '#334155',
-                        }}
-                      >
-                        {task.channel || 'Channel TBD'}
-                      </span>
+                      {task.pipeline_stage || task.is_pipeline ? (
+                        <>
+                          <span
+                            className="it-updates-status-badge"
+                            style={{
+                              backgroundColor: `${getStatusColor(task.status)}18`,
+                              color: getStatusColor(task.status),
+                              marginRight: '0.4rem',
+                            }}
+                          >
+                            {getStatusLabel(task.status)}
+                          </span>
+                          {task.content_type ? (
+                            <span
+                              className="it-updates-status-badge"
+                              style={{
+                                backgroundColor: `${CONTENT_TYPE_COLORS[task.content_type] || '#64748b'}18`,
+                                color: CONTENT_TYPE_COLORS[task.content_type] || '#334155',
+                              }}
+                            >
+                              {String(task.content_type).replace('_', ' ')}
+                            </span>
+                          ) : null}
+                        </>
+                      ) : (
+                        <>
+                          <span
+                            className="it-updates-status-badge"
+                            style={{
+                              backgroundColor: `${CONTENT_TYPE_COLORS[task.content_type] || '#64748b'}18`,
+                              color: CONTENT_TYPE_COLORS[task.content_type] || '#334155',
+                              marginRight: '0.4rem',
+                            }}
+                          >
+                            {(task.content_type || 'asset').replace('_', ' ')}
+                          </span>
+                          <span
+                            className="it-updates-status-badge"
+                            style={{
+                              backgroundColor: `${CHANNEL_COLORS[task.channel] || '#64748b'}18`,
+                              color: CHANNEL_COLORS[task.channel] || '#334155',
+                            }}
+                          >
+                            {task.channel || 'Channel TBD'}
+                          </span>
+                        </>
+                      )}
                     </div>
                     {(task.project_name || task.campaign_name) ? (
                       <span className="it-updates-task-card-project" title={task.project_name || task.campaign_name}>
@@ -778,66 +954,67 @@ export default function SocialMediaMain({ currentUser, onLogout }) {
 
       {/* ─── Main Content ─── */}
       <div className="it-updates-content-area">
-        {/* Topbar */}
-        <header className="it-updates-topbar">
-          <div className="it-updates-topbar-left">
-            <button
-              type="button"
-              className="it-updates-mobile-menu-btn"
-              onClick={() => setSidebarOpen(true)}
-            >
-              <MdMenu size={24} />
-            </button>
-            <div>
-              <h1 className="it-updates-topbar-title">
-                {tabConfig?.label || activeTab}
-              </h1>
-              <p className="it-updates-topbar-subtitle">
-                {activeTab === 'Dashboard' && 'Overview of your campaigns and tasks'}
-                {activeTab === 'My Dashboard' && (isAdmin ? "Members' working hours, projects and leave" : 'Your working hours, projects and leave')}
-                {activeTab === 'My Tasks' && 'Tasks assigned to you'}
-                {activeTab === 'All Tasks' && 'All tasks in kanban view'}
-                {activeTab === 'Overview' && 'Detailed task overview and filters'}
-                {activeTab === 'Calendar' && 'Scheduled and published content timeline'}
-                {activeTab === 'Link Hub' && 'Design, content, and publish links in one place'}
-                {activeTab === 'EOD Updates' && 'Your end-of-day reports'}
-              </p>
+        {activeTab !== 'Content Pipeline' && (
+          <header className="it-updates-topbar">
+            <div className="it-updates-topbar-left">
+              <button
+                type="button"
+                className="it-updates-mobile-menu-btn"
+                onClick={() => setSidebarOpen(true)}
+              >
+                <MdMenu size={24} />
+              </button>
+              <div>
+                <h1 className="it-updates-topbar-title">
+                  {tabConfig?.label || activeTab}
+                </h1>
+                <p className="it-updates-topbar-subtitle">
+                  {activeTab === 'Dashboard' && 'Overview of your campaigns and tasks'}
+                  {activeTab === 'My Dashboard' && (isAdmin ? "Members' working hours, projects and leave" : 'Your working hours, projects and leave')}
+                  {activeTab === 'My Tasks' && 'Tasks assigned to you'}
+                  {activeTab === 'All Tasks' && 'All tasks in kanban view'}
+                  {activeTab === 'Overview' && 'Detailed task overview and filters'}
+                  {activeTab === 'Calendar' && 'Scheduled and published content timeline'}
+                  {activeTab === 'Link Hub' && 'Design, content, and publish links in one place'}
+                  {activeTab === 'EOD Updates' && 'Your end-of-day reports'}
+                </p>
+              </div>
             </div>
-          </div>
-          <div className="it-updates-topbar-right">
-            {(activeTab === 'My Tasks' || activeTab === 'All Tasks') && (
+            <div className="it-updates-topbar-right">
+              {(activeTab === 'My Tasks' || activeTab === 'All Tasks') && (
+                <button
+                  type="button"
+                  className="it-updates-btn it-updates-btn-primary"
+                  onClick={() => openTaskModal(null)}
+                >
+                  <MdAdd size={18} />
+                  Add task
+                </button>
+              )}
+              {/* Task boards only: the EOD Updates tab has its own Submit EOD button,
+                  and the button has no business on the dashboard or the overview. */}
+              {(activeTab === 'My Tasks' || activeTab === 'All Tasks') && (
+                <button
+                  type="button"
+                  className="it-updates-btn it-updates-btn-secondary"
+                  onClick={() => setEodModal(true)}
+                  title="Submit EOD Report"
+                >
+                  <MdOutlineAssignment size={16} />
+                  <span>EOD</span>
+                </button>
+              )}
               <button
                 type="button"
-                className="it-updates-btn it-updates-btn-primary"
-                onClick={() => openTaskModal(null)}
+                className="it-updates-btn it-updates-btn-icon"
+                onClick={loadMyTasks}
+                title="Refresh data"
               >
-                <MdAdd size={18} />
-                Add task
+                <MdRefresh size={18} />
               </button>
-            )}
-            {/* Task boards only: the EOD Updates tab has its own Submit EOD button,
-                and the button has no business on the dashboard or the overview. */}
-            {(activeTab === 'My Tasks' || activeTab === 'All Tasks') && (
-              <button
-                type="button"
-                className="it-updates-btn it-updates-btn-secondary"
-                onClick={() => setEodModal(true)}
-                title="Submit EOD Report"
-              >
-                <MdOutlineAssignment size={16} />
-                <span>EOD</span>
-              </button>
-            )}
-            <button
-              type="button"
-              className="it-updates-btn it-updates-btn-icon"
-              onClick={loadMyTasks}
-              title="Refresh data"
-            >
-              <MdRefresh size={18} />
-            </button>
-          </div>
-        </header>
+            </div>
+          </header>
+        )}
 
         {error && (
           <div className="it-updates-error" role="alert">
@@ -845,9 +1022,17 @@ export default function SocialMediaMain({ currentUser, onLogout }) {
           </div>
         )}
 
-        <main className="it-updates-main">
+        <main className={`it-updates-main${activeTab === 'Content Pipeline' ? ' it-updates-main--pipeline' : ''}`}>
           {!booted && <Preloader label="Loading your workspace…" />}
-          {booted && loading && <Preloader label="Loading…" />}
+          {booted && loading && activeTab !== 'Content Pipeline' && <Preloader label="Loading…" />}
+          {activeTab === 'Content Pipeline' && (
+            <ContentPipeline
+              currentUser={user}
+              members={teamOverview}
+              focusTaskId={pipelineFocusId}
+              onFocusConsumed={() => setPipelineFocusId(null)}
+            />
+          )}
           {activeTab === 'My Dashboard' && (
             <MemberDashboard currentUser={user} members={teamOverview} isAdmin={isAdmin} team={MODULE_TEAM} />
           )}
@@ -868,13 +1053,9 @@ export default function SocialMediaMain({ currentUser, onLogout }) {
                   <div className="it-updates-stat-value">{completedToday}</div>
                 </div>
                 <div className="it-updates-stat-card">
-                  <div className="it-updates-stat-label">Channel Tasks</div>
+                  <div className="it-updates-stat-label">Pipeline Tasks</div>
                   <div className="it-updates-stat-value">
-                    {myTasks.filter((t) =>
-                      ['instagram', 'meta_ads', 'linkedin', 'youtube', 'google_ads', 'gmb'].includes(
-                        normalizeStatusKey(t.status)
-                      )
-                    ).length}
+                    {myTasks.filter((t) => t.pipeline_stage || t.is_pipeline).length}
                   </div>
                 </div>
                 <div className="it-updates-stat-card">
@@ -916,8 +1097,8 @@ export default function SocialMediaMain({ currentUser, onLogout }) {
           {activeTab === 'My Tasks' && (
             <MyTaskList
               tasks={myTasks}
-              statuses={STATUS_ORDER}
-              statusLabel={(k) => statusTextFor(STATUS_LABELS, k)}
+              statuses={MY_TASK_STATUSES}
+              statusLabel={(k) => getStatusLabel(k)}
               statusColors={STATUS_COLORS}
               keyPrefix="SM"
               onOpenTask={openTaskModal}
@@ -957,7 +1138,7 @@ export default function SocialMediaMain({ currentUser, onLogout }) {
                 >
                   <option value="">Statuses</option>
                   {STATUS_ORDER.map((status) => (
-                    <option key={status} value={status}>{statusTextFor(STATUS_LABELS, status)}</option>
+                    <option key={status} value={status}>{getStatusLabel(status)}</option>
                   ))}
                 </select>
                 <select
@@ -1036,26 +1217,33 @@ export default function SocialMediaMain({ currentUser, onLogout }) {
                 />
               ) : null}
               {allTasksView === 'horizontal' ? (
+                // Pipeline rows set their own assigner, so only the assignee is offered.
                 <QuickCreateRow
                   status={STATUS_ORDER[0]}
                   onCreate={handleQuickCreateTask}
                   currentUser={user}
                   assignees={isAdmin ? teamOverview.filter((u) => u.is_active !== false) : undefined}
-                  assigners={isAdmin ? adminUsers : undefined}
                 />
               ) : (
-                <DragDropContext onDragEnd={handleDragEnd}>
-                  <div className="it-updates-kanban-wrap social-media-kanban-wrap">
-                    <section className="it-updates-columns social-media-columns">
-                      {STATUS_ORDER.map((statusKey) =>
-                        renderKanbanColumn(
-                          statusKey,
-                          groupTasksByStatus(filteredTasks)[statusKey] || []
-                        )
-                      )}
-                    </section>
-                  </div>
-                </DragDropContext>
+                <>
+                  {allBoardTasks.length > 0 && filteredTasks.length === 0 ? (
+                    <div className="it-updates-empty" style={{ padding: '1rem 0' }}>
+                      No tasks match these filters. Try “All dates” or clear Members / Status.
+                    </div>
+                  ) : null}
+                  <DragDropContext onDragEnd={handleDragEnd}>
+                    <div className="it-updates-kanban-wrap social-media-kanban-wrap">
+                      <section className="it-updates-columns social-media-columns">
+                        {STATUS_ORDER.map((statusKey) =>
+                          renderKanbanColumn(
+                            statusKey,
+                            groupTasksByStatus(filteredTasks)[statusKey] || []
+                          )
+                        )}
+                      </section>
+                    </div>
+                  </DragDropContext>
+                </>
               )}
             </>
           )}
@@ -1978,8 +2166,8 @@ function TaskModal({ task, currentUser, onClose, onSave, onRefresh, teamMembers,
           <label>
             Status
             <select value={form.status} onChange={(e) => setForm((f) => ({ ...f, status: e.target.value }))}>
-              {STATUS_ORDER.map((status) => (
-                <option key={status} value={status}>{statusTextFor(STATUS_LABELS, status)}</option>
+              {CHANNEL_STATUS_ORDER.map((status) => (
+                <option key={status} value={status}>{CHANNEL_STATUS_LABELS[status] || status}</option>
               ))}
             </select>
           </label>

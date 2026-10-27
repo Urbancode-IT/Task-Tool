@@ -224,6 +224,47 @@ const itUpdatesApi = {
   clearLeave: (date, params = {}) => {
     return apiClient.delete(`${BASE_PATH}/leaves/${date}`, { params });
   },
+
+  getBranches: () => apiClient.get(`${BASE_PATH}/branches`),
+  getContentTypes: () => apiClient.get(`${BASE_PATH}/content-types`),
+  getContentUsers: () => apiClient.get(`${BASE_PATH}/content-users`),
+  getCourses: () => apiClient.get(`${BASE_PATH}/courses`),
+  createCourse: (data) => apiClient.post(`${BASE_PATH}/courses`, data),
+  getSocialContentList: (params = {}) => apiClient.get(`${BASE_PATH}/social-content`, { params }),
+  getSocialContent: (taskId) => apiClient.get(`${BASE_PATH}/social-content/${taskId}`),
+  createSocialContent: (data) => apiClient.post(`${BASE_PATH}/social-content`, data),
+  deleteSocialContent: (taskId, reason) =>
+    apiClient.delete(`${BASE_PATH}/social-content/${taskId}`, { data: { reason } }),
+  updateSocialContent: (taskId, data) => apiClient.put(`${BASE_PATH}/social-content/${taskId}`, data),
+  transitionSocialContent: (taskId, data) =>
+    apiClient.post(`${BASE_PATH}/social-content/${taskId}/transition`, data),
+  uploadSocialContentFile: (task, kind, file, onProgress, stage) => {
+    const body = new FormData();
+    body.append('kind', kind);
+    body.append('file', file);
+    if (stage) body.append('stage', stage);
+    body.append('content_branch', task?.content_branch || '');
+    body.append('content_type', task?.content_type || '');
+    body.append('task_title', task?.task_title || task?.title || '');
+    body.append('course', task?.production?.course || '');
+    body.append('sheet_date', String(task?.production?.sheet_date || '').slice(0, 10));
+    body.append('due_date', task?.due_date ? String(task.due_date).slice(0, 10) : '');
+    return apiClient.post(`${BASE_PATH}/social-content/${task.id}/files`, body, {
+      onUploadProgress: (event) => {
+        if (!onProgress) return;
+        const total = Number(event.total) || 0;
+        if (!total) {
+          onProgress(null);
+          return;
+        }
+        onProgress(Math.min(100, Math.round((event.loaded / total) * 100)));
+      },
+    });
+  },
+  getSocialContentFile: (taskId, fileId) =>
+    apiClient.get(`${BASE_PATH}/social-content/${taskId}/files/${fileId}`, { responseType: 'blob' }),
+  removeSocialContentFile: (taskId, fileId) =>
+    apiClient.delete(`${BASE_PATH}/social-content/${taskId}/files/${fileId}`),
 };
 
 export default itUpdatesApi;
