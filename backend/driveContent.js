@@ -53,19 +53,18 @@ function piece(value) {
     .replace(/^-|-$/g, '');
 }
 
+// Branch, content type and course only name the Drive folders and file. A row
+// missing any of them still uploads, into fallback folders, instead of failing.
 function branchUnit(task) {
-  const code = String(task?.content_branch || '').trim();
-  if (!/^[A-Za-z0-9-]+$/.test(code)) {
-    throw new ContentError(400, 'Set the branch, such as UC-PAL, before uploading.');
-  }
-  return code;
+  const code = piece(task?.content_branch);
+  return code || 'NoBranch';
 }
 
 function brandFolder(branch) {
   const code = branch.toUpperCase();
   if (code.startsWith('JZ')) return 'JZ';
   if (code.startsWith('UC')) return 'UC';
-  throw new ContentError(400, 'Branch must start with UC or JZ, for example UC-PAL.');
+  return 'Other';
 }
 
 function typeNames(task) {
@@ -77,7 +76,7 @@ function typeNames(task) {
   if (type === 'gmb') return { folder: 'GMB', label: 'GMB' };
   if (type === 'website') return { folder: 'Website', label: 'Website' };
   if (type === 'curriculum') return { folder: 'Curriculum', label: 'Curriculum' };
-  if (!type) throw new ContentError(400, 'Set the content type before uploading.');
+  if (!type) return { folder: 'Unsorted', label: 'Content' };
   // Types added later in social_media_content_types get a folder named after them.
   const label = type.replace(/[^a-z0-9]+/g, ' ').trim().replace(/\b\w/g, (c) => c.toUpperCase()) || 'Other';
   return { folder: label, label };
@@ -101,10 +100,7 @@ function fileDate(iso) {
 
 function courseName(task) {
   const course = piece(task?.production?.course || task?.task_title || task?.title);
-  if (!course || /^untitled$/i.test(course)) {
-    throw new ContentError(400, 'Add the course or a title before uploading.');
-  }
-  return course;
+  return course || 'Untitled';
 }
 
 function extensionOf(originalName, mime) {

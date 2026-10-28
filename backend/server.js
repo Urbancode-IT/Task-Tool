@@ -651,7 +651,8 @@ function receiveContentFile(req, res, next) {
     if (err.code === 'LIMIT_FILE_SIZE') {
       return res.status(400).json({ message: `File must be ${CONTENT_UPLOAD_MAX_MB} MB or smaller.` });
     }
-    return res.status(400).json({ message: 'Could not read the file.' });
+    console.error('Content upload: could not read the file:', err?.code || '', err?.message || err);
+    return res.status(400).json({ message: `Could not read the file (${err?.code || err?.message || 'unknown error'}).` });
   });
 }
 
