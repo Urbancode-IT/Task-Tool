@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { MdCalendarToday, MdExpandMore } from 'react-icons/md';
 import { PERIOD_PRESETS } from '../utils/taskPeriod';
+import './PeriodFilter.css';
 
 /**
  * Period / time-interval filter rendered as a dropdown button. The menu lists the

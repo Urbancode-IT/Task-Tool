@@ -8,6 +8,9 @@ import LegalFinanceMain from '../features/LegalFinance/LegalFinanceMain';
 import AdminMain from '../features/Admin/AdminMain';
 import ToastContainer from './Toast';
 import ConfirmDialog from './ConfirmDialog';
+import ChatProvider from '../features/Chat/ChatProvider';
+import ChatButton from '../features/Chat/ChatButton';
+import { ChatOverlay } from '../features/Chat/ChatWindow';
 import usePersistedState from '../utils/usePersistedState';
 import { useBranding, useNav } from '../branding/BrandingContext';
 // labels: nav names now come from useNav (see branding/BrandingContext)
@@ -102,6 +105,8 @@ export default function MainLayout({ currentUser, onLogout }) {
   ].includes(safeActiveModule);
 
   return (
+    // Chat is available from every module: one live connection, a header button and a window.
+    <ChatProvider currentUser={user}>
     <div className={`main-layout ${hasSidebar ? 'main-layout-with-sidebar' : ''}`}>
       <header className="main-layout-header">
         <div className="main-layout-header-left">
@@ -128,10 +133,15 @@ export default function MainLayout({ currentUser, onLogout }) {
             })}
           </nav>
         </div>
+        <div className="main-layout-header-right">
+          <ChatButton />
+        </div>
       </header>
       <main className="main-layout-content">{renderContent()}</main>
+      <ChatOverlay />
       <ToastContainer />
       <ConfirmDialog />
     </div>
+    </ChatProvider>
   );
 }

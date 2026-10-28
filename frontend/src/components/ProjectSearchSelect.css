@@ -1,4 +1,109 @@
-/* Layout-only; visual language lives in SeyalControls.css */
+/* Project search dropdown (ProjectSearchSelect.jsx). Matches the other filter controls:
+   same border, radius, font size and height as the selects beside it. */
 .project-search {
   min-width: 200px;
+}
+
+.seyal-select {
+  position: relative;
+}
+
+.seyal-select-field {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  box-sizing: border-box;
+  min-height: var(--filter-control-height, 2.4rem);
+  padding: 0 0.65rem;
+  border: 1px solid var(--clr-slate-200);
+  border-radius: var(--radius-md);
+  background: var(--surface-card);
+  transition: border-color var(--transition-fast);
+}
+
+.seyal-select-field:focus-within {
+  border-color: var(--clr-primary-400);
+  box-shadow: 0 0 0 3px rgba(0, 84, 196, 0.1);
+}
+
+.seyal-search-icon {
+  flex-shrink: 0;
+  color: var(--clr-slate-400);
+}
+
+.seyal-select-field input {
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--clr-slate-700);
+  font: inherit;
+  font-size: 0.82rem;
+}
+
+.seyal-select-clear {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--clr-slate-400);
+  cursor: pointer;
+  transition: color var(--transition-fast);
+}
+
+.seyal-select-clear:hover {
+  color: var(--clr-slate-700);
+}
+
+.seyal-select-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  z-index: 30;
+  max-height: 240px;
+  margin: 0;
+  padding: 0.25rem;
+  overflow-y: auto;
+  list-style: none;
+  border: 1px solid var(--clr-slate-200);
+  border-radius: var(--radius-md);
+  background: var(--surface-card);
+  box-shadow: 0 10px 25px rgba(15, 23, 42, 0.12);
+}
+
+.seyal-select-menu button {
+  display: block;
+  width: 100%;
+  padding: 0.5rem 0.65rem;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--clr-slate-700);
+  font: inherit;
+  font-size: 0.82rem;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.seyal-select-menu button:hover {
+  background: var(--clr-slate-100);
+}
+
+.seyal-select-menu button.active {
+  background: rgba(0, 84, 196, 0.12);
+  color: var(--clr-primary-600, #0054c4);
+  font-weight: 600;
+}
+
+.seyal-select-empty {
+  padding: 0.5rem 0.65rem;
+  color: var(--clr-slate-400);
+  font-size: 0.8rem;
 }

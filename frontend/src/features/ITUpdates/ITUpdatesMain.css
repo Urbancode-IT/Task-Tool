@@ -1770,11 +1770,34 @@
 
 /* ─── Filters ─── */
 .it-updates-filters {
+  /* One height for every control in the bar (search, selects, period, Backlogs,
+     Import, layout switch) so they line up whichever mix a page shows. */
+  --filter-control-height: 2.4rem;
   display: flex;
   flex-wrap: wrap;
   gap: 0.65rem;
   align-items: center;
   margin-bottom: 0;
+}
+
+.it-updates-filters > select,
+.it-updates-filters .it-updates-period-trigger,
+.it-updates-filters .seyal-dropdown-trigger,
+.it-updates-filters .it-updates-backlog-toggle,
+.it-updates-filters .mtl-import-btn,
+.it-updates-filters .mtl-view-switch {
+  box-sizing: border-box;
+  height: var(--filter-control-height);
+}
+
+.it-updates-filters > select {
+  padding-top: 0;
+  padding-bottom: 0;
+}
+
+.it-updates-filters .mtl-import-btn,
+.it-updates-filters .mtl-view-switch {
+  align-self: center;
 }
 
 .it-updates-filter-actions {
@@ -2873,6 +2896,11 @@
   .it-updates-filters select {
     width: 100%;
     min-width: auto;
+  }
+
+  .it-updates-filters .mtl-import-btn,
+  .it-updates-filters .mtl-view-switch {
+    align-self: flex-start;
   }
 
   .it-updates-tasks-header {

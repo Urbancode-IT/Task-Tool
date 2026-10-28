@@ -58,6 +58,38 @@ Then hard-refresh `https://seyal.urbancode.in` and check Social Media.
 
 ---
 
+## Chat (live connection)
+
+Chat uses a live WebSocket connection (Socket.IO) on the same backend port, at the path
+`/socket.io/`. Nginx in front of `api.seyal.urbancode.in` must pass WebSocket upgrades through.
+Check the server block once:
+
+```bash
+sudo grep -rn "api.seyal.urbancode.in" /etc/nginx/sites-enabled/
+```
+
+In that file's `location /` block (the one with `proxy_pass` to the backend), make sure these lines exist:
+
+```nginx
+proxy_http_version 1.1;
+proxy_set_header Upgrade $http_upgrade;
+proxy_set_header Connection "upgrade";
+proxy_read_timeout 3600s;
+```
+
+Then test and reload:
+
+```bash
+sudo nginx -t && sudo systemctl reload nginx
+```
+
+Without these lines chat still works, but falls back to slower HTTP polling.
+`CLIENT_ORIGIN` in `backend/.env` must include `https://seyal.urbancode.in` (the same value CORS already uses).
+
+Chat tables (`chat_*`) are created on backend boot like every other table.
+
+---
+
 ## Content pipeline delete log
 
 Pipeline row deletes are stored in `task_delete_log` with `team = 'social_content'`.
@@ -76,6 +108,7 @@ ORDER BY deleted_at DESC;
 - [ ] Backend log: `Database connected OK`
 - [ ] Site loads: `https://seyal.urbancode.in`
 - [ ] Social Media pipeline works (approve / post / green cells)
+- [ ] Chat: send a message between two users in two browsers; it appears instantly
 
 ---
 

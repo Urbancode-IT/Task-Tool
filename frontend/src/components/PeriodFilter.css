@@ -1,0 +1,114 @@
+/* Period filter dropdown (PeriodFilter.jsx): "This month ▾" button with presets and a
+   custom From–To range. Looks like the other filter controls beside it. */
+.seyal-dropdown {
+  position: relative;
+  display: inline-block;
+}
+
+.seyal-dropdown-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  box-sizing: border-box;
+  min-height: var(--filter-control-height, 2.4rem);
+  padding: 0 0.7rem;
+  border: 1px solid var(--clr-slate-200);
+  border-radius: var(--radius-md);
+  background: var(--surface-card);
+  color: var(--clr-slate-700);
+  font: inherit;
+  font-size: 0.82rem;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: border-color var(--transition-fast);
+}
+
+.seyal-dropdown-trigger:hover,
+.seyal-dropdown.open .seyal-dropdown-trigger {
+  border-color: var(--clr-primary-400);
+}
+
+.seyal-dropdown-trigger-icon {
+  flex-shrink: 0;
+  color: var(--clr-slate-400);
+}
+
+.seyal-dropdown-trigger-label {
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.seyal-dropdown-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 190px;
+  padding: 0.3rem;
+  border: 1px solid var(--clr-slate-200);
+  border-radius: var(--radius-md);
+  background: var(--surface-card);
+  box-shadow: 0 10px 25px rgba(15, 23, 42, 0.12);
+}
+
+.seyal-dropdown-option {
+  padding: 0.45rem 0.6rem;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--clr-slate-600);
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.seyal-dropdown-option:hover {
+  background: var(--clr-slate-100);
+}
+
+.seyal-dropdown-option.active {
+  background: rgba(0, 84, 196, 0.12);
+  color: var(--clr-primary-600, #0054c4);
+  font-weight: 600;
+}
+
+.seyal-dropdown-range {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin-top: 0.35rem;
+  padding-top: 0.45rem;
+  border-top: 1px solid var(--clr-slate-200);
+}
+
+.seyal-dropdown-range label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  color: var(--clr-slate-400);
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.seyal-date.seyal-compact {
+  padding: 0.4rem 0.55rem;
+  border: 1px solid var(--clr-slate-200);
+  border-radius: var(--radius-md);
+  background: var(--surface-card);
+  color: var(--clr-slate-700);
+  font: inherit;
+  font-size: 0.78rem;
+}
+
+.seyal-date.seyal-compact:focus {
+  outline: none;
+  border-color: var(--clr-primary-400);
+}

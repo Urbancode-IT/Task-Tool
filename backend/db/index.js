@@ -123,13 +123,16 @@ let pool = null;
 // This avoids "env is set but DB is unreachable" causing hard 401 login failures.
 let dbAvailability = null;
 
+// DATABASE_URL wins (production). Otherwise each developer's own .env supplies the
+// connection — credentials never live in the code, so a pull cannot point anyone's
+// backend at someone else's local database.
 function getConnectionString() {
   if (process.env.DATABASE_URL) return process.env.DATABASE_URL;
-  const user = 'postgres';
-  const password = 'admin@123';
+  const user = process.env.DB_USER;
+  const password = process.env.DB_PASSWORD || '';
   const host = process.env.DB_HOST || 'localhost';
   const port = process.env.DB_PORT || '5432';
-  const database = 'Seyal_Updates_local';
+  const database = process.env.DB_DATABASE;
   if (!user || !database) return null;
   const encoded = password ? encodeURIComponent(password) : '';
   return `postgresql://${user}${encoded ? ':' + encoded : ''}@${host}:${port}/${database}`;
@@ -1200,6 +1203,15 @@ export async function dbEnsureTables() {
     console.log('DB: member_leaves table ensured.');
   } catch (err) {
     console.warn('dbEnsureTables: member_leaves:', err.message);
+  }
+
+  // Chat (db/chat.js): its own step, so a failure elsewhere never skips it.
+  try {
+    const { ensureChatTables } = await import('./chat.js');
+    await ensureChatTables();
+    console.log('DB: chat tables ensured.');
+  } catch (err) {
+    console.warn('dbEnsureTables: chat tables:', err.message);
   }
 }
 

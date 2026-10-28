@@ -26,6 +26,8 @@ import {
 } from './db/socialContent.js';
 import { openContentFile, shareStoredLinks, trashContentFile, uploadContentFile } from './driveContent.js';
 import multer from 'multer';
+import http from 'node:http';
+import { registerChatRoutes, attachChatSocket } from './chat.js';
 import {
   CourseError,
   createCourse,
@@ -649,6 +651,9 @@ function contentUploadAllowed(mime, originalName) {
 
 const CONTENT_FILE_KINDS = new Set(['poster', 'image', 'reference', 'media']);
 app.use(BASE_PATH, requireAuth, asyncMw(attachUserPermissions));
+
+// Chat: direct messages and admin-created groups (see chat.js / db/chat.js).
+registerChatRoutes(app, BASE_PATH);
 
 // Serve a user's avatar as a real, cacheable image. List/detail endpoints now
 // return a short `/users/:id/avatar` URL instead of inlining the base64 blob, so
@@ -3655,7 +3660,10 @@ async function start() {
     console.warn('Using in-memory data. Fix .env (DB_USER, DB_PASSWORD, DB_DATABASE, DB_HOST) and run db/schema.sql to use PostgreSQL.');
   }
 
-  app.listen(PORT, () => {
+  // One HTTP server carries both the REST API and the chat's live channel (Socket.IO).
+  const httpServer = http.createServer(app);
+  attachChatSocket(httpServer, allowedOrigins);
+  httpServer.listen(PORT, () => {
     console.log(`IT Updates backend listening on http://localhost:${PORT}`);
     if (isMailConfigured()) {
       console.log('Email configured (Gmail API). Deadline alerts enabled (hourly).');
