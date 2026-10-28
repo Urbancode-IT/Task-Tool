@@ -1099,7 +1099,8 @@ export async function dbEnsureTables() {
         ('ad', 'Ad', 3),
         ('carousel', 'Carousel', 4),
         ('gmb', 'GMB', 5),
-        ('website', 'Website', 6)
+        ('website', 'Website', 6),
+        ('curriculum', 'Curriculum', 7)
       ON CONFLICT (type_code) DO NOTHING;
     `);
     try {

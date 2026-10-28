@@ -1822,6 +1822,7 @@ const ITUpdatesMain = ({ currentUser, onLogout, scope = 'internal' }) => {
                       projects={projects}
                       assignees={isAdmin ? developers : undefined}
                       assigners={isAdmin ? managers : undefined}
+                      requireProject={isExternalScope}
                     />
                     <ViewSwitch view={allTasksView} onChange={setAllTasksView} />
                   </>
@@ -2478,6 +2479,9 @@ const ITUpdatesMain = ({ currentUser, onLogout, scope = 'internal' }) => {
           statusLabels={boardStatusLabels}
           onClose={closeTaskModal}
           onSave={handleSaveTask}
+          // Outside the Client CRM board an External task needs one of this sector's
+          // projects; without one it would be filed as Internal and vanish from here.
+          requireProject={isExternalScope && !isClientCrm}
           onRefresh={loadAllData}
           onError={(msg) => setError(msg)}
           canDelete={canDeleteTask(taskModal.task)}
@@ -2886,7 +2890,7 @@ function ProjectModal({ project, teammatesOptions, currentUser, defaultProjectTy
   );
 }
 
-export function TaskModal({ task, currentUser, projects, developers, managers, onClose, onSave, onRefresh, onError, canDelete = false, onDelete, team: teamProp = MODULE_TEAM, hideProject = false, hideTimer = false, statuses = DEFAULT_STATUSES, statusLabels = STATUS_LABELS }) {
+export function TaskModal({ task, currentUser, projects, developers, managers, onClose, onSave, onRefresh, onError, canDelete = false, onDelete, team: teamProp = MODULE_TEAM, hideProject = false, requireProject = false, hideTimer = false, statuses = DEFAULT_STATUSES, statusLabels = STATUS_LABELS }) {
   // Shadow the module default so every internal team reference follows the prop.
   // This lets other sectors (e.g. director tasks) reuse this modal unchanged.
   const MODULE_TEAM = teamProp;
@@ -3143,6 +3147,10 @@ export function TaskModal({ task, currentUser, projects, developers, managers, o
     }
     if (!String(form.assigned_to ?? '').trim()) {
       toastError('Please assign this task to a staff member.');
+      return;
+    }
+    if (requireProject && !form.project_id) {
+      toastError('Please choose a project for this task.');
       return;
     }
     // Existing tasks auto-save each edit; explicit submit only creates new ones.
@@ -3419,7 +3427,7 @@ export function TaskModal({ task, currentUser, projects, developers, managers, o
           </div>
           {!hideProject && (
             <label>
-              Project
+              {requireProject ? 'Project *' : 'Project'}
               <ProjectSearchSelect
                 projects={projects}
                 value={form.project_id}

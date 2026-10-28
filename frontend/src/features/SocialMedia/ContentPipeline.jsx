@@ -1036,7 +1036,7 @@ const CONSEQUENTIAL = new Set([
 ]);
 
 function exportContentCsv(rows, types = []) {
-  const header = ['#', 'Task ID', 'Category', 'Course', 'Campaign', 'Branch', 'Content Type', 'Stage', 'Status', 'Assigned To', 'Deadline', 'Platforms', 'Progress', 'Drive URL'];
+  const header = ['#', 'Task ID', 'Category', 'Course', 'Campaign', 'Branch', 'Content Type', 'Stage', 'Status', 'Assigned To', 'Start Date', 'End Date', 'Platforms', 'Progress', 'Drive URL'];
   const lines = rows.map((task, index) => {
     const cells = [
       index + 1,
@@ -1049,6 +1049,7 @@ function exportContentCsv(rows, types = []) {
       stageMeta(task.pipeline_stage).label,
       statusMeta(task.workflow_status).label,
       task.assignee || '',
+      formatDisplayDate(task.task_date) || '',
       formatDisplayDate(task.due_date) || '',
       (task.platforms || []).join(' '),
       `${Number(task.progress) || 0}%`,
@@ -1543,9 +1544,10 @@ export default function ContentPipeline({
       if (contentType && task.content_type !== contentType) return false;
       if (status && task.workflow_status !== status) return false;
       if (assignee && String(task.assigned_to) !== String(assignee)) return false;
-      const rowDate = String(task.production?.sheet_date || task.due_date || '').slice(0, 10);
-      if (dateFrom && (!rowDate || rowDate < dateFrom)) return false;
-      if (dateTo && (!rowDate || rowDate > dateTo)) return false;
+      const rowEnd = String(task.production?.sheet_date || task.due_date || '').slice(0, 10);
+      const rowStart = String(task.task_date || '').slice(0, 10) || rowEnd;
+      if (dateFrom && (!rowEnd || rowEnd < dateFrom)) return false;
+      if (dateTo && (!rowStart || rowStart > dateTo)) return false;
       if (!q) return true;
       const hay = `${task.code} ${task.title} ${task.campaign_name || ''} ${task.content_branch} ${task.production?.course_type || ''} ${task.production?.course || ''}`.toLowerCase();
       return hay.includes(q);
@@ -1989,8 +1991,22 @@ export default function ContentPipeline({
   const saveRowField = (taskId, field, value) => {
     const task = latestTask(taskId);
     if (!task) return;
+    if (field === 'start') {
+      const end = String(task.production?.sheet_date || task.due_date || '').slice(0, 10);
+      if (value && end && value > end) {
+        toastError('Start date cannot be after the end date.');
+        return;
+      }
+      patchRow(task.id, { task_date: value || null });
+      return;
+    }
     if (field === 'date') {
       const due = value || null;
+      const start = String(task.task_date || '').slice(0, 10);
+      if (due && start && due < start) {
+        toastError('End date cannot be before the start date.');
+        return;
+      }
       patchRow(task.id, {
         due_date: due,
         production: { ...(task.production || {}), sheet_date: due },
@@ -2199,6 +2215,7 @@ export default function ContentPipeline({
         task_description: 'Untitled',
         content_branch: '',
         content_type: '',
+        task_date: due,
         due_date: due,
         platforms: [],
         priority: 'medium',
@@ -2403,7 +2420,8 @@ export default function ContentPipeline({
               <div className="smc-lane-head smc-lane-head--pin">
                 <div className="smc-lane-label">#</div>
                 <div className="smc-lane-label">Delete</div>
-                <div className="smc-lane-label">Date</div>
+                <div className="smc-lane-label">Start date</div>
+                <div className="smc-lane-label">End date</div>
                 <div className="smc-lane-label">Branch</div>
                 <div className="smc-lane-label">Content Type</div>
                 <div className="smc-lane-label">Category</div>
@@ -2420,6 +2438,7 @@ export default function ContentPipeline({
               {sorted.length === 0 && <div className="smc-empty">No tasks</div>}
               {sorted.map((task, rowIndex) => {
                 const dateValue = String(task.production?.sheet_date || task.due_date || '').slice(0, 10);
+                const startValue = String(task.task_date || '').slice(0, 10);
                 const categoryValue = task.production?.course_type || '';
                 const courseValue = task.production?.course_id || '';
                 const rowCourses = coursesForCategory(categoryValue);
@@ -2442,8 +2461,19 @@ export default function ContentPipeline({
                       <input
                         type="date"
                         className="smc-inline"
+                        value={startValue}
+                        max={dateValue || undefined}
+                        aria-label="Start date"
+                        onChange={(event) => saveRowField(task.id, 'start', event.target.value)}
+                      />
+                    </div>
+                    <div className="smc-lane-meta">
+                      <input
+                        type="date"
+                        className="smc-inline"
                         value={dateValue}
-                        aria-label="Date"
+                        min={startValue || undefined}
+                        aria-label="End date"
                         onChange={(event) => saveRowField(task.id, 'date', event.target.value)}
                       />
                     </div>

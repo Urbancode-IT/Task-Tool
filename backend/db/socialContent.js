@@ -540,6 +540,9 @@ function validateCreate(body) {
   const topics = cleanText(body.task_description ?? body.brief, 8000) || title;
   const due = cleanText(body.due_date ?? body.dueDate, 10);
   if (due && !/^\d{4}-\d{2}-\d{2}$/.test(due)) throw new ContentError(400, 'Date is not valid.');
+  const start = cleanText(body.task_date ?? body.start_date, 10);
+  if (start && !/^\d{4}-\d{2}-\d{2}$/.test(start)) throw new ContentError(400, 'Start date is not valid.');
+  if (start && due && due < start) throw new ContentError(400, 'End date cannot be before the start date.');
   const branch = cleanText(body.content_branch, 100);
   const contentType = String(body.content_type || '').trim().toLowerCase();
   const platforms = parsePlatforms(body.platforms);
@@ -561,6 +564,7 @@ function validateCreate(body) {
     brief: topics,
     platforms,
     due,
+    start,
     priority: PRIORITIES.includes(priority) ? priority : 'medium',
     campaign: cleanText(body.campaign_name ?? body.objective, 255),
     objective: cleanText(body.objective ?? body.campaign_name, 2000),
@@ -667,7 +671,7 @@ export async function dbCreateContentTask(body, actorId) {
        platforms, objective, target_audience, key_message, cta, reference_urls, progress, draft_version,
        production_meta
      ) VALUES (
-       $1, $2, $3, 'content_pipeline', CURRENT_DATE, $4,
+       $1, $2, $3, 'content_pipeline', COALESCE($17::date, CURRENT_DATE), $4,
        $5, $5, $6,
        $7, $8, 'content_generation', 'in_progress', $9,
        $10::jsonb, $11, $12, $13, $14, $15, 0, 0,
@@ -690,6 +694,7 @@ export async function dbCreateContentTask(body, actorId) {
       data.cta,
       data.references,
       JSON.stringify(data.production),
+      data.start || null,
     ]
   );
   const taskId = rows[0]?.task_id;
@@ -719,6 +724,8 @@ const EDITABLE = {
   assigned_to: 'assigned_to',
   due_date: 'due_date',
   dueDate: 'due_date',
+  task_date: 'task_date',
+  start_date: 'task_date',
   progress: 'progress',
   draft_script: 'draft_script',
   draft_caption: 'draft_caption',
@@ -765,6 +772,11 @@ function normalizeField(column, value) {
     const due = cleanText(value, 10);
     if (due && !/^\d{4}-\d{2}-\d{2}$/.test(due)) throw new ContentError(400, 'Deadline must be a date.');
     return due;
+  }
+  if (column === 'task_date') {
+    const start = cleanText(value, 10);
+    if (start && !/^\d{4}-\d{2}-\d{2}$/.test(start)) throw new ContentError(400, 'Start date must be a date.');
+    return start || null;
   }
   if (column === 'scheduled_at') {
     if (value === '' || value == null) return null;

@@ -109,6 +109,7 @@ export function readTaskCsv(
     assignees = null,
     assigners = null,
     currentUser = null,
+    requireProject = false,
   } = {}
 ) {
   const grid = parseCsv(text);
@@ -208,6 +209,8 @@ export function readTaskCsv(
         projectId = projectByName.get(norm(projectText)) ?? null;
         if (projectId == null) errors.push(`Unknown project "${projectText}"`);
       }
+    } else if (requireProject) {
+      errors.push('Project is required here');
     }
 
     const assignee = resolvePerson(cell(r, 'assignee'), assignees, assigneeIndex, 'Assignee', errors);

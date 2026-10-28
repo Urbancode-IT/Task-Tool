@@ -13,7 +13,7 @@ import './BulkImportModal.css';
  *   statuses / statusLabel / projects — what the module accepts (see readTaskCsv)
  *   assignees / assigners — admins only: who the people columns may name
  */
-export default function BulkImportModal({ onClose, onImport, statuses, statusLabel, projects, assignees, assigners, currentUser }) {
+export default function BulkImportModal({ onClose, onImport, statuses, statusLabel, projects, assignees, assigners, currentUser, requireProject = false }) {
   const fileRef = useRef(null);
   const [fileName, setFileName] = useState('');
   const [parsed, setParsed] = useState(null); // { rows, error }
@@ -43,7 +43,7 @@ export default function BulkImportModal({ onClose, onImport, statuses, statusLab
       return;
     }
     const text = await file.text();
-    setParsed(readTaskCsv(text, { statuses, statusLabel, projects, assignees, assigners, currentUser }));
+    setParsed(readTaskCsv(text, { statuses, statusLabel, projects, assignees, assigners, currentUser, requireProject }));
   };
 
   const runImport = async () => {

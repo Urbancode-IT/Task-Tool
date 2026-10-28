@@ -6,7 +6,7 @@ import BulkImportModal from './BulkImportModal';
  * "Import" button for a task filter bar; opens the CSV import window. Used by My Tasks
  * and the All Tasks pages. Props are passed straight to BulkImportModal.
  */
-export default function BulkImportButton({ onImport, statuses, statusLabel, projects, assignees, assigners, currentUser }) {
+export default function BulkImportButton({ onImport, statuses, statusLabel, projects, assignees, assigners, currentUser, requireProject }) {
   const [open, setOpen] = useState(false);
   return (
     <>
@@ -24,6 +24,7 @@ export default function BulkImportButton({ onImport, statuses, statusLabel, proj
           assignees={assignees}
           assigners={assigners}
           currentUser={currentUser}
+          requireProject={requireProject}
         />
       ) : null}
     </>

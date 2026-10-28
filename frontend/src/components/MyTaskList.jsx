@@ -14,6 +14,7 @@ import { isTaskOverdue } from '../utils/taskDue';
 import { taskInPeriod, CURRENT_MONTH_PERIOD, EMPTY_PERIOD, isAllDates, periodEmptyText } from '../utils/taskPeriod';
 import { newestFirst } from '../utils/taskSort';
 import useTaskView from '../utils/useTaskView';
+import { toastInfo } from '../utils/toast';
 import PeriodFilter from './PeriodFilter';
 import BulkImportButton from './BulkImportButton';
 import './MyTaskList.css';
@@ -114,6 +115,26 @@ export default function MyTaskList({
   const [filters, setFilters] = useState({ status: '', priority: '', project: '', period: CURRENT_MONTH_PERIOD });
   const setFilter = (key, value) => setFilters((f) => ({ ...f, [key]: value }));
 
+  // A new task must not vanish after "Task created": a task for someone else is
+  // explained (it lands in their list), and filters that would hide one's own are cleared.
+  const handleQuickCreate = async (data) => {
+    const ok = await onQuickCreate(data);
+    if (!ok) return ok;
+    const meId = currentUser?.id ?? currentUser?.user_id;
+    if (data.assigned_to && String(data.assigned_to) !== String(meId)) {
+      const person = (assignees || []).find((m) => String(memberId(m)) === String(data.assigned_to));
+      toastInfo(`Assigned to ${person ? memberName(person) : 'another member'}. It shows in their My Tasks and in All Tasks.`);
+      return ok;
+    }
+    setFilters((f) => ({
+      ...f,
+      status: f.status && f.status !== data.status ? '' : f.status,
+      priority: f.priority && f.priority !== 'medium' ? '' : f.priority,
+      project: '',
+    }));
+    return ok;
+  };
+
   const projectOptions = useMemo(() => {
     const names = new Set(tasks.map((t) => (t.project_name || '').trim()).filter(Boolean));
     return [...names].sort((a, b) => a.localeCompare(b));
@@ -172,6 +193,7 @@ export default function MyTaskList({
             assignees={assignees}
             assigners={assigners}
             currentUser={currentUser}
+            requireProject={requireProject}
           />
         ) : null}
         {renderBoard ? <ViewSwitch view={view} onChange={setView} /> : null}
@@ -205,7 +227,7 @@ export default function MyTaskList({
       {onQuickCreate ? (
         <QuickCreateRow
           status={statuses[0] || 'todo'}
-          onCreate={onQuickCreate}
+          onCreate={handleQuickCreate}
           projects={projects}
           requireProject={requireProject}
           currentUser={currentUser}

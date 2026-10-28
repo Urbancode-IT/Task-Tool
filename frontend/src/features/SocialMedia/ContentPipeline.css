@@ -1088,7 +1088,7 @@ select.smc-inline option {
 
 .smc-board {
   --smc-col-num: 36px;
-  --smc-col-delete: 42px;
+  --smc-col-delete: 60px;
   --smc-col-date: 112px;
   --smc-col-branch: 96px;
   --smc-col-type: 88px;
@@ -1096,7 +1096,7 @@ select.smc-inline option {
   --smc-col-course: 132px;
   --smc-col-stage: 136px;
   --smc-pin-width: calc(
-    var(--smc-col-num) + var(--smc-col-delete) + var(--smc-col-date) + var(--smc-col-branch)
+    var(--smc-col-num) + var(--smc-col-delete) + 2 * var(--smc-col-date) + var(--smc-col-branch)
     + var(--smc-col-type) + var(--smc-col-category) + var(--smc-col-course) + var(--smc-col-stage)
   );
   --smc-scroll-width: calc(13 * var(--smc-col-stage));
@@ -1181,6 +1181,7 @@ select.smc-inline option {
   grid-template-columns:
     var(--smc-col-num)
     var(--smc-col-delete)
+    var(--smc-col-date)
     var(--smc-col-date)
     var(--smc-col-branch)
     var(--smc-col-type)

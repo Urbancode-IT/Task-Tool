@@ -75,6 +75,7 @@ function typeNames(task) {
   if (type === 'carousel') return { folder: 'Carousels', label: 'Carousel' };
   if (type === 'gmb') return { folder: 'GMB', label: 'GMB' };
   if (type === 'website') return { folder: 'Website', label: 'Website' };
+  if (type === 'curriculum') return { folder: 'Curriculum', label: 'Curriculum' };
   throw new ContentError(400, 'Set the content type before uploading.');
 }
 
@@ -228,7 +229,8 @@ function placeFor(task, mime, uploadStage) {
   if (status === 'needs_revision' || status === 'rejected') return { folder: 'Rework', kind: 'rework' };
   const designed = stage === 'designing_editing' && (mime.startsWith('image/') || mime.startsWith('video/'));
   const primary = (type === 'reel' && mime.startsWith('video/'))
-    || ((type === 'poster' || type === 'ad' || type === 'carousel' || type === 'gmb' || type === 'website') && mime.startsWith('image/'));
+    || ((type === 'poster' || type === 'ad' || type === 'carousel' || type === 'gmb' || type === 'website') && mime.startsWith('image/'))
+    || (type === 'curriculum' && (mime === 'application/pdf' || mime.startsWith('image/')));
   if (designed || (primary && FINAL_STAGES.has(stage))) return { folder: '', kind: 'final' };
   if (mime === 'application/pdf' || EARLY_STAGES.has(stage)) return { folder: 'Reference', kind: 'reference' };
   return { folder: 'Others', kind: 'others' };

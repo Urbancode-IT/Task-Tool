@@ -201,6 +201,7 @@ const CONTENT_TYPE_COLORS = {
   social_post: '#8b5cf6',
   video: '#f97316',
   ad_copy: '#ec4899',
+  curriculum: '#b45309',
 };
 
 const CHANNEL_COLORS = {
@@ -657,7 +658,7 @@ export default function SocialMediaMain({ currentUser, onLogout }) {
   // is the user's own. The pipeline records the creator as the assigner itself.
   const handleQuickCreateTask = async ({ title, assigned_to }) => {
     try {
-      const due = ymd(new Date().toISOString()) || localToday();
+      const due = localToday();
       await itUpdatesApi.createSocialContent({
         task_title: title,
         task_description: title,
@@ -1964,6 +1965,7 @@ function TaskModal({ task, currentUser, onClose, onSave, onRefresh, teamMembers,
               <option value="social_post">Social Post</option>
               <option value="video">Video/Reel</option>
               <option value="ad_copy">Ad Copy</option>
+              <option value="curriculum">Curriculum</option>
             </select>
           </label>
           <label>

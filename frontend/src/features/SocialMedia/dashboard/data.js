@@ -26,6 +26,7 @@ export const TYPES = [
   { key: 'poster', label: 'Poster', bg: '#E5F7F6', ink: '#0F9488' },
   { key: 'carousel', label: 'Carousel', bg: '#EEE8FF', ink: '#7C3AED' },
   { key: 'blog', label: 'Blog', bg: '#E5F7F6', ink: '#0F9488' },
+  { key: 'curriculum', label: 'Curriculum', bg: '#FEF3C7', ink: '#B45309' },
 ];
 
 export const STATUSES = [

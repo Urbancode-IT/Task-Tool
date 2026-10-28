@@ -54,6 +54,7 @@ export const CONTENT_TYPES = [
   { value: 'blog', label: 'Blog' },
   { value: 'image', label: 'Image' },
   { value: 'website', label: 'Website' },
+  { value: 'curriculum', label: 'Curriculum' },
 ];
 
 export const CONTENT_BRANCHES = [
