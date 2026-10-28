@@ -656,7 +656,11 @@ function DriveUploads({ task, onTask, onlyStage = '', readOnly = false, heading 
           ({ data } = await itUpdatesApi.uploadSocialContentFile(current, fileKind(file), file, report, onlyStage));
         } catch (err) {
           // One failed file does not stop the others in the selection.
-          failed.push(`${file.name}: ${err?.response?.data?.message || 'could not upload'}`);
+          // 413 comes from Nginx (client_max_body_size), before the request reaches Seyal.
+          const reason = err?.response?.status === 413
+            ? 'too large for the server upload limit (Nginx client_max_body_size)'
+            : err?.response?.data?.message || 'could not upload';
+          failed.push(`${file.name}: ${reason}`);
           continue;
         }
         saved += 1;
