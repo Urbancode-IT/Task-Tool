@@ -4,6 +4,8 @@ import cors from 'cors';
 import cookieParser from 'cookie-parser';
 import dotenv from 'dotenv';
 import path from 'path';
+import fs from 'node:fs';
+import os from 'node:os';
 import { fileURLToPath } from 'url';
 import bcrypt from 'bcrypt';
 import crypto from 'node:crypto';
@@ -16,6 +18,8 @@ import {
   dbDeleteContentTask,
   dbGetContentTask,
   dbRemoveContentDriveFile,
+  dbReadContentFile,
+  dbDeleteContentFile,
   listAssignableUsers,
   listContentTypes,
   sanitizeDriveFiles,
@@ -24,7 +28,14 @@ import {
   dbTransitionContentTask,
   dbUpdateContentTask,
 } from './db/socialContent.js';
-import { openContentFile, shareStoredLinks, trashContentFile, uploadContentFile } from './driveContent.js';
+import {
+  LOCAL_FILE_PREFIX,
+  isLocalFileId,
+  openContentFile,
+  shareStoredLinks,
+  trashContentFile,
+  uploadContentFile,
+} from './driveContent.js';
 import multer from 'multer';
 import http from 'node:http';
 import { registerChatRoutes, attachChatSocket } from './chat.js';
@@ -622,31 +633,42 @@ app.post('/api/integrations/inout/attendance', asyncMw(async (req, res) => {
 
 // ---- IT Updates API (JWT auth; any authenticated user can access — attach permissions for UI) ----
 const BASE_PATH = '/api/it-updates';
-const CONTENT_UPLOAD_MAX_BYTES = 100 * 1024 * 1024;
+const CONTENT_UPLOAD_MAX_MB = 500;
+const CONTENT_UPLOAD_MAX_BYTES = CONTENT_UPLOAD_MAX_MB * 1024 * 1024;
 
+// Large uploads (reels, videos) go to a temp file, not memory, then stream to Drive.
 const contentFileUpload = multer({
-  storage: multer.memoryStorage(),
+  storage: multer.diskStorage({ destination: os.tmpdir() }),
   limits: { fileSize: CONTENT_UPLOAD_MAX_BYTES },
 }).single('file');
 
 function receiveContentFile(req, res, next) {
   contentFileUpload(req, res, (err) => {
+    // The temp copy is removed once the request ends, whether it succeeded or not.
+    const tempPath = req.file?.path;
+    if (tempPath) res.on('close', () => fs.unlink(tempPath, () => {}));
     if (!err) return next();
     if (err.code === 'LIMIT_FILE_SIZE') {
-      return res.status(400).json({ message: 'File must be 100 MB or smaller.' });
+      return res.status(400).json({ message: `File must be ${CONTENT_UPLOAD_MAX_MB} MB or smaller.` });
     }
     return res.status(400).json({ message: 'Could not read the file.' });
   });
 }
 
-/** Block only obvious executables; browser MIME is often wrong/empty for HEIC/MOV/PSD. */
-const CONTENT_BLOCKED_EXT = /\.(exe|bat|cmd|com|msi|scr|ps1|sh|bash|dll|sys|js|mjs|cjs|vbs|wsf)$/i;
-
+/**
+ * Every file format is accepted (the files live in Drive). Safety is handled when a
+ * file is served back: only media and PDFs open inline, everything else downloads.
+ */
 function contentUploadAllowed(mime, originalName) {
   const name = String(originalName || '');
-  if (!name && !mime) return false;
-  if (CONTENT_BLOCKED_EXT.test(name)) return false;
-  return true;
+  return Boolean(name || mime);
+}
+
+/** Media and PDFs may open in the browser; SVG is excluded because it can run script. */
+function contentServesInline(mime) {
+  const type = String(mime || '').toLowerCase();
+  if (type === 'image/svg+xml') return false;
+  return /^(image|video|audio)\//.test(type) || type === 'application/pdf';
 }
 
 const CONTENT_FILE_KINDS = new Set(['poster', 'image', 'reference', 'media']);
@@ -1484,7 +1506,8 @@ app.delete(`${BASE_PATH}/social-content/:taskId`, async (req, res) => {
     const task = await dbGetContentTask(req.params.taskId);
     if (!task) return res.status(404).json({ message: 'Content task not found.' });
     const files = Array.isArray(task.production?.drive_files) ? task.production.drive_files : [];
-    for (const file of files) {
+    // Files stored in Seyal are removed with the row (ON DELETE CASCADE).
+    for (const file of files.filter((item) => !isLocalFileId(item?.id))) {
       try {
         await trashContentFile(file.id);
       } catch (err) {
@@ -1532,7 +1555,7 @@ app.post(`${BASE_PATH}/social-content/:taskId/files`, receiveContentFile, async 
       return res.status(400).json({ message: 'Choose a poster, image, or reference.' });
     }
     const file = req.file;
-    if (!file?.buffer?.length) return res.status(400).json({ message: 'Choose a file to upload.' });
+    if (!file?.path || !file.size) return res.status(400).json({ message: 'Choose a file to upload.' });
     const mime = String(file.mimetype || '').toLowerCase();
     if (!contentUploadAllowed(mime, file.originalname)) {
       return res.status(400).json({ message: 'That file type is not allowed for this upload.' });
@@ -1554,10 +1577,12 @@ app.post(`${BASE_PATH}/social-content/:taskId/files`, receiveContentFile, async 
       };
     }
     if (Object.keys(patch).length) task = await dbUpdateContentTask(task.id, patch);
+    // New files go to Google Drive. Files saved earlier in Seyal's database
+    // (seyal-file-* ids) still open and remove through the routes below.
     const stored = await uploadContentFile({
       task,
       kind,
-      buffer: file.buffer,
+      filePath: file.path,
       mime,
       originalName: file.originalname,
       stage: String(req.body?.stage || ''),
@@ -1578,9 +1603,23 @@ app.get(`${BASE_PATH}/social-content/:taskId/files/:fileId`, async (req, res) =>
     const known = sanitizeDriveFiles(task.production?.drive_files);
     const match = known.find((file) => file.id === req.params.fileId);
     if (!match) return res.status(404).json({ message: 'That file is not on this task.' });
-    const opened = await openContentFile(match.id);
-    res.setHeader('Content-Type', opened.mime || match.mime || 'application/octet-stream');
+    const local = isLocalFileId(match.id)
+      ? await dbReadContentFile(task.task_id ?? task.id, match.id.slice(LOCAL_FILE_PREFIX.length))
+      : null;
+    if (isLocalFileId(match.id) && !local) return res.status(404).json({ message: 'That file is no longer stored.' });
+    const opened = local ? { mime: local.mime_type } : await openContentFile(match.id);
+    const fileMime = opened.mime || match.mime || 'application/octet-stream';
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    if (contentServesInline(fileMime)) {
+      res.setHeader('Content-Type', fileMime);
+    } else {
+      // Any other format (HTML, scripts, archives…) is sent as a plain download.
+      const safeName = String(match.name || 'file').replace(/[^\w.\- ]+/g, '_');
+      res.setHeader('Content-Type', 'application/octet-stream');
+      res.setHeader('Content-Disposition', `attachment; filename="${safeName}"`);
+    }
     res.setHeader('Cache-Control', 'private, max-age=300');
+    if (local) return res.send(local.data);
     opened.stream.on('error', (err) => {
       console.error('Drive file stream:', err?.message || err);
       if (!res.headersSent) res.status(502).end();
@@ -1601,11 +1640,15 @@ app.delete(`${BASE_PATH}/social-content/:taskId/files/:fileId`, async (req, res)
     const known = sanitizeDriveFiles(task.production?.drive_files);
     const match = known.find((file) => file.id === req.params.fileId);
     if (!match) return res.status(404).json({ message: 'That file is not on this task.' });
-    await trashContentFile(match.id);
+    if (isLocalFileId(match.id)) {
+      await dbDeleteContentFile(task.task_id ?? task.id, match.id.slice(LOCAL_FILE_PREFIX.length));
+    } else {
+      await trashContentFile(match.id);
+    }
     const updated = await dbRemoveContentDriveFile(req.params.taskId, match.id);
     res.json(updated);
   } catch (err) {
-    sendContentError(res, err, 'Failed to remove the Drive file');
+    sendContentError(res, err, 'Failed to remove the file');
   }
 });
 

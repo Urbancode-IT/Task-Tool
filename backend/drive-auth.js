@@ -8,11 +8,12 @@ dotenv.config({ path: path.resolve('.env') });
 
 const PORT = 42813;
 const redirect = `http://127.0.0.1:${PORT}/oauth2callback`;
-const clientId = String(process.env.GOOGLE_DRIVE_CLIENT_ID || '').trim();
-const clientSecret = String(process.env.GOOGLE_DRIVE_CLIENT_SECRET || '').trim();
+// Falls back to Seyal's Gmail OAuth client when no Drive-specific client is set.
+const clientId = String(process.env.GOOGLE_DRIVE_CLIENT_ID || process.env.GMAIL_CLIENT_ID || '').trim();
+const clientSecret = String(process.env.GOOGLE_DRIVE_CLIENT_SECRET || process.env.GMAIL_CLIENT_SECRET || '').trim();
 
 if (!clientId || !clientSecret) {
-  console.error('Set GOOGLE_DRIVE_CLIENT_ID and GOOGLE_DRIVE_CLIENT_SECRET in backend/.env. Do not reuse the other project’s Gmail client.');
+  console.error('Set GMAIL_CLIENT_ID / GMAIL_CLIENT_SECRET (or GOOGLE_DRIVE_CLIENT_ID / GOOGLE_DRIVE_CLIENT_SECRET) in backend/.env.');
   process.exit(1);
 }
 

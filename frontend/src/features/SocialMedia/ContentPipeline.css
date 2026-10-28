@@ -1490,6 +1490,28 @@ select.smc-inline option {
   border: 1px solid #e2e8f0;
 }
 
+/* MP3 / audio rows: note icon in place of a thumbnail, Play loads the player. */
+.smc-drive-preview-audio {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #7c3aed;
+}
+
+.smc-drive-play {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+}
+
+.smc-drive-audio {
+  flex: none;
+  width: 240px;
+  max-width: 45%;
+  height: 36px;
+}
+
 .smc-drive-file-open {
   min-width: 0;
   flex: 1;

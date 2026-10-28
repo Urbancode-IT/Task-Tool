@@ -1,4 +1,4 @@
-import { Readable } from 'node:stream';
+import fs from 'node:fs';
 import { google } from 'googleapis';
 import { ContentError, PIPELINE_STAGES, POSTING_CHANNELS } from './db/socialContent.js';
 
@@ -10,10 +10,11 @@ let driveClient = null;
 
 function userAuth() {
   const refresh = String(process.env.GOOGLE_DRIVE_REFRESH_TOKEN || '').trim();
-  const clientId = String(process.env.GOOGLE_DRIVE_CLIENT_ID || '').trim();
-  const clientSecret = String(process.env.GOOGLE_DRIVE_CLIENT_SECRET || '').trim();
+  // Drive may share Seyal's Gmail OAuth client; the refresh token is Drive's own.
+  const clientId = String(process.env.GOOGLE_DRIVE_CLIENT_ID || process.env.GMAIL_CLIENT_ID || '').trim();
+  const clientSecret = String(process.env.GOOGLE_DRIVE_CLIENT_SECRET || process.env.GMAIL_CLIENT_SECRET || '').trim();
   if (!refresh || !clientId || !clientSecret) {
-    throw new ContentError(400, 'Connect this project’s own Google Drive app before uploading. The other project’s Google login is not used.');
+    throw new ContentError(400, 'Google Drive is not connected yet. Run "node drive-auth.js" in the backend folder, then restart the backend.');
   }
   const oauth = new google.auth.OAuth2(clientId, clientSecret);
   oauth.setCredentials({ refresh_token: refresh });
@@ -76,7 +77,10 @@ function typeNames(task) {
   if (type === 'gmb') return { folder: 'GMB', label: 'GMB' };
   if (type === 'website') return { folder: 'Website', label: 'Website' };
   if (type === 'curriculum') return { folder: 'Curriculum', label: 'Curriculum' };
-  throw new ContentError(400, 'Set the content type before uploading.');
+  if (!type) throw new ContentError(400, 'Set the content type before uploading.');
+  // Types added later in social_media_content_types get a folder named after them.
+  const label = type.replace(/[^a-z0-9]+/g, ' ').trim().replace(/\b\w/g, (c) => c.toUpperCase()) || 'Other';
+  return { folder: label, label };
 }
 
 function contentDate(task) {
@@ -210,8 +214,14 @@ export async function shareAnyone(fileId) {
   }
 }
 
+/** Ids of files stored in Seyal's own database (uploaded before the move to Drive). */
+export const LOCAL_FILE_PREFIX = 'seyal-file-';
+export const isLocalFileId = (id) => String(id || '').startsWith(LOCAL_FILE_PREFIX);
+
 export async function shareStoredLinks(task) {
-  const files = Array.isArray(task?.production?.drive_files) ? task.production.drive_files : [];
+  const all = Array.isArray(task?.production?.drive_files) ? task.production.drive_files : [];
+  const files = all.filter((file) => !isLocalFileId(file?.id));
+  if (!files.length) return;
   for (const file of files) {
     await shareAnyone(file?.id);
   }
@@ -236,10 +246,10 @@ function placeFor(task, mime, uploadStage) {
   return { folder: 'Others', kind: 'others' };
 }
 
-export async function uploadContentFile({ task, kind, buffer, mime, originalName, stage }) {
+export async function uploadContentFile({ task, kind, filePath, mime, originalName, stage }) {
   const fileMime = resolveUploadMime(mime, originalName);
   if (!KINDS.has(kind) && kind !== 'media') throw new ContentError(400, 'Choose a poster, image, or reference.');
-  if (!buffer?.length) throw new ContentError(400, 'Choose a file to upload.');
+  if (!filePath) throw new ContentError(400, 'Choose a file to upload.');
   const root = String(process.env.GOOGLE_DRIVE_FOLDER_ID || '').trim();
   if (!root) throw new ContentError(500, 'Google Drive folder is not configured.');
 
@@ -261,7 +271,7 @@ export async function uploadContentFile({ task, kind, buffer, mime, originalName
     const drive = await getDrive();
     const created = await drive.files.create({
       requestBody: { name, parents: [parent.id] },
-      media: { mimeType: fileMime || 'application/octet-stream', body: Readable.from(buffer) },
+      media: { mimeType: fileMime || 'application/octet-stream', body: fs.createReadStream(filePath) },
       fields: 'id, name, mimeType',
       supportsAllDrives: true,
     });

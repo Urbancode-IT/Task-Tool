@@ -485,7 +485,7 @@ function httpOrEmpty(value) {
 
 export function sanitizeDriveFiles(value) {
   if (!Array.isArray(value)) return [];
-  return value.slice(0, 40).map((file) => {
+  return value.slice(0, 200).map((file) => {
     const id = String(file?.id || '').trim();
     if (!/^[A-Za-z0-9_-]{8,}$/.test(id)) return null;
     const kind = ['image', 'poster', 'reference', 'rework', 'others', 'final'].includes(file?.kind) ? file.kind : 'others';
@@ -1201,6 +1201,21 @@ async function writeDriveFiles(task, files, folderUrl) {
     [task.task_id, JSON.stringify(production), production.drive_folder_url || null]
   );
   return dbGetContentTask(task.task_id);
+}
+
+/** Files saved in Seyal's database before uploads moved to Google Drive (seyal-file-* ids). */
+export async function dbReadContentFile(taskId, fileId) {
+  const p = getPool();
+  const { rows } = await p.query(
+    `SELECT file_name, mime_type, data FROM social_media_content_files WHERE task_id = $1 AND file_id = $2`,
+    [taskId, fileId]
+  );
+  return rows[0] || null;
+}
+
+export async function dbDeleteContentFile(taskId, fileId) {
+  const p = getPool();
+  await p.query(`DELETE FROM social_media_content_files WHERE task_id = $1 AND file_id = $2`, [taskId, fileId]);
 }
 
 export async function dbAddContentDriveFile(taskId, file, folderUrl) {

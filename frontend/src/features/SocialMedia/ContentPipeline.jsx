@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useSta
 import {
   MdAdd,
   MdAssignment,
+  MdAudiotrack,
   MdCheckCircle,
   MdClose,
   MdDelete,
@@ -14,6 +15,7 @@ import {
   MdMoreVert,
   MdMovie,
   MdPalette,
+  MdPlayArrow,
   MdScheduleSend,
   MdSearch,
   MdStorefront,
@@ -471,6 +473,43 @@ function isPreviewVideo(file) {
     || /\.(mp4|webm|mov|m4v|avi|mkv|mpeg|mpg|3gp)$/i.test(file?.name || '');
 }
 
+function isPreviewAudio(file) {
+  return String(file?.mime || '').startsWith('audio/')
+    || /\.(mp3|wav|m4a|aac|ogg|oga|flac|opus)$/i.test(file?.name || '');
+}
+
+/** MP3 and other audio: loads only when Play is pressed, then shows the player. */
+function AudioPreview({ taskId, file }) {
+  const [src, setSrc] = useState('');
+  const [loading, setLoading] = useState(false);
+  const urlRef = useRef('');
+
+  useEffect(() => () => {
+    if (urlRef.current) URL.revokeObjectURL(urlRef.current);
+  }, []);
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const res = await itUpdatesApi.getSocialContentFile(taskId, file.id);
+      urlRef.current = URL.createObjectURL(res.data);
+      setSrc(urlRef.current);
+    } catch (err) {
+      toastError(err?.response?.data?.message || 'Could not load this audio file.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (src) return <audio className="smc-drive-audio" src={src} controls autoPlay />;
+  return (
+    <button type="button" className="smc-link smc-drive-play" disabled={loading} onClick={load}>
+      <MdPlayArrow size={16} />
+      {loading ? 'Loading…' : 'Play'}
+    </button>
+  );
+}
+
 function DriveFilePreview({ taskId, file, localUrl }) {
   const image = isPreviewImage(file);
   const video = !image && isPreviewVideo(file);
@@ -504,6 +543,34 @@ function DriveFilePreview({ taskId, file, localUrl }) {
   return <img className="smc-drive-preview" src={src} alt="" />;
 }
 
+/**
+ * Files kept in Seyal (no Drive link) are fetched with the signed-in session.
+ * Media and PDFs open in a new tab; every other format downloads.
+ */
+async function openStoredFile(taskId, file) {
+  // Opened before the fetch so the browser does not treat it as an unrequested pop-up.
+  const inline = isPreviewImage(file) || isPreviewVideo(file) || isPreviewAudio(file) || /\.pdf$/i.test(file?.name || '');
+  const tab = inline ? window.open('', '_blank') : null;
+  try {
+    const res = await itUpdatesApi.getSocialContentFile(taskId, file.id);
+    const url = URL.createObjectURL(res.data);
+    if (tab) {
+      tab.location.href = url;
+    } else {
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = file.name || 'file';
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+    }
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+  } catch (err) {
+    tab?.close();
+    toastError(err?.response?.data?.message || 'Could not open this file.');
+  }
+}
+
 function fileLabel(file, onlyStage) {
   if (onlyStage === 'designing_editing' || file?.kind === 'final') return 'Design';
   if (file?.kind === 'reference') return 'Reference';
@@ -511,6 +578,9 @@ function fileLabel(file, onlyStage) {
   if (file?.kind === 'poster' || file?.kind === 'image') return 'Design';
   return 'File';
 }
+
+// Per-file upload limit; matches CONTENT_UPLOAD_MAX_MB in backend/server.js.
+const MAX_UPLOAD_MB = 500;
 
 function fileKind(file) {
   // Accept any media/design file; server also resolves empty/octet-stream MIME by extension.
@@ -553,29 +623,43 @@ function DriveUploads({ task, onTask, onlyStage = '', readOnly = false, heading 
     const chosen = [...(list || [])];
     if (!chosen.length) return;
     setError('');
-    const tooBig = chosen.find((file) => file.size > 100 * 1024 * 1024);
-    if (tooBig) {
-      setError('Each file must be 100 MB or smaller.');
+    // Files over the limit are skipped; the rest of the selection still uploads.
+    const failed = chosen
+      .filter((file) => file.size > MAX_UPLOAD_MB * 1024 * 1024)
+      .map((file) => `${file.name}: larger than ${MAX_UPLOAD_MB} MB`);
+    const queue = chosen.filter((file) => file.size <= MAX_UPLOAD_MB * 1024 * 1024);
+    if (!queue.length) {
+      setError(failed.join(' · '));
       return;
     }
     setBusy(true);
     let current = task;
+    let saved = 0;
     try {
-      for (let index = 0; index < chosen.length; index += 1) {
-        const file = chosen[index];
+      for (let index = 0; index < queue.length; index += 1) {
+        const file = queue[index];
+        const count = queue.length;
         const report = (loadedPercent) => {
           if (loadedPercent == null) {
-            setProgress({ name: file.name, index: index + 1, count: chosen.length, percent: null, saving: true });
+            setProgress({ name: file.name, index: index + 1, count, percent: null, saving: true });
             return;
           }
           const saving = loadedPercent >= 100;
           const portion = Math.min(95, loadedPercent);
-          const percent = Math.round(((index + portion / 100) / chosen.length) * 100);
-          setProgress({ name: file.name, index: index + 1, count: chosen.length, percent, saving });
+          const percent = Math.round(((index + portion / 100) / count) * 100);
+          setProgress({ name: file.name, index: index + 1, count, percent, saving });
         };
         report(0);
         const previousIds = new Set((current?.production?.drive_files || []).map((item) => item.id));
-        const { data } = await itUpdatesApi.uploadSocialContentFile(current, fileKind(file), file, report, onlyStage);
+        let data;
+        try {
+          ({ data } = await itUpdatesApi.uploadSocialContentFile(current, fileKind(file), file, report, onlyStage));
+        } catch (err) {
+          // One failed file does not stop the others in the selection.
+          failed.push(`${file.name}: ${err?.response?.data?.message || 'could not upload'}`);
+          continue;
+        }
+        saved += 1;
         const added = (data?.production?.drive_files || []).find((item) => !previousIds.has(item.id));
         if (added && /^(image|video)\//.test(file.type || '')) {
           localPreviews.current.set(added.id, URL.createObjectURL(file));
@@ -598,16 +682,17 @@ function DriveUploads({ task, onTask, onlyStage = '', readOnly = false, heading 
         setProgress({
           name: file.name,
           index: index + 1,
-          count: chosen.length,
-          percent: Math.round(((index + 1) / chosen.length) * 100),
+          count,
+          percent: Math.round(((index + 1) / count) * 100),
           saving: false,
         });
       }
-      toastSuccess('Saved to Drive');
-    } catch (err) {
-      const message = err?.response?.data?.message || 'Could not upload to Drive.';
-      setError(message);
-      toastError(message);
+      if (saved) toastSuccess(saved === 1 ? 'File uploaded' : `${saved} files uploaded`);
+      if (failed.length) {
+        setError(failed.join(' · '));
+        // A single failure names its reason; several are listed under the upload box.
+        toastError(failed.length === 1 ? failed[0] : `${failed.length} files could not be uploaded`);
+      }
     } finally {
       setBusy(false);
       setProgress(null);
@@ -618,7 +703,7 @@ function DriveUploads({ task, onTask, onlyStage = '', readOnly = false, heading 
     if (readOnly) return;
     if (!(await confirmDialog({
       title: 'Remove this file?',
-      message: file.name || 'It will be removed from Drive.',
+      message: file.name || 'It will be removed from this task.',
       confirmLabel: 'Remove',
       danger: true,
     }))) return;
@@ -677,7 +762,7 @@ function DriveUploads({ task, onTask, onlyStage = '', readOnly = false, heading 
           ) : (
             <>
               <span>Drop files here</span>
-              <small>or click to browse (max 100 MB)</small>
+              <small>or click to browse (max {MAX_UPLOAD_MB} MB per file)</small>
             </>
           )}
           <input
@@ -697,19 +782,33 @@ function DriveUploads({ task, onTask, onlyStage = '', readOnly = false, heading 
         <ul className="smc-drive-files">
           {files.map((file) => (
             <li key={file.id}>
-              <a className="smc-drive-file-open" href={file.url} target="_blank" rel="noreferrer">
+              <a
+                className="smc-drive-file-open"
+                href={file.url || '#'}
+                target="_blank"
+                rel="noreferrer"
+                onClick={file.url ? undefined : (event) => {
+                  event.preventDefault();
+                  openStoredFile(task.id, file);
+                }}
+              >
                 {(isPreviewImage(file) || isPreviewVideo(file)) ? (
                   <DriveFilePreview
                     taskId={task.id}
                     file={file}
                     localUrl={previewVersion >= 0 ? localPreviews.current.get(file.id) : ''}
                   />
+                ) : isPreviewAudio(file) ? (
+                  <span className="smc-drive-preview smc-drive-preview-empty smc-drive-preview-audio">
+                    <MdAudiotrack size={22} />
+                  </span>
                 ) : <span className="smc-drive-preview smc-drive-preview-empty" />}
                 <span className="smc-drive-file-copy">
                   <strong>{fileLabel(file, onlyStage)}</strong>
                   <span>{file.name}</span>
                 </span>
               </a>
+              {isPreviewAudio(file) ? <AudioPreview taskId={task.id} file={file} /> : null}
               {!readOnly ? (
                 <button type="button" className="smc-link" disabled={busy} onClick={() => remove(file)}>Remove</button>
               ) : null}

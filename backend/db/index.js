@@ -1084,6 +1084,19 @@ export async function dbEnsureTables() {
     `);
     await p.query(`CREATE INDEX IF NOT EXISTS idx_sm_content_events_task ON social_media_content_events(task_id, created_at);`);
     await p.query(`
+      CREATE TABLE IF NOT EXISTS social_media_content_files (
+        file_id SERIAL PRIMARY KEY,
+        task_id INT NOT NULL REFERENCES social_media_tasks(task_id) ON DELETE CASCADE,
+        file_name VARCHAR(255) NOT NULL,
+        mime_type VARCHAR(120),
+        size_bytes BIGINT NOT NULL DEFAULT 0,
+        data BYTEA NOT NULL,
+        uploaded_by INT REFERENCES users(user_id) ON DELETE SET NULL,
+        created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+    await p.query(`CREATE INDEX IF NOT EXISTS idx_sm_content_files_task ON social_media_content_files(task_id);`);
+    await p.query(`
       CREATE TABLE IF NOT EXISTS social_media_content_types (
         type_code VARCHAR(40) PRIMARY KEY,
         type_label VARCHAR(80) NOT NULL,
