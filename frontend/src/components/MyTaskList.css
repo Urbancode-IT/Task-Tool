@@ -484,7 +484,7 @@
   gap: 1px;
 }
 
-.mtl-create-person span {
+.mtl-create-person > span {
   color: var(--clr-slate-400);
   font-size: 0.66rem;
   font-weight: 600;
@@ -529,4 +529,45 @@
 
 .mtl-empty-action:hover {
   background: var(--clr-primary-50, #eaf2fd);
+}
+
+/* Several assignees: overlapped avatars, with "+n" for the rest. */
+.mtl-avatar-stack {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+}
+
+.mtl-avatar-stack .mtl-avatar {
+  border: 2px solid #fff;
+  box-sizing: content-box;
+}
+
+.mtl-avatar-stack .mtl-avatar + .mtl-avatar {
+  margin-left: -0.55rem;
+}
+
+.mtl-avatar-more {
+  font-size: 0.66rem;
+}
+
+/* The assignee picker on "+ Create" is wider than the other pickers and compact. */
+.mtl-create-assignees {
+  flex: 0 1 13rem;
+}
+
+.mtl-create-assignees .mp-trigger {
+  min-height: 0;
+  padding: 0.15rem 0.35rem;
+  font-size: 0.8rem;
+}
+
+.mtl-create-assignees .mp-menu {
+  min-width: 14rem;
+}
+
+@media (max-width: 760px) {
+  .mtl-row .mtl-avatar-stack {
+    display: none;
+  }
 }

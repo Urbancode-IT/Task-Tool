@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   MdAdd,
   MdAssignment,
@@ -12,6 +13,7 @@ import {
   MdExpandMore,
   MdFactCheck,
   MdFileDownload,
+  MdFilterList,
   MdMoreVert,
   MdMovie,
   MdPalette,
@@ -100,7 +102,9 @@ const BOARD_COLUMNS = [
   })),
 ];
 
-const PINNED_COLUMNS = BOARD_COLUMNS.filter((column) => column.key === 'content_generation');
+const PIN_WIDTH_KEY = 'smc-board-pin-width';
+const PIN_MIN_WIDTH = 160;
+const PINNED_COLUMNS =BOARD_COLUMNS.filter((column) => column.key === 'content_generation');
 const SCROLL_COLUMNS = BOARD_COLUMNS.filter((column) => column.key !== 'content_generation');
 
 function columnIcon(key) {
@@ -460,6 +464,183 @@ function FilterSearch({
         </ul>
       )}
     </div>
+  );
+}
+
+/**
+ * Excel-style column filter: a small funnel icon in a column heading. Clicking it
+ * opens a panel under the heading. The panel is rendered on document.body with fixed
+ * positioning because the board columns clip anything that overflows them.
+ */
+function ColumnFilter({ label, active, children }) {
+  const [open, setOpen] = useState(false);
+  const [pos, setPos] = useState(null);
+  const buttonRef = useRef(null);
+  const panelRef = useRef(null);
+
+  const toggle = () => {
+    if (open) {
+      setOpen(false);
+      return;
+    }
+    const rect = buttonRef.current.getBoundingClientRect();
+    const width = 240;
+    setPos({
+      top: rect.bottom + 6,
+      left: Math.max(8, Math.min(rect.left, window.innerWidth - width - 8)),
+      width,
+    });
+    setOpen(true);
+  };
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const onDown = (event) => {
+      if (panelRef.current?.contains(event.target) || buttonRef.current?.contains(event.target)) return;
+      setOpen(false);
+    };
+    const onKey = (event) => {
+      if (event.key === 'Escape') setOpen(false);
+    };
+    // The panel is fixed in place, so close it rather than let it drift when the page scrolls.
+    const onScroll = (event) => {
+      if (!panelRef.current?.contains(event.target)) setOpen(false);
+    };
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
+    window.addEventListener('scroll', onScroll, true);
+    window.addEventListener('resize', onScroll);
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      document.removeEventListener('keydown', onKey);
+      window.removeEventListener('scroll', onScroll, true);
+      window.removeEventListener('resize', onScroll);
+    };
+  }, [open]);
+
+  return (
+    <>
+      <span className="smc-col-filter-label">{label}</span>
+      <button
+        type="button"
+        ref={buttonRef}
+        className={`smc-col-filter-btn${active ? ' active' : ''}${open ? ' open' : ''}`}
+        aria-label={`Filter ${label}`}
+        aria-expanded={open}
+        title={active ? `${label}: filtered` : `Filter ${label}`}
+        onClick={toggle}
+      >
+        <MdFilterList size={14} />
+      </button>
+      {open && pos ? createPortal(
+        <div
+          ref={panelRef}
+          className="smc-col-filter-panel"
+          style={{ top: pos.top, left: pos.left, width: pos.width }}
+          role="dialog"
+          aria-label={`Filter ${label}`}
+        >
+          {children(() => setOpen(false))}
+        </div>,
+        document.body
+      ) : null}
+    </>
+  );
+}
+
+const EMPTY_DATE_FILTER = { date: '' };
+
+/** True when a row's yyyy-mm-dd value is the filter's date (no date set = no filter). */
+function dateMatches(value, filter) {
+  if (!filter?.date) return true;
+  return value === filter.date;
+}
+
+/** List of values for a ColumnFilter: a search box, "All", then one entry per value. */
+// A column-heading list of values. Single (default): value is one value, '' for all,
+// and picking closes the panel. multiple: value is an array ([] for all), each pick
+// ticks or unticks a value and the panel stays open until Done.
+function ColumnFilterOptions({ value, onChange, options, allLabel, close, multiple = false }) {
+  const [q, setQ] = useState('');
+  const shown = useMemo(() => {
+    const text = q.trim().toLowerCase();
+    return text ? options.filter((item) => String(item.label).toLowerCase().includes(text)) : options;
+  }, [options, q]);
+  const pick = (next) => {
+    onChange(next);
+    close();
+  };
+  if (multiple) {
+    const chosen = (Array.isArray(value) ? value : []).map(String);
+    const toggle = (item) => {
+      const key = String(item);
+      onChange(chosen.includes(key) ? chosen.filter((v) => v !== key) : [...chosen, key]);
+    };
+    return (
+      <>
+        <input
+          className="smc-col-filter-search"
+          value={q}
+          onChange={(event) => setQ(event.target.value)}
+          placeholder="Search…"
+          aria-label="Search values"
+          autoFocus
+        />
+        <ul className="smc-col-filter-list smc-col-filter-list--multi">
+          <li>
+            <label className={!chosen.length ? 'active' : ''}>
+              <input type="checkbox" checked={!chosen.length} onChange={() => onChange([])} />
+              {allLabel}
+            </label>
+          </li>
+          {shown.map((item) => {
+            const on = chosen.includes(String(item.value));
+            return (
+              <li key={String(item.value)}>
+                <label className={on ? 'active' : ''}>
+                  <input type="checkbox" checked={on} onChange={() => toggle(item.value)} />
+                  {item.label}
+                </label>
+              </li>
+            );
+          })}
+          {shown.length === 0 && <li className="smc-col-filter-empty">No matches</li>}
+        </ul>
+        <div className="smc-col-filter-actions">
+          <button type="button" className="smc-btn smc-btn-ghost" onClick={() => onChange([])}>Clear</button>
+          <button type="button" className="smc-btn" onClick={close}>Done</button>
+        </div>
+      </>
+    );
+  }
+  return (
+    <>
+      <input
+        className="smc-col-filter-search"
+        value={q}
+        onChange={(event) => setQ(event.target.value)}
+        placeholder="Search…"
+        aria-label="Search values"
+        autoFocus
+      />
+      <ul className="smc-col-filter-list">
+        <li>
+          <button type="button" className={!value ? 'active' : ''} onClick={() => pick('')}>{allLabel}</button>
+        </li>
+        {shown.map((item) => (
+          <li key={String(item.value)}>
+            <button
+              type="button"
+              className={String(value) === String(item.value) ? 'active' : ''}
+              onClick={() => pick(item.value)}
+            >
+              {item.label}
+            </button>
+          </li>
+        ))}
+        {shown.length === 0 && <li className="smc-col-filter-empty">No matches</li>}
+      </ul>
+    </>
   );
 }
 
@@ -1139,7 +1320,7 @@ const CONSEQUENTIAL = new Set([
 ]);
 
 function exportContentCsv(rows, types = []) {
-  const header = ['#', 'Task ID', 'Category', 'Course', 'Campaign', 'Branch', 'Content Type', 'Stage', 'Status', 'Assigned To', 'Start Date', 'End Date', 'Platforms', 'Progress', 'Drive URL'];
+  const header = ['#', 'Task ID', 'Category', 'Course', 'Campaign', 'Branch', 'Content Type', 'Stage', 'Status', 'Assigned To', 'Start Date', 'End Date', 'Publish Date', 'Platforms', 'Progress', 'Drive URL'];
   const lines = rows.map((task, index) => {
     const cells = [
       index + 1,
@@ -1154,6 +1335,7 @@ function exportContentCsv(rows, types = []) {
       task.assignee || '',
       formatDisplayDate(task.task_date) || '',
       formatDisplayDate(task.due_date) || '',
+      formatDisplayDate(task.publish_date) || '',
       (task.platforms || []).join(' '),
       `${Number(task.progress) || 0}%`,
       task.drive_url || '',
@@ -1497,16 +1679,28 @@ export default function ContentPipeline({
   const [notice, setNotice] = useState('');
   const [query, setQuery] = useState('');
   const debouncedQuery = useDebouncedValue(query, 200);
-  const [branch, setBranch] = useState('');
+  // Branch column filter: any number of branches ([] = all).
+  const [branch, setBranch] = useState([]);
   const [contentType, setContentType] = useState('');
   const [status, setStatus] = useState('');
   const [stageFilter, setStageFilter] = useState('');
   const [showStages, setShowStages] = useState(false);
   const [assignee, setAssignee] = useState('');
-  const [dateFrom, setDateFrom] = useState('');
-  const [dateTo, setDateTo] = useState('');
+  // Assigned by = the person who created the row (created_by).
+  const [assignedBy, setAssignedBy] = useState('');
+  // Start, End and Publish date column filters: one date each, matched exactly.
+  const [startFilter, setStartFilter] = useState(EMPTY_DATE_FILTER);
+  const [endFilter, setEndFilter] = useState(EMPTY_DATE_FILTER);
+  const [publishFilter, setPublishFilter] = useState(EMPTY_DATE_FILTER);
+  // Column-heading filters with no top-bar equivalent.
+  const [category, setCategory] = useState('');
+  const [course, setCourse] = useState('');
   const [menuFor, setMenuFor] = useState(null);
   const [adding, setAdding] = useState(false);
+  // Delete mode: the # column turns into tickboxes; ticked rows are deleted together.
+  const [deleteMode, setDeleteMode] = useState(false);
+  const [picked, setPicked] = useState(() => new Set());
+  const [deleting, setDeleting] = useState(false);
   const [selected, setSelected] = useState(null);
   const [viewStage, setViewStage] = useState(null);
   const [events, setEvents] = useState([]);
@@ -1524,6 +1718,64 @@ export default function ContentPipeline({
   const pinScrollRef = useRef(null);
   const stageScrollRef = useRef(null);
   const syncingScroll = useRef(false);
+  const boardFrameRef = useRef(null);
+  // Width of the left pane after the divider is dragged; null keeps the CSS default.
+  // Remembered per browser, so each person keeps their own split.
+  const [pinWidth, setPinWidth] = useState(() => {
+    try {
+      const stored = Number(localStorage.getItem(PIN_WIDTH_KEY));
+      return stored > 0 ? stored : null;
+    } catch {
+      return null;
+    }
+  });
+
+  const savePinWidth = (width) => {
+    setPinWidth(width);
+    try {
+      if (width) localStorage.setItem(PIN_WIDTH_KEY, String(Math.round(width)));
+      else localStorage.removeItem(PIN_WIDTH_KEY);
+    } catch {
+      // Storage can be blocked; the split then lasts only for this visit.
+    }
+  };
+
+  // The left pane can shrink to PIN_MIN_WIDTH, and grow until either its columns are
+  // all showing or the right side is down to PIN_MIN_WIDTH.
+  const clampPinWidth = (width) => {
+    const frame = boardFrameRef.current;
+    const content = pinScrollRef.current?.firstElementChild?.offsetWidth || Infinity;
+    const max = Math.min(content, (frame?.clientWidth || Infinity) - PIN_MIN_WIDTH);
+    return Math.round(Math.max(PIN_MIN_WIDTH, Math.min(width, max)));
+  };
+
+  const startSplitDrag = (event) => {
+    const frame = boardFrameRef.current;
+    if (!frame || event.button !== 0) return;
+    event.preventDefault();
+    const frameLeft = frame.getBoundingClientRect().left;
+    let latest = pinWidth;
+    const move = (moveEvent) => {
+      latest = clampPinWidth(moveEvent.clientX - frameLeft);
+      setPinWidth(latest);
+    };
+    const stop = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', stop);
+      document.body.classList.remove('smc-resizing');
+      savePinWidth(latest);
+    };
+    document.body.classList.add('smc-resizing');
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', stop);
+  };
+
+  const nudgeSplit = (event) => {
+    if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+    event.preventDefault();
+    const current = pinWidth || pinScrollRef.current?.offsetWidth || 0;
+    savePinWidth(clampPinWidth(current + (event.key === 'ArrowRight' ? 32 : -32)));
+  };
 
   const syncBoardScroll = (source) => (event) => {
     if (syncingScroll.current) return;
@@ -1643,19 +1895,48 @@ export default function ContentPipeline({
   const matched = useMemo(() => {
     const q = debouncedQuery.trim().toLowerCase();
     return items.filter((task) => {
-      if (branch && task.content_branch !== branch) return false;
+      if (branch.length && !branch.includes(String(task.content_branch || ''))) return false;
       if (contentType && task.content_type !== contentType) return false;
+      if (category && (task.production?.course_type || '') !== category) return false;
+      if (course && (task.production?.course || '') !== course) return false;
       if (status && task.workflow_status !== status) return false;
       if (assignee && String(task.assigned_to) !== String(assignee)) return false;
+      if (assignedBy && String(task.created_by) !== String(assignedBy)) return false;
       const rowEnd = String(task.production?.sheet_date || task.due_date || '').slice(0, 10);
       const rowStart = String(task.task_date || '').slice(0, 10) || rowEnd;
-      if (dateFrom && (!rowEnd || rowEnd < dateFrom)) return false;
-      if (dateTo && (!rowStart || rowStart > dateTo)) return false;
+      if (!dateMatches(rowStart, startFilter)) return false;
+      if (!dateMatches(rowEnd, endFilter)) return false;
+      if (!dateMatches(String(task.publish_date || '').slice(0, 10), publishFilter)) return false;
       if (!q) return true;
       const hay = `${task.code} ${task.title} ${task.campaign_name || ''} ${task.content_branch} ${task.production?.course_type || ''} ${task.production?.course || ''}`.toLowerCase();
       return hay.includes(q);
     });
-  }, [items, debouncedQuery, branch, contentType, status, assignee, dateFrom, dateTo]);
+  }, [items, debouncedQuery, branch, contentType, category, course, status, assignee, assignedBy, startFilter, endFilter, publishFilter]);
+
+  // Everyone who created a row on the board, including people no longer in the team list.
+  const assignerChoices = useMemo(() => {
+    const names = new Map(people.map((person) => [String(person.user_id), person.username]));
+    const ids = new Set();
+    items.forEach((task) => {
+      if (task.created_by == null) return;
+      const id = String(task.created_by);
+      ids.add(id);
+      if (!names.has(id) && task.requester) names.set(id, task.requester);
+    });
+    return [...ids]
+      .map((id) => ({ value: id, label: names.get(id) || `User ${id}` }))
+      .sort((a, b) => a.label.localeCompare(b.label));
+  }, [items, people]);
+
+  // Course names on the board, narrowed to the chosen category when there is one.
+  const courseChoices = useMemo(() => {
+    const names = new Set();
+    items.forEach((task) => {
+      const name = task.production?.course;
+      if (name && (!category || task.production?.course_type === category)) names.add(name);
+    });
+    return [...names].sort((a, b) => a.localeCompare(b)).map((name) => ({ value: name, label: name }));
+  }, [items, category]);
 
   const filtered = useMemo(() => {
     if (!stageFilter) return matched;
@@ -1710,6 +1991,17 @@ export default function ContentPipeline({
     window.addEventListener('resize', align);
     return () => window.removeEventListener('resize', align);
   }, [sorted, loading]);
+
+  // Open the left pane scrolled so its first visible column is Content Type; the #,
+  // date and branch columns sit off to the left until it is scrolled back.
+  useLayoutEffect(() => {
+    const pin = pinScrollRef.current;
+    if (loading || !pin) return;
+    const start = pin.querySelector('[data-pin-start]');
+    pin.scrollLeft = start
+      ? start.getBoundingClientRect().left - pin.getBoundingClientRect().left + pin.scrollLeft
+      : pin.scrollWidth;
+  }, [loading]);
 
   const columnCounts = useMemo(() => {
     const counts = Object.fromEntries(BOARD_COLUMNS.map((column) => [column.key, 0]));
@@ -2116,6 +2408,15 @@ export default function ContentPipeline({
       });
       return;
     }
+    if (field === 'publish') {
+      const start = String(task.task_date || '').slice(0, 10);
+      if (value && start && value < start) {
+        toastError('Publish date cannot be before the start date.');
+        return;
+      }
+      patchRow(task.id, { publish_date: value || null });
+      return;
+    }
     if (field === 'branch') {
       patchRow(task.id, { content_branch: value || null });
       return;
@@ -2287,24 +2588,62 @@ export default function ContentPipeline({
     }
   };
 
-  const removeRow = async (task) => {
-    const label = task.code || task.title || 'This row';
+  const exitDeleteMode = () => {
+    setDeleteMode(false);
+    setPicked(new Set());
+  };
+
+  const togglePicked = (taskId) => {
+    setPicked((prev) => {
+      const next = new Set(prev);
+      const key = String(taskId);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+
+  // Header tickbox: selects or clears every row currently shown (after filters).
+  const allShownPicked = sorted.length > 0 && sorted.every((task) => picked.has(String(task.id)));
+  const togglePickAll = () => {
+    setPicked(allShownPicked ? new Set() : new Set(sorted.map((task) => String(task.id))));
+  };
+
+  const deletePicked = async () => {
+    const ids = [...picked];
+    if (!ids.length || deleting) return;
     const reason = await reasonDialog({
-      title: 'Delete this row?',
-      message: `${label} will be removed from the pipeline. A copy is kept in the delete log.`,
+      title: `Delete ${ids.length} row${ids.length === 1 ? '' : 's'}?`,
+      message: 'The selected rows will be removed from the pipeline. A copy of each is kept in the delete log.',
       confirmLabel: 'Delete',
       danger: true,
-      reasonLabel: 'Why are you deleting this row?',
-      placeholder: 'e.g. duplicate row, created by mistake, cancelled',
+      reasonLabel: 'Why are you deleting these rows?',
+      placeholder: 'e.g. duplicate rows, created by mistake, cancelled',
     });
     if (!reason) return;
-    try {
-      await itUpdatesApi.deleteSocialContent(task.id, reason);
-      setItems((prev) => prev.filter((item) => String(item.id) !== String(task.id)));
-      setSelected((current) => (current && String(current.id) === String(task.id) ? null : current));
-      toastSuccess('Row deleted');
-    } catch (err) {
-      toastError(err?.response?.data?.message || 'Could not delete this row.');
+    setDeleting(true);
+    const removed = [];
+    let failed = 0;
+    let lastError = '';
+    for (const id of ids) {
+      try {
+        await itUpdatesApi.deleteSocialContent(id, reason);
+        removed.push(id);
+      } catch (err) {
+        failed += 1;
+        lastError = err?.response?.data?.message || '';
+      }
+    }
+    const gone = new Set(removed);
+    setItems((prev) => prev.filter((item) => !gone.has(String(item.id))));
+    setSelected((current) => (current && gone.has(String(current.id)) ? null : current));
+    setDeleting(false);
+    if (removed.length) toastSuccess(`${removed.length} row${removed.length === 1 ? '' : 's'} deleted`);
+    if (failed) {
+      toastError(`${failed} row${failed === 1 ? '' : 's'} could not be deleted${lastError ? `: ${lastError}` : ''}`);
+      setPicked(new Set(ids.filter((id) => !gone.has(id))));
+    } else {
+      exitDeleteMode();
     }
   };
 
@@ -2331,6 +2670,8 @@ export default function ContentPipeline({
         },
       });
       setItems((prev) => [...prev, data]);
+      // A new row starts at its first column, so the dates and branch get filled in.
+      if (pinScrollRef.current) pinScrollRef.current.scrollLeft = 0;
       toastSuccess('Row added');
     } catch (err) {
       toastError(err?.response?.data?.message || 'Could not add a row.');
@@ -2352,16 +2693,23 @@ export default function ContentPipeline({
       || items.find((item) => String(item.id) === String(menuFor.id))
       || null)
     : null;
-  const filtersActive = Boolean(query || branch || contentType || status || assignee || dateFrom || dateTo || stageFilter);
+  const filtersActive = Boolean(
+    query || branch.length || contentType || category || course || status || assignee || assignedBy
+      || startFilter.date || endFilter.date || publishFilter.date || stageFilter
+  );
 
   const clearFilters = () => {
     setQuery('');
-    setBranch('');
+    setBranch([]);
+    setPublishFilter(EMPTY_DATE_FILTER);
     setContentType('');
+    setCategory('');
+    setCourse('');
     setStatus('');
     setAssignee('');
-    setDateFrom('');
-    setDateTo('');
+    setAssignedBy('');
+    setStartFilter(EMPTY_DATE_FILTER);
+    setEndFilter(EMPTY_DATE_FILTER);
     setStageFilter('');
   };
 
@@ -2447,28 +2795,7 @@ export default function ContentPipeline({
               />
         </div>
           </label>
-          <label className="smc-filter-item">
-            <span className="smc-filter-label">Branch</span>
-            <FilterSearch
-              value={branch}
-              onChange={setBranch}
-              options={branchChoices.map((item) => ({ value: item.value, label: item.label }))}
-              allLabel="All branches"
-              placeholder="All branches"
-              ariaLabel="Branch"
-            />
-          </label>
-          <label className="smc-filter-item">
-            <span className="smc-filter-label">Content type</span>
-            <FilterSearch
-              value={contentType}
-              onChange={setContentType}
-              options={contentTypes.map((item) => ({ value: item.code, label: item.label }))}
-              allLabel="All content types"
-              placeholder="All types"
-              ariaLabel="Content type"
-            />
-          </label>
+          {/* Branch, Content type, Category, Course and dates filter from their column headings. */}
           <label className="smc-filter-item">
             <span className="smc-filter-label">Status</span>
             <FilterSearch
@@ -2481,27 +2808,48 @@ export default function ContentPipeline({
             />
           </label>
           <label className="smc-filter-item">
-            <span className="smc-filter-label">Assignee</span>
+            <span className="smc-filter-label">Assigned to</span>
             <FilterSearch
               value={assignee}
               onChange={setAssignee}
               options={people.map((person) => ({ value: String(person.user_id), label: person.username }))}
               allLabel="All assignees"
               placeholder="All assignees"
-              ariaLabel="Assigned user"
+              ariaLabel="Assigned to"
             />
           </label>
-          <label className="smc-filter-item smc-filter-date">
-            <span className="smc-filter-label">From</span>
-            <input type="date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} aria-label="From date" />
-          </label>
-          <label className="smc-filter-item smc-filter-date">
-            <span className="smc-filter-label">To</span>
-            <input type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} aria-label="To date" />
+          <label className="smc-filter-item">
+            <span className="smc-filter-label">Assigned by</span>
+            <FilterSearch
+              value={assignedBy}
+              onChange={setAssignedBy}
+              options={assignerChoices}
+              allLabel="All assigners"
+              placeholder="All assigners"
+              ariaLabel="Assigned by"
+            />
           </label>
           <div className="smc-filter-actions">
             {filtersActive && (
               <button type="button" className="smc-btn smc-btn-ghost" onClick={clearFilters}>Clear</button>
+            )}
+            {deleteMode ? (
+              <>
+                <button
+                  type="button"
+                  className="smc-btn smc-btn-danger"
+                  disabled={!picked.size || deleting}
+                  onClick={deletePicked}
+                >
+                  <MdDelete size={16} />
+                  {deleting ? 'Deleting…' : `Delete selected (${picked.size})`}
+                </button>
+                <button type="button" className="smc-btn smc-btn-ghost" disabled={deleting} onClick={exitDeleteMode}>Cancel</button>
+              </>
+            ) : (
+              <button type="button" className="smc-btn smc-btn-danger" onClick={() => setDeleteMode(true)}>
+                <MdDelete size={16} /> Delete
+              </button>
             )}
             <button type="button" className="smc-btn smc-export" onClick={() => exportContentCsv(sorted, contentTypes)}>
               <MdFileDownload size={16} /> Export
@@ -2518,17 +2866,101 @@ export default function ContentPipeline({
 
       {!loading && (
         <div className="smc-board">
-          <div className="smc-board-frame">
-            <div className="smc-board-pin" ref={pinScrollRef} onScroll={syncBoardScroll('pin')}>
+          <div className="smc-board-frame" ref={boardFrameRef}>
+            <div
+              className="smc-board-pin"
+              ref={pinScrollRef}
+              onScroll={syncBoardScroll('pin')}
+              style={pinWidth ? { flexBasis: `${pinWidth}px` } : undefined}
+            >
               <div className="smc-lane-head smc-lane-head--pin">
-                <div className="smc-lane-label">#</div>
-                <div className="smc-lane-label">Delete</div>
-                <div className="smc-lane-label">Start date</div>
-                <div className="smc-lane-label">End date</div>
-                <div className="smc-lane-label">Branch</div>
-                <div className="smc-lane-label">Content Type</div>
-                <div className="smc-lane-label">Category</div>
-                <div className="smc-lane-label">Course</div>
+                <div className="smc-lane-label smc-lane-label--num">
+                  {deleteMode ? (
+                    <input
+                      type="checkbox"
+                      className="smc-pick"
+                      checked={allShownPicked}
+                      onChange={togglePickAll}
+                      aria-label="Select all rows shown"
+                    />
+                  ) : '#'}
+                </div>
+                {[
+                  { label: 'Start date', value: startFilter, set: setStartFilter },
+                  { label: 'End date', value: endFilter, set: setEndFilter },
+                  { label: 'Publish date', value: publishFilter, set: setPublishFilter },
+                ].map(({ label, value, set }) => (
+                  <div key={label} className="smc-lane-label smc-lane-label--filter">
+                    <ColumnFilter label={label} active={Boolean(value.date)}>
+                      {(close) => (
+                        <div className="smc-col-filter-dates">
+                          <input
+                            type="date"
+                            value={value.date}
+                            aria-label={label}
+                            onChange={(event) => set({ ...value, date: event.target.value })}
+                          />
+                          <div className="smc-col-filter-actions">
+                            <button type="button" className="smc-btn smc-btn-ghost" onClick={() => set(EMPTY_DATE_FILTER)}>
+                              Clear
+                            </button>
+                            <button type="button" className="smc-btn" onClick={close}>Done</button>
+                          </div>
+                        </div>
+                      )}
+                    </ColumnFilter>
+                  </div>
+                ))}
+                <div className="smc-lane-label smc-lane-label--filter">
+                  <ColumnFilter label={branch.length > 1 ? `Branch (${branch.length})` : 'Branch'} active={branch.length > 0}>
+                    {(close) => (
+                      <ColumnFilterOptions
+                        multiple
+                        value={branch}
+                        onChange={setBranch}
+                        options={branchChoices}
+                        allLabel="All branches"
+                        close={close}
+                      />
+                    )}
+                  </ColumnFilter>
+                </div>
+                <div className="smc-lane-label smc-lane-label--filter" data-pin-start>
+                  <ColumnFilter label="Content Type" active={Boolean(contentType)}>
+                    {(close) => (
+                      <ColumnFilterOptions
+                        value={contentType}
+                        onChange={setContentType}
+                        options={contentTypes.map((item) => ({ value: item.code, label: item.label }))}
+                        allLabel="All content types"
+                        close={close}
+                      />
+                    )}
+                  </ColumnFilter>
+                </div>
+                <div className="smc-lane-label smc-lane-label--filter">
+                  <ColumnFilter label="Category" active={Boolean(category)}>
+                    {(close) => (
+                      <ColumnFilterOptions
+                        value={category}
+                        onChange={(next) => {
+                          setCategory(next);
+                          setCourse('');
+                        }}
+                        options={categoryChoices.map((name) => ({ value: name, label: name }))}
+                        allLabel="All categories"
+                        close={close}
+                      />
+                    )}
+                  </ColumnFilter>
+                </div>
+                <div className="smc-lane-label smc-lane-label--filter">
+                  <ColumnFilter label="Course" active={Boolean(course)}>
+                    {(close) => (
+                      <ColumnFilterOptions value={course} onChange={setCourse} options={courseChoices} allLabel="All courses" close={close} />
+                    )}
+                  </ColumnFilter>
+                </div>
                 {PINNED_COLUMNS.map((stage) => (
                   <div key={stage.key} className="smc-lane-label">
                     <span className="smc-step-icon" style={{ background: stage.color, width: 22, height: 22 }}>
@@ -2554,11 +2986,16 @@ export default function ContentPipeline({
                   : rowCourses;
                 return (
                   <div key={task.id} className="smc-lane-row smc-lane-row--pin">
-                    <div className="smc-lane-meta">{rowIndex + 1}</div>
-                    <div className="smc-lane-meta smc-lane-meta--delete">
-                      <button type="button" className="smc-row-delete" aria-label={`Delete row ${rowIndex + 1}`} onClick={() => removeRow(task)}>
-                        <MdDelete size={16} />
-                      </button>
+                    <div className="smc-lane-meta smc-lane-meta--num">
+                      {deleteMode ? (
+                        <input
+                          type="checkbox"
+                          className="smc-pick"
+                          checked={picked.has(String(task.id))}
+                          onChange={() => togglePicked(task.id)}
+                          aria-label={`Select row ${rowIndex + 1}`}
+                        />
+                      ) : rowIndex + 1}
                     </div>
                     <div className="smc-lane-meta">
                       <input
@@ -2578,6 +3015,16 @@ export default function ContentPipeline({
                         min={startValue || undefined}
                         aria-label="End date"
                         onChange={(event) => saveRowField(task.id, 'date', event.target.value)}
+                      />
+                    </div>
+                    <div className="smc-lane-meta">
+                      <input
+                        type="date"
+                        className="smc-inline"
+                        value={String(task.publish_date || '').slice(0, 10)}
+                        min={startValue || undefined}
+                        aria-label="Publish date"
+                        onChange={(event) => saveRowField(task.id, 'publish', event.target.value)}
                       />
                     </div>
                     <div className="smc-lane-meta">
@@ -2639,6 +3086,17 @@ export default function ContentPipeline({
                 );
               })}
             </div>
+            <div
+              className="smc-board-splitter"
+              role="separator"
+              aria-orientation="vertical"
+              aria-label="Resize the left and right sides"
+              title="Drag to resize. Double-click to reset."
+              tabIndex={0}
+              onPointerDown={startSplitDrag}
+              onDoubleClick={() => savePinWidth(null)}
+              onKeyDown={nudgeSplit}
+            />
             <div className="smc-board-scroll" ref={stageScrollRef} onScroll={syncBoardScroll('stage')}>
               <div className="smc-board-scroll-inner">
                 <div className="smc-lane-head smc-lane-head--scroll">

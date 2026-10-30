@@ -63,6 +63,108 @@ const toNullableInt = (val) => {
   const n = Number(val);
   return Number.isFinite(n) ? Math.trunc(n) : null;
 };
+
+// ---- Multiple assignees -------------------------------------------------------
+// Every task table keeps assignee_ids (all assignees, in the order picked) next to
+// assigned_to (the first of them). Writers go through resolveAssignees so the two
+// never drift apart; readers match a person with assigneeMatchSql.
+export const ASSIGNABLE_TASK_TABLES = [
+  'it_tasks',
+  'consultant_tasks',
+  'creative_team_tasks',
+  'social_media_tasks',
+  'legal_finance_tasks',
+  'director_tasks',
+];
+
+/** Unique positive user ids, in order, from an array, a comma list or one id. */
+export function normalizeAssigneeIds(input) {
+  const raw = Array.isArray(input)
+    ? input
+    : typeof input === 'string'
+      ? input.split(',')
+      : input == null || input === ''
+        ? []
+        : [input];
+  const ids = [];
+  for (const value of raw) {
+    const id = toNullableInt(typeof value === 'object' && value ? value.user_id ?? value.id : value);
+    if (id != null && id > 0 && !ids.includes(id)) ids.push(id);
+  }
+  return ids;
+}
+
+/**
+ * Turn a create/update body into { assigned_to, assignee_ids }, or null when the body
+ * does not touch assignment. assignee_ids wins when both are sent; a lone assigned_to
+ * (older clients, CSV import, workflow hand-offs) becomes a one-person list.
+ */
+export function resolveAssignees(data = {}) {
+  if (data.assignee_ids !== undefined) {
+    const ids = normalizeAssigneeIds(data.assignee_ids);
+    return { assigned_to: ids[0] ?? null, assignee_ids: ids };
+  }
+  if (data.assigned_to !== undefined) {
+    const id = toNullableInt(data.assigned_to);
+    return { assigned_to: id, assignee_ids: id != null ? [id] : [] };
+  }
+  return null;
+}
+
+/** All assignee ids of a task row, falling back to assigned_to for unmigrated rows. */
+export function assigneeIdsOf(row) {
+  const ids = normalizeAssigneeIds(row?.assignee_ids);
+  if (ids.length === 0 && row?.assigned_to != null) return normalizeAssigneeIds([row.assigned_to]);
+  return ids;
+}
+
+/** SQL that is true when user `param` (e.g. "$1") is one of the task's assignees. */
+export function assigneeMatchSql(alias, param) {
+  return `(${alias}.assigned_to = ${param}::int OR ${param}::int = ANY(${alias}.assignee_ids))`;
+}
+
+/**
+ * Who a logged work session belongs to: the person who logged it when they are one of
+ * the task's assignees (shared tasks), otherwise the task's first assignee.
+ */
+export function timeLogUserSql(alias, actorParam) {
+  return `CASE WHEN ${actorParam}::int IS NOT NULL AND ${assigneeMatchSql(alias, actorParam)}
+               THEN ${actorParam}::int ELSE ${alias}.assigned_to END`;
+}
+
+/** Add assignee_ids and assignees [{ user_id, username, profile_image }] to mapped tasks. */
+export async function attachAssignees(tasks, rows) {
+  const p = getPool();
+  const idLists = rows.map(assigneeIdsOf);
+  const all = [...new Set(idLists.flat())];
+  const users = new Map();
+  if (p && all.length > 0) {
+    try {
+      const { rows: found } = await p.query(
+        'SELECT user_id, username, profile_image FROM users WHERE user_id = ANY($1::int[])',
+        [all]
+      );
+      for (const u of found) users.set(u.user_id, u);
+    } catch (err) {
+      console.warn('attachAssignees:', err.message);
+    }
+  }
+  tasks.forEach((task, index) => {
+    if (!task) return;
+    const ids = idLists[index] || [];
+    task.assignee_ids = ids;
+    task.assignees = ids.map((id) => {
+      const u = users.get(id);
+      return {
+        user_id: id,
+        username: u?.username || String(id),
+        profile_image: avatarUrlFor(id, u?.profile_image),
+      };
+    });
+  });
+  return tasks;
+}
+
 const normalizeTeammatesInput = (val) => {
   if (Array.isArray(val)) {
     return [...new Set(val.map((v) => String(v || '').trim()).filter(Boolean))];
@@ -1227,6 +1329,25 @@ export async function dbEnsureTables() {
   } catch (err) {
     console.warn('dbEnsureTables: chat tables:', err.message);
   }
+
+  // Tasks can be shared by several people. assignee_ids holds every assignee;
+  // assigned_to stays as the first of them so single-assignee code keeps working.
+  // Existing rows are backfilled from assigned_to once. Runs last, after every task
+  // table has been created.
+  for (const tbl of ASSIGNABLE_TASK_TABLES) {
+    try {
+      const { rows } = await p.query('SELECT to_regclass($1) AS reg', [`public.${tbl}`]);
+      if (!rows[0]?.reg) continue;
+      await p.query(`ALTER TABLE ${tbl} ADD COLUMN IF NOT EXISTS assignee_ids INT[] NOT NULL DEFAULT '{}'`);
+      await p.query(
+        `UPDATE ${tbl} SET assignee_ids = ARRAY[assigned_to]
+         WHERE assigned_to IS NOT NULL AND cardinality(assignee_ids) = 0`
+      );
+      await p.query(`CREATE INDEX IF NOT EXISTS idx_${tbl}_assignee_ids ON ${tbl} USING GIN (assignee_ids)`);
+    } catch (err) {
+      console.warn(`dbEnsureTables: ${tbl} assignee_ids:`, err.message);
+    }
+  }
 }
 
 /** Ensure Legal & Finance department, permissions, role, and role_permissions exist (RBAC tables required). */
@@ -2001,7 +2122,7 @@ export async function dbGetTasksSimple(filters = {}) {
       params.push(filters.project_id ?? filters.projectId);
     }
     if (filters.assigned_to != null || filters.assignee != null) {
-      whereParts.push(`t.assigned_to = $${i++}`);
+      whereParts.push(assigneeMatchSql('t', `$${i++}`));
       params.push(filters.assigned_to ?? filters.assignee);
     }
     if (filters.priority) {
@@ -2061,7 +2182,7 @@ export async function dbGetTasksSimple(filters = {}) {
       });
     }
 
-    return rows.map(r => ({
+    const tasks = rows.map(r => ({
       id: String(r.task_id),
       task_id: r.task_id,
       title: r.task_title || r.title,
@@ -2114,6 +2235,7 @@ export async function dbGetTasksSimple(filters = {}) {
       })(),
       team: normalizedTeam,
     }));
+    return attachAssignees(tasks, rows);
   } catch (err) {
     console.error('dbGetTasksSimple Critical Error:', err.message);
     try {
@@ -2263,9 +2385,11 @@ export async function dbCreateTask(data) {
   const taskTable = taskTableForTeam(team);
   // Helper: convert empty strings to null for integer columns
   const toNullableInt = (v) => (v === '' || v === undefined || v === null ? null : v);
+  const assignment = resolveAssignees(data) || { assigned_to: null, assignee_ids: [] };
   const insertColumns = [
     'project_id',
     'assigned_to',
+    'assignee_ids',
     'assigned_by',
     'created_by',
     'task_title',
@@ -2277,7 +2401,8 @@ export async function dbCreateTask(data) {
   ];
   const insertValues = [
     toNullableInt(data.projectId ?? data.project_id),
-    toNullableInt(data.assigned_to),
+    assignment.assigned_to,
+    assignment.assignee_ids,
     toNullableInt(data.assigned_by),
     toNullableInt(data.created_by ?? data.assigned_by),
     data.title ?? data.task_title ?? 'New Task',
@@ -2336,6 +2461,7 @@ export async function dbCreateTask(data) {
     priority: row.priority,
     assignee: row.assigned_to ? String(row.assigned_to) : 'Unassigned',
     assigned_to: row.assigned_to,
+    assignee_ids: assigneeIdsOf(row),
     projectId: row.project_id ? String(row.project_id) : null,
     dueDate: row.due_date,
     task_date: row.task_date,
@@ -2356,7 +2482,6 @@ export async function dbUpdateTask(taskId, data) {
     'status',
     'due_date',
     'task_date',
-    'assigned_to',
     'assigned_by',
     'project_id',
     'reviewed_by',
@@ -2381,6 +2506,12 @@ export async function dbUpdateTask(taskId, data) {
   const updates = [];
   const values = [];
   let i = 1;
+  // Assignment is written as a pair (assigned_to + assignee_ids), never one alone.
+  const assignment = resolveAssignees(data);
+  if (assignment) {
+    updates.push(`assigned_to = $${i++}`, `assignee_ids = $${i++}`);
+    values.push(assignment.assigned_to, assignment.assignee_ids);
+  }
   const map = {
     title: 'task_title',
     description: 'task_description',
@@ -2444,7 +2575,7 @@ export async function dbGetTaskById(taskId, teamInput = null) {
   );
   const row = rows[0];
   if (!row) return null;
-  return {
+  const [task] = await attachAssignees([{
     id: String(row.task_id),
     title: row.task_title,
     task_description: row.task_description,
@@ -2477,7 +2608,8 @@ export async function dbGetTaskById(taskId, teamInput = null) {
     workflow_status: row.workflow_status ?? null,
     content_branch: row.content_branch ?? null,
     team,
-  };
+  }], [row]);
+  return task;
 }
 
 
@@ -2792,10 +2924,11 @@ export async function dbGetDueTasksForAlerts(withinDays = 1) {
       if (!exists[0]?.ex) continue;
       const { rows } = await p.query(
         `SELECT t.task_id, t.task_title, t.due_date, t.status,
-                ua.username AS assignee_name, ua.email AS assignee_email,
+                (SELECT COALESCE(json_agg(json_build_object('name', ua.username, 'email', ua.email)), '[]'::json)
+                   FROM users ua
+                  WHERE ${assigneeMatchSql('t', 'ua.user_id')}) AS assignee_list,
                 ub.username AS assigner_name, ub.email AS assigner_email
          FROM ${table} t
-         LEFT JOIN users ua ON ua.user_id = t.assigned_to
          LEFT JOIN users ub ON ub.user_id = t.assigned_by
          WHERE t.due_date IS NOT NULL
            AND t.status <> 'completed'
@@ -2813,10 +2946,11 @@ export async function dbGetDueTasksForAlerts(withinDays = 1) {
           title: r.task_title,
           due_date: r.due_date,
           kind,
+          // Every assignee is told, plus the assigner; one email per address.
           recipients: [
-            { name: r.assignee_name, email: r.assignee_email },
+            ...(Array.isArray(r.assignee_list) ? r.assignee_list : []),
             { name: r.assigner_name, email: r.assigner_email },
-          ].filter((x) => x.email),
+          ].filter((x, index, all) => x.email && all.findIndex((y) => y.email === x.email) === index),
         });
       });
     } catch (err) {
@@ -3253,7 +3387,7 @@ export async function dbGetDashboardStatsFull(projectType = null) {
                COUNT(t.task_id) FILTER (WHERE t.status IN ('todo', 'in_progress', 'review', 'rework')) AS in_progress_count,
                COUNT(t.task_id) FILTER (WHERE t.status = 'completed' AND (t.completed_at::date = CURRENT_DATE OR (t.completed_at IS NULL AND t.task_date = CURRENT_DATE))) AS completed_today
         FROM users u
-        LEFT JOIN it_tasks t ON t.assigned_to = u.user_id
+        LEFT JOIN it_tasks t ON ${assigneeMatchSql('t', 'u.user_id')}
         GROUP BY u.user_id, u.username, u.email, u.profile_image
         ORDER BY total_assigned DESC
       `),
@@ -3353,7 +3487,7 @@ export async function dbGetTeamOverview(team = null) {
                COUNT(t.task_id) FILTER (WHERE t.status = 'completed') AS completed_tasks,
                COUNT(t.task_id) FILTER (WHERE t.status IN ('todo', 'in_progress', 'review', 'rework')) AS in_progress_tasks
         FROM users u
-        LEFT JOIN ${taskJoinTable} t ON t.assigned_to = u.user_id
+        LEFT JOIN ${taskJoinTable} t ON ${assigneeMatchSql('t', 'u.user_id')}
         ${teamWhereClause}
         GROUP BY u.user_id, u.username, u.email, u.profile_image, u.is_it_developer, u.is_it_manager, u.is_active
         ORDER BY total_tasks DESC
@@ -3868,7 +4002,7 @@ const mapRequirement = (r) => ({
 });
 
 /** Start or pause a requirement's timer. action: 'start' | 'pause'. Returns updated requirement. */
-export async function dbRequirementTimer(reqId, action, taskId = null, teamInput = null) {
+export async function dbRequirementTimer(reqId, action, taskId = null, teamInput = null, actorId = null) {
   const p = getPool();
   if (!p) return null;
   try {
@@ -3888,13 +4022,13 @@ export async function dbRequirementTimer(reqId, action, taskId = null, teamInput
       try {
         await p.query(
           `INSERT INTO requirement_time_logs (user_id, requirement_id, task_id, team, seconds, work_date, started_at, ended_at)
-           SELECT t.assigned_to, r.requirement_id, r.task_id, $2,
+           SELECT ${timeLogUserSql('t', '$3')}, r.requirement_id, r.task_id, $2,
                   GREATEST(0, FLOOR(EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - r.timer_started_at)))::int),
                   CURRENT_DATE, r.timer_started_at, CURRENT_TIMESTAMP
            FROM ${reqTable} r
            LEFT JOIN ${taskTable} t ON t.task_id = r.task_id
            WHERE r.requirement_id = $1 AND r.timer_started_at IS NOT NULL`,
-          [reqId, team]
+          [reqId, team, toNullableInt(actorId)]
         );
       } catch (logErr) {
         console.warn('dbRequirementTimer: time-log insert skipped:', logErr.message);
@@ -3925,7 +4059,7 @@ export async function dbRequirementTimer(reqId, action, taskId = null, teamInput
  * that requirement's time logs so the member dashboard reflects exactly what was
  * entered. Any running timer is stopped.
  */
-export async function dbAddRequirementManualTime(reqId, { fromTime, toTime }, taskId = null, teamInput = null) {
+export async function dbAddRequirementManualTime(reqId, { fromTime, toTime }, taskId = null, teamInput = null, actorId = null) {
   const p = getPool();
   if (!p) return null;
   const team = resolveTeamFromInput(teamInput || (taskId ? await detectTaskTeamById(taskId) : null));
@@ -3939,7 +4073,7 @@ export async function dbAddRequirementManualTime(reqId, { fromTime, toTime }, ta
     const { rows: ins } = await p.query(
       `INSERT INTO requirement_time_logs
          (user_id, requirement_id, task_id, team, seconds, work_date, started_at, ended_at)
-       SELECT t.assigned_to, r.requirement_id, r.task_id, $4,
+       SELECT ${timeLogUserSql('t', '$5')}, r.requirement_id, r.task_id, $4,
               GREATEST(0, EXTRACT(EPOCH FROM ($3::time - $2::time))::int),
               COALESCE(t.task_date, CURRENT_DATE),
               COALESCE(t.task_date, CURRENT_DATE) + $2::time,
@@ -3948,7 +4082,7 @@ export async function dbAddRequirementManualTime(reqId, { fromTime, toTime }, ta
          JOIN ${taskTable} t ON t.task_id = r.task_id
         WHERE r.requirement_id = $1
        RETURNING seconds`,
-      [reqId, fromTime, toTime, team]
+      [reqId, fromTime, toTime, team, toNullableInt(actorId)]
     );
     if (!ins[0]) return null; // requirement / task not found
     const seconds = Number(ins[0].seconds || 0);
@@ -4121,7 +4255,7 @@ export async function dbGetEodSummary(userId, date, teamInput = 'it') {
     const [completed, created, open, logs] = await Promise.all([
       p.query(
         `SELECT ${pick} FROM ${table} t
-         WHERE t.assigned_to = $1 AND t.status = 'completed' AND ${istDay('t.completed_at')} = $2 ${notCrm}
+         WHERE ${assigneeMatchSql('t', '$1')} AND t.status = 'completed' AND ${istDay('t.completed_at')} = $2 ${notCrm}
          ORDER BY t.completed_at`,
         [uid, date]
       ),
@@ -4133,7 +4267,7 @@ export async function dbGetEodSummary(userId, date, teamInput = 'it') {
       ),
       p.query(
         `SELECT ${pick} FROM ${table} t
-         WHERE t.assigned_to = $1 AND t.status <> 'completed' ${notCrm}
+         WHERE ${assigneeMatchSql('t', '$1')} AND t.status <> 'completed' ${notCrm}
          ORDER BY (t.due_date IS NULL), t.due_date, t.task_id
          LIMIT 15`,
         [uid]
@@ -4220,12 +4354,13 @@ export async function dbGetPerformanceReport({ from, to, team = null, limitTasks
     const table = taskTableForTeam(teamKey);
     try {
       const { rows } = await p.query(
-        `SELECT t.task_id, t.task_title, t.assigned_to, t.due_date,
+        // One row per assignee: a shared task counts towards every person on it.
+        `SELECT t.task_id, t.task_title, u.user_id AS assigned_to, t.due_date,
                 to_char((t.completed_at AT TIME ZONE 'Asia/Kolkata')::date, 'YYYY-MM-DD') AS completed_on,
                 COALESCE(u.username, u.email, 'Unknown') AS username, u.profile_image
          FROM ${table} t
-         LEFT JOIN users u ON u.user_id = t.assigned_to
-         WHERE t.status = 'completed' AND t.completed_at IS NOT NULL AND t.assigned_to IS NOT NULL
+         JOIN users u ON ${assigneeMatchSql('t', 'u.user_id')}
+         WHERE t.status = 'completed' AND t.completed_at IS NOT NULL
            AND (t.completed_at AT TIME ZONE 'Asia/Kolkata')::date BETWEEN $1 AND $2
            ${teamKey === 'it' ? 'AND COALESCE(t.is_crm, false) = false' : ''}`,
         range
@@ -4368,7 +4503,7 @@ export async function dbGetMemberDashboard(userId, from, to, team = 'it', projec
         `SELECT DISTINCT pr.project_id AS id, pr.project_name AS name, pr.status, pr.logo
          FROM ${taskTable} t
          JOIN it_projects pr ON pr.project_id = t.project_id
-         WHERE t.assigned_to = $1 ${scoped ? `AND ${projMatch}` : ''}
+         WHERE ${assigneeMatchSql('t', '$1')} ${scoped ? `AND ${projMatch}` : ''}
          ORDER BY pr.project_name`,
         [uid]
       );
@@ -4392,7 +4527,7 @@ export async function dbGetMemberDashboard(userId, from, to, team = 'it', projec
            COUNT(*) FILTER (WHERE t.due_date IS NOT NULL AND t.due_date < CURRENT_DATE AND t.status <> 'completed')::int AS overdue
          FROM ${taskTable} t
          ${hasProjects ? 'LEFT JOIN it_projects pr ON pr.project_id = t.project_id' : ''}
-         WHERE t.assigned_to = $1
+         WHERE ${assigneeMatchSql('t', '$1')}
            AND COALESCE(t.task_date, t.created_at::date) BETWEEN $2 AND $3
            ${scoped ? `AND ${projMatch}` : ''}`,
         params

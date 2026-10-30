@@ -127,6 +127,23 @@
 .mp-option.selected {
   background: var(--clr-primary-50);
 }
+/* The row the arrow keys are on. */
+.mp-option.active {
+  outline: 2px solid var(--clr-primary-300, #93c5fd);
+  outline-offset: -2px;
+}
+.mp-trigger:focus-visible {
+  outline: 2px solid var(--clr-primary-400, #60a5fa);
+  outline-offset: 1px;
+}
+/* Placeholder dot for the empty choice ("—" / "Me"), so names stay aligned. */
+.mp-avatar-empty {
+  display: inline-block;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--clr-slate-100, #f1f5f9);
+}
 .mp-option-name {
   flex: 1;
   white-space: nowrap;

@@ -1,10 +1,15 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   MdArrowBack,
+  MdAudiotrack,
+  MdContentCopy,
   MdAttachFile,
   MdClose,
   MdDeleteOutline,
+  MdDone,
+  MdDoneAll,
   MdEdit,
+  MdExpandMore,
   MdInsertDriveFile,
   MdReply,
   MdSend,
@@ -12,11 +17,25 @@ import {
   MdTagFaces,
 } from 'react-icons/md';
 import chatApi, { attachmentUrl } from '../../api/chatApi';
-import { toastError } from '../../utils/toast';
+import { toastError, toastSuccess } from '../../utils/toast';
 import { confirmDialog } from '../../utils/confirm';
 import { useChat, conversationTitle } from './chatContext';
 import { findMentions, formatBytes, mentionQueryAt, tokenize } from './chatText';
 import { ChatAvatar, GroupSettings } from './ChatParts';
+import ChatInfo from './ChatInfo';
+
+const TICK_LABELS = { sent: 'Sent', delivered: 'Delivered', read: 'Read' };
+
+/** WhatsApp-style ticks on my messages: one = sent, two = delivered, two coloured = read. */
+function Ticks({ state }) {
+  if (!state) return null;
+  const Icon = state === 'sent' ? MdDone : MdDoneAll;
+  return (
+    <span className={`chat-ticks ${state}`} title={TICK_LABELS[state]} aria-label={TICK_LABELS[state]}>
+      <Icon size={15} />
+    </span>
+  );
+}
 
 const MAX_FILES = 5;
 const MAX_BYTES = 10 * 1024 * 1024;
@@ -58,17 +77,118 @@ function MessageText({ text, members, meId }) {
   );
 }
 
-function Message({ msg, mine, showHead, isGroup, members, meId, reactions, canDelete, onReply, onEdit, onDelete, onReact }) {
+/**
+ * One message. Hovering shows a ⌄ in the bubble's corner that opens the message menu
+ * (quick reactions, Reply, Copy, Edit, Delete) and quick React / Reply buttons beside
+ * the bubble, as in WhatsApp. Images, videos and audio play inside the bubble.
+ */
+function Message({ msg, tick, mine, showHead, isGroup, members, meId, reactions, canDelete, onReply, onEdit, onDelete, onReact }) {
+  const [menu, setMenu] = useState(null); // null | 'down' | 'up'
   const [picker, setPicker] = useState(false);
+  const rootRef = useRef(null);
   const mentionsMe = !mine && msg.mentions.includes(meId);
+
+  // Close the menu or the emoji row on a click elsewhere or on Escape.
+  useEffect(() => {
+    if (!menu && !picker) return undefined;
+    const onDown = (e) => {
+      if (rootRef.current && !rootRef.current.contains(e.target)) {
+        setMenu(null);
+        setPicker(false);
+      }
+    };
+    const onKey = (e) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopPropagation();
+        setMenu(null);
+        setPicker(false);
+      }
+    };
+    document.addEventListener('mousedown', onDown);
+    window.addEventListener('keydown', onKey, true);
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      window.removeEventListener('keydown', onKey, true);
+    };
+  }, [menu, picker]);
+
+  // Open below the ⌄, or above it when the message is near the bottom of the screen.
+  const openMenu = (e) => {
+    const box = e.currentTarget.getBoundingClientRect();
+    setPicker(false);
+    setMenu((open) => (open ? null : window.innerHeight - box.bottom < 260 ? 'up' : 'down'));
+  };
+  const act = (fn) => () => {
+    setMenu(null);
+    fn();
+  };
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(msg.body || '');
+      toastSuccess('Message copied');
+    } catch {
+      toastError('Could not copy the message');
+    }
+  };
+  const react = (emoji) => {
+    setMenu(null);
+    setPicker(false);
+    onReact(msg, emoji);
+  };
+
   return (
-    <div className={`chat-msg${mine ? ' mine' : ''}${showHead ? ' head' : ''}`}>
+    <div
+      ref={rootRef}
+      className={`chat-msg${mine ? ' mine' : ''}${showHead ? ' head' : ''}${menu || picker ? ' menu-open' : ''}`}
+    >
       {!mine ? (
         <div className="chat-msg-avatar">{showHead ? <ChatAvatar name={msg.sender_name} src={msg.sender_avatar} size={30} /> : null}</div>
       ) : null}
       <div className="chat-msg-body">
         {showHead && !mine && isGroup ? <div className="chat-msg-name">{msg.sender_name}</div> : null}
         <div className={`chat-bubble${msg.deleted ? ' deleted' : ''}${mentionsMe ? ' mentioned' : ''}`}>
+          {!msg.deleted ? (
+            <button
+              type="button"
+              className="chat-menu-btn"
+              onClick={openMenu}
+              aria-label="Message options"
+              aria-haspopup="menu"
+              aria-expanded={Boolean(menu)}
+            >
+              <MdExpandMore size={20} />
+            </button>
+          ) : null}
+          {menu ? (
+            <div className={`chat-menu ${menu}`} role="menu">
+              <div className="chat-menu-reacts">
+                {reactions.map((e) => (
+                  <button key={e} type="button" onClick={() => react(e)} aria-label={`React ${e}`}>
+                    {e}
+                  </button>
+                ))}
+              </div>
+              <button type="button" role="menuitem" onClick={act(() => onReply(msg))}>
+                <MdReply size={18} /> Reply
+              </button>
+              {msg.body ? (
+                <button type="button" role="menuitem" onClick={act(copy)}>
+                  <MdContentCopy size={17} /> Copy
+                </button>
+              ) : null}
+              {mine && msg.body ? (
+                <button type="button" role="menuitem" onClick={act(() => onEdit(msg))}>
+                  <MdEdit size={17} /> Edit
+                </button>
+              ) : null}
+              {canDelete ? (
+                <button type="button" role="menuitem" className="danger" onClick={act(() => onDelete(msg))}>
+                  <MdDeleteOutline size={18} /> Delete
+                </button>
+              ) : null}
+            </div>
+          ) : null}
           {msg.reply_to ? (
             <div className="chat-quote">
               <strong>{msg.reply_to.sender_name}</strong>
@@ -81,12 +201,31 @@ function Message({ msg, mine, showHead, isGroup, members, meId, reactions, canDe
             <>
               {msg.attachments.length ? (
                 <div className="chat-files">
-                  {msg.attachments.map((f) =>
-                    f.inline ? (
-                      <a key={f.id} href={attachmentUrl(f.id)} target="_blank" rel="noopener noreferrer" className="chat-image">
-                        <img src={attachmentUrl(f.id)} alt={f.file_name} loading="lazy" />
-                      </a>
-                    ) : (
+                  {msg.attachments.map((f) => {
+                    const kind = f.media || (f.inline ? 'image' : null);
+                    if (kind === 'image') {
+                      return (
+                        <a key={f.id} href={attachmentUrl(f.id)} target="_blank" rel="noopener noreferrer" className="chat-image">
+                          <img src={attachmentUrl(f.id)} alt={f.file_name} loading="lazy" />
+                        </a>
+                      );
+                    }
+                    if (kind === 'video') {
+                      return (
+                        <video key={f.id} className="chat-video" src={attachmentUrl(f.id)} controls preload="metadata" playsInline>
+                          <a href={attachmentUrl(f.id, true)}>{f.file_name}</a>
+                        </video>
+                      );
+                    }
+                    if (kind === 'audio') {
+                      return (
+                        <div key={f.id} className="chat-audio">
+                          <MdAudiotrack size={20} />
+                          <audio src={attachmentUrl(f.id)} controls preload="metadata" />
+                        </div>
+                      );
+                    }
+                    return (
                       <a key={f.id} href={attachmentUrl(f.id, true)} className="chat-file">
                         <MdInsertDriveFile size={22} />
                         <span>
@@ -94,16 +233,19 @@ function Message({ msg, mine, showHead, isGroup, members, meId, reactions, canDe
                           <span className="chat-file-size">{formatBytes(f.size)}</span>
                         </span>
                       </a>
-                    )
-                  )}
+                    );
+                  })}
                 </div>
               ) : null}
               {msg.body ? <MessageText text={msg.body} members={members} meId={meId} /> : null}
             </>
           )}
           <span className="chat-time">
-            {msg.edited_at && !msg.deleted ? 'edited · ' : ''}
-            {clock(msg.created_at)}
+            <span className="chat-time-text">
+              {msg.edited_at && !msg.deleted ? 'edited · ' : ''}
+              {clock(msg.created_at)}
+            </span>
+            {mine && !msg.deleted ? <Ticks state={tick} /> : null}
           </span>
         </div>
         {msg.reactions.length ? (
@@ -126,34 +268,25 @@ function Message({ msg, mine, showHead, isGroup, members, meId, reactions, canDe
         ) : null}
       </div>
       {!msg.deleted ? (
-        <div className="chat-msg-actions">
-          <button type="button" onClick={() => setPicker((v) => !v)} title="React" aria-label="React">
-            <MdTagFaces size={16} />
-          </button>
+        <div className="chat-msg-side">
           <button type="button" onClick={() => onReply(msg)} title="Reply" aria-label="Reply">
-            <MdReply size={16} />
+            <MdReply size={18} />
           </button>
-          {mine ? (
-            <button type="button" onClick={() => onEdit(msg)} title="Edit" aria-label="Edit">
-              <MdEdit size={16} />
-            </button>
-          ) : null}
-          {canDelete ? (
-            <button type="button" onClick={() => onDelete(msg)} title="Delete" aria-label="Delete" className="danger">
-              <MdDeleteOutline size={16} />
-            </button>
-          ) : null}
+          <button
+            type="button"
+            onClick={() => {
+              setMenu(null);
+              setPicker((v) => !v);
+            }}
+            title="React"
+            aria-label="React"
+          >
+            <MdTagFaces size={18} />
+          </button>
           {picker ? (
-            <div className="chat-react-picker" onMouseLeave={() => setPicker(false)}>
+            <div className="chat-react-picker">
               {reactions.map((e) => (
-                <button
-                  key={e}
-                  type="button"
-                  onClick={() => {
-                    setPicker(false);
-                    onReact(msg, e);
-                  }}
-                >
+                <button key={e} type="button" onClick={() => react(e)} aria-label={`React ${e}`}>
                   {e}
                 </button>
               ))}
@@ -167,7 +300,9 @@ function Message({ msg, mine, showHead, isGroup, members, meId, reactions, canDe
 
 /** The open conversation: header, messages, and the composer. */
 export default function MessagePane({ conversation, onBack }) {
-  const { meId, me, socket, config, markRead } = useChat();
+  const { meId, me, socket, config, markRead, theme } = useChat();
+  // Contact / group info panel, opened from the photo and name in the header.
+  const [showInfo, setShowInfo] = useState(false);
   const siteAdmin = (me?.permissions || []).includes('admin.access');
   const isGroup = conversation.kind === 'group';
   const members = conversation.members;
@@ -467,7 +602,16 @@ export default function MessagePane({ conversation, onBack }) {
     }
   };
 
-  // ── Read receipt under the latest message I sent ──
+  // Tick state of one of my messages: read when every other member has read it,
+  // delivered when it reached all of their devices, otherwise sent.
+  const tickFor = (m) => {
+    if (!others.length) return 'sent';
+    if (others.every((o) => o.last_read_message_id >= m.id)) return 'read';
+    const delivered = others.every((o) => Math.max(o.last_delivered_message_id || 0, o.last_read_message_id) >= m.id);
+    return delivered ? 'delivered' : 'sent';
+  };
+
+  // ── Read receipt under the latest message I sent (groups: who has seen it) ──
   const myLast = useMemo(() => [...messages].reverse().find((m) => m.sender_id === meId && !m.deleted), [messages, meId]);
   const receipt = useMemo(() => {
     if (!myLast) return null;
@@ -488,20 +632,39 @@ export default function MessagePane({ conversation, onBack }) {
         <button type="button" className="chat-icon-btn chat-back" onClick={onBack} aria-label="Back to chats">
           <MdArrowBack size={20} />
         </button>
-        <ChatAvatar name={title} src={partner?.avatar} group={isGroup} size={34} />
-        <div className="chat-pane-title">
-          <strong>{title}</strong>
-          <span>{isGroup ? `${members.length} members` : partner?.username ? 'Direct message' : ''}</span>
-        </div>
+        <button
+          type="button"
+          className="chat-pane-who"
+          onClick={() => {
+            setShowSettings(false);
+            setShowInfo((v) => !v);
+          }}
+          title={isGroup ? 'Group info' : 'Contact info'}
+          aria-expanded={showInfo}
+        >
+          <ChatAvatar name={title} src={partner?.avatar} group={isGroup} size={34} />
+          <span className="chat-pane-title">
+            <strong>{title}</strong>
+            <span>{isGroup ? `${members.length} members · tap for info` : 'Tap for contact info'}</span>
+          </span>
+        </button>
         {isGroup ? (
-          <button type="button" className="chat-icon-btn" onClick={() => setShowSettings((v) => !v)} title="Group details">
+          <button
+            type="button"
+            className="chat-icon-btn"
+            onClick={() => {
+              setShowInfo(false);
+              setShowSettings((v) => !v);
+            }}
+            title="Group details"
+          >
             <MdSettings size={20} />
           </button>
         ) : null}
       </header>
 
       <div className="chat-pane-body">
-        <div className="chat-messages" ref={listRef} onScroll={onScroll}>
+        <div className="chat-messages" data-chat-theme={theme} ref={listRef} onScroll={onScroll}>
           {hasMore ? (
             <button type="button" className="chat-load-earlier" onClick={loadEarlier}>
               Load earlier messages
@@ -523,6 +686,7 @@ export default function MessagePane({ conversation, onBack }) {
                 {newDay ? <div className="chat-day">{dayLabel(m.created_at)}</div> : null}
                 <Message
                   msg={m}
+                  tick={mine ? tickFor(m) : null}
                   mine={mine}
                   showHead={showHead}
                   isGroup={isGroup}
@@ -539,7 +703,7 @@ export default function MessagePane({ conversation, onBack }) {
                   onDelete={remove}
                   onReact={react}
                 />
-                {myLast && m.id === myLast.id && receipt ? <div className="chat-receipt">{receipt}</div> : null}
+                {isGroup && myLast && m.id === myLast.id && receipt ? <div className="chat-receipt">{receipt}</div> : null}
               </React.Fragment>
             );
           })}
@@ -550,6 +714,16 @@ export default function MessagePane({ conversation, onBack }) {
           ) : null}
         </div>
         {showSettings && isGroup ? <GroupSettings conversation={conversation} onClose={() => setShowSettings(false)} /> : null}
+        {showInfo ? (
+          <ChatInfo
+            conversation={conversation}
+            onClose={() => setShowInfo(false)}
+            onOpenGroupSettings={() => {
+              setShowInfo(false);
+              setShowSettings(true);
+            }}
+          />
+        ) : null}
       </div>
 
       <div

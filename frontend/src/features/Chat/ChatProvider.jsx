@@ -1,7 +1,12 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { io } from 'socket.io-client';
 import chatApi, { SOCKET_URL } from '../../api/chatApi';
-import { ChatContext } from './chatContext';
+import { ChatContext, conversationTitle } from './chatContext';
+import { playChime, readSoundOn, writeSoundOn, showSystemNotification } from './chatAlerts';
+import { readChatTheme, writeChatTheme } from './chatThemes';
+
+const POPUP_MS = 6000;
+const MAX_POPUPS = 3;
 
 /**
  * Owns the chat's live connection and the conversation list for the signed-in user,
@@ -23,6 +28,32 @@ export default function ChatProvider({ currentUser, children }) {
   useEffect(() => {
     stateRef.current = { open, activeId };
   }, [open, activeId]);
+
+  // New-message popups (newest last) and the chime setting. Popups are not shown for
+  // the user's own messages or for the conversation they are reading.
+  const [popups, setPopups] = useState([]);
+  const [soundOn, setSoundOnState] = useState(readSoundOn);
+  // Chat wallpaper theme, remembered per browser.
+  const [theme, setThemeState] = useState(readChatTheme);
+  const setTheme = useCallback((next) => {
+    setThemeState(next);
+    writeChatTheme(next);
+  }, []);
+  const soundRef = useRef(soundOn);
+  const conversationsRef = useRef(conversations);
+  useEffect(() => {
+    soundRef.current = soundOn;
+  }, [soundOn]);
+  useEffect(() => {
+    conversationsRef.current = conversations;
+  }, [conversations]);
+  const setSoundOn = useCallback((on) => {
+    setSoundOnState(on);
+    writeSoundOn(on);
+  }, []);
+  const dismissPopup = useCallback((key) => {
+    setPopups((list) => list.filter((p) => p.key !== key));
+  }, []);
 
   const refreshConversations = useCallback(async () => {
     try {
@@ -65,6 +96,44 @@ export default function ChatProvider({ currentUser, children }) {
       .catch(() => {});
 
     const s = io(SOCKET_URL, { withCredentials: true, transports: ['websocket', 'polling'] });
+
+    // Popup + chime (+ a system notification while the tab is hidden) for a message
+    // from someone else in a conversation the user is not reading.
+    const alertNewMessage = (message) => {
+      const cid = message.conversation_id;
+      const conv = conversationsRef.current.find((c) => c.id === cid);
+      const group = conv?.kind === 'group';
+      const sender = message.sender_name || 'Someone';
+      const title = group ? `${sender} in ${conversationTitle(conv, meId)}` : sender;
+      const files = Array.isArray(message.attachments) ? message.attachments.length : 0;
+      const text = message.body
+        ? message.body.replace(/s+/g, ' ').trim()
+        : files > 1
+          ? `${files} files`
+          : 'Sent a file';
+      const preview = text.length > 140 ? `${text.slice(0, 137)}…` : text;
+      const mentioned = Array.isArray(message.mentions) && message.mentions.includes(meId);
+      const key = `${cid}:${message.id}`;
+      setPopups((list) => [
+        // One popup per conversation: a newer message replaces the older one.
+        ...list.filter((p) => p.cid !== cid),
+        { key, cid, title, preview, image: message.sender_avatar || null, group, mentioned },
+      ].slice(-MAX_POPUPS));
+      setTimeout(() => setPopups((list) => list.filter((p) => p.key !== key)), POPUP_MS);
+      if (soundRef.current) playChime();
+      if (document.visibilityState !== 'visible') {
+        showSystemNotification({
+          title,
+          body: preview,
+          icon: message.sender_avatar,
+          tag: `chat-${cid}`,
+          onClick: () => {
+            setActiveId(cid);
+            setOpen(true);
+          },
+        });
+      }
+    };
 
     let retry = null;
     // Shared with the message pane once connected; reconnecting also catches up the list.
@@ -113,7 +182,10 @@ export default function ChatProvider({ currentUser, children }) {
         };
         return [updated, ...list.slice(0, idx), ...list.slice(idx + 1)];
       });
+      // Tell the sender it reached this device (their single tick becomes double).
+      if (!mine) s.emit('chat:delivered', { conversation_id: cid, message_id: message.id });
       if (!mine && isWatching(cid)) markRead(cid, message.id);
+      if (!mine && !isWatching(cid)) alertNewMessage(message);
     });
 
     s.on('chat:message:update', ({ message }) => {
@@ -127,19 +199,28 @@ export default function ChatProvider({ currentUser, children }) {
       );
     });
 
-    s.on('chat:read', ({ conversation_id, user_id, message_id }) => {
+    // Read and delivered positions per member drive the ticks on my messages.
+    // Reading a message also means it was delivered.
+    const moveMember = (conversationId, userId, patch) =>
       setConversations((list) =>
         list.map((c) =>
-          c.id === conversation_id
-            ? {
-                ...c,
-                members: c.members.map((m) =>
-                  m.id === user_id ? { ...m, last_read_message_id: Math.max(m.last_read_message_id, message_id) } : m
-                ),
-              }
+          c.id === conversationId
+            ? { ...c, members: c.members.map((m) => (m.id === userId ? patch(m) : m)) }
             : c
         )
       );
+    s.on('chat:read', ({ conversation_id, user_id, message_id }) => {
+      moveMember(conversation_id, user_id, (m) => ({
+        ...m,
+        last_read_message_id: Math.max(m.last_read_message_id, message_id),
+        last_delivered_message_id: Math.max(m.last_delivered_message_id || 0, message_id),
+      }));
+    });
+    s.on('chat:delivered', ({ conversation_id, user_id, message_id }) => {
+      moveMember(conversation_id, user_id, (m) => ({
+        ...m,
+        last_delivered_message_id: Math.max(m.last_delivered_message_id || 0, message_id),
+      }));
     });
 
     s.on('chat:conversation', () => refreshConversations());
@@ -180,8 +261,14 @@ export default function ChatProvider({ currentUser, children }) {
       setActiveId,
       openConversation,
       markRead,
+      popups,
+      dismissPopup,
+      soundOn,
+      setSoundOn,
+      theme,
+      setTheme,
     }),
-    [currentUser, meId, socket, config, conversations, refreshConversations, totals, open, activeId, openConversation, markRead]
+    [currentUser, meId, socket, config, conversations, refreshConversations, totals, open, activeId, openConversation, markRead, popups, dismissPopup, soundOn, setSoundOn, theme, setTheme]
   );
 
   return <ChatContext.Provider value={value}>{children}</ChatContext.Provider>;

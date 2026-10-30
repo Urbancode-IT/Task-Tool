@@ -26,6 +26,7 @@ import adminApi from '../../api/adminApi';
 import PerformanceEfficiency from './PerformanceEfficiency';
 import itUpdatesApi from '../../api/itUpdatesApi';
 import { TaskModal, TaskBoard } from '../ITUpdates/ITUpdatesMain';
+import { assigneeLabel } from '../../utils/assignees';
 import { getDisplayRole } from '../../utils/displayRole';
 import { toastSuccess, toastError } from '../../utils/toast';
 import { confirmDialog, reasonDialog } from '../../utils/confirm';
@@ -340,8 +341,13 @@ export default function AdminMain({ currentUser, onLogout }) {
   // also create their requirements, exactly like the IT Updates flow.
   const saveDirectorTask = async (payload) => {
     const assignedBy = payload.assigned_by;
-    const assignedTo = payload.assigned_to;
-    if (!assignedBy || !assignedTo) {
+    // The shared TaskModal sends every assignee; a task can go to several directors.
+    const assigneeIds = Array.isArray(payload.assignee_ids)
+      ? payload.assignee_ids
+      : payload.assigned_to
+        ? [payload.assigned_to]
+        : [];
+    if (!assignedBy || !assigneeIds.length) {
       toastError('Select both the assigning and the receiving director.');
       return false;
     }
@@ -355,7 +361,7 @@ export default function AdminMain({ currentUser, onLogout }) {
     const body = {
       title: payload.task_title,
       task_description: payload.task_description ?? null,
-      assigned_to: assignedTo,
+      assignee_ids: assigneeIds,
       assigned_by: assignedBy,
       created_by: user?.id ?? user?.user_id ?? null,
       status: payload.status,
@@ -1048,7 +1054,7 @@ export default function AdminMain({ currentUser, onLogout }) {
                           {reviewTasks.map((t) => {
                             const id = t.id || t.task_id;
                             const title = t.task_title || t.title || 'Task';
-                            const assignee = t.assignee || '—';
+                            const assignee = assigneeLabel(t, { max: 3, empty: '—' });
                             const assignedBy = t.assigned_by_name || t.assigned_by_username || '—';
                             const priority = t.priority || 'medium';
                             const due = t.dueDate || t.due_date;
@@ -1135,7 +1141,7 @@ export default function AdminMain({ currentUser, onLogout }) {
                           {overdueTasks.map((t) => {
                             const id = t.id || t.task_id;
                             const title = t.task_title || t.title || 'Task';
-                            const assignee = t.assignee || '—';
+                            const assignee = assigneeLabel(t, { max: 3, empty: '—' });
                             const assignedBy = t.assigned_by_name || t.assigned_by_username || '—';
                             const priority = t.priority || 'medium';
                             const due = t.dueDate || t.due_date;
@@ -1473,7 +1479,7 @@ export default function AdminMain({ currentUser, onLogout }) {
                                 ? `${task.req_completed || 0}/${task.req_total || 0}`
                                 : '—'}
                             </td>
-                            <td>{task.assignee || '—'}</td>
+                            <td>{assigneeLabel(task, { max: 3, empty: '—' })}</td>
                             <td>{task.status}</td>
                             <td>{task.priority}</td>
                           </tr>
@@ -2135,7 +2141,7 @@ export default function AdminMain({ currentUser, onLogout }) {
                 <div><span className="admin-task-meta-label">Priority</span><span>{taskDetailModal.task.priority || '—'}</span></div>
                 <div><span className="admin-task-meta-label">Due</span><span>{(taskDetailModal.task.dueDate || taskDetailModal.task.due_date) ? new Date(taskDetailModal.task.dueDate || taskDetailModal.task.due_date).toLocaleDateString() : '—'}</span></div>
                 <div><span className="admin-task-meta-label">Project</span><span>{taskDetailModal.task.projectId || taskDetailModal.task.project_id || '—'}</span></div>
-                <div><span className="admin-task-meta-label">Assignee</span><span>{taskDetailModal.task.assignee || '—'}</span></div>
+                <div><span className="admin-task-meta-label">Assignee</span><span>{assigneeLabel(taskDetailModal.task, { max: 10, empty: '—' })}</span></div>
                 <div><span className="admin-task-meta-label">Assigned by</span><span>{taskDetailModal.task.assigned_by_name || taskDetailModal.task.assigned_by_username || '—'}</span></div>
                 <div><span className="admin-task-meta-label">Checklist</span><span>{Number.isFinite(taskDetailModal.task.req_total) || Number.isFinite(taskDetailModal.task.req_completed) ? `${taskDetailModal.task.req_completed || 0}/${taskDetailModal.task.req_total || 0}` : '—'}</span></div>
                 {(taskDetailModal.task.status === 'completed' || taskDetailModal.task.status === 'rework') &&

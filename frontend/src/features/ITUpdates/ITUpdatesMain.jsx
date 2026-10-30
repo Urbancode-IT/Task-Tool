@@ -47,6 +47,7 @@ import { filterEodByRange, eodRangeActive, EMPTY_EOD_RANGE } from '../../utils/e
 import { makeTaskDuplicate, toSubtaskDrafts } from '../../utils/taskDuplicate';
 import ProjectRequirements from '../../components/ProjectRequirements';
 import MemberPicker from '../../components/MemberPicker';
+import { initialAssigneeIds, isAssignedTo, cardAssignees } from '../../utils/assignees';
 import Preloader from '../../components/Preloader';
 import LeadModal from '../../components/LeadModal';
 import ModalKebabMenu from '../../components/ModalKebabMenu';
@@ -334,12 +335,15 @@ export function TaskBoard({ tasks = [], onDragEnd, onCardClick, onCardDuplicate,
                               />
                             </span>
                           ) : null}
-                          <span className="it-updates-task-card-person">
-                            <Avatar
-                              user={{ username: task.assignee, profile_image: task.assignee_profile_image }}
-                              size="small"
-                            />
-                          </span>
+                          {/* Every assignee of a shared task, up to three, then "+n". */}
+                          {cardAssignees(task).slice(0, 3).map((person) => (
+                            <span key={person.user_id} className="it-updates-task-card-person">
+                              <Avatar user={person} size="small" />
+                            </span>
+                          ))}
+                          {cardAssignees(task).length > 3 ? (
+                            <span className="it-updates-task-card-more">+{cardAssignees(task).length - 3}</span>
+                          ) : null}
                         </div>
                       </div>
                       {task.status === 'completed' &&
@@ -624,7 +628,7 @@ const ITUpdatesMain = ({ currentUser, onLogout, scope = 'internal' }) => {
     return tasks.filter(
       (t) =>
         !t.is_crm &&
-        (t.assignee === key || (id != null && String(t.assigned_to) === String(id)))
+        (t.assignee === key || isAssignedTo(t, id))
     );
   }, [tasks, user]);
 
@@ -711,7 +715,7 @@ const ITUpdatesMain = ({ currentUser, onLogout, scope = 'internal' }) => {
     if (f.project_id) result = result.filter((t) => String(t.projectId) === String(f.project_id));
     if (f.status) result = result.filter((t) => t.status === f.status);
     if (f.priority) result = result.filter((t) => t.priority === f.priority);
-    if (f.assignee) result = result.filter((t) => String(t.assigned_to) === String(f.assignee));
+    if (f.assignee) result = result.filter((t) => isAssignedTo(t, f.assignee));
     if (f.branch) result = result.filter((t) => t.assignee_branch === f.branch);
     if (f.period) result = result.filter((t) => taskInPeriod(t, f.period));
     if (showBacklogsOnly) result = result.filter((t) => isTaskOverdue(t));
@@ -753,6 +757,9 @@ const ITUpdatesMain = ({ currentUser, onLogout, scope = 'internal' }) => {
   const buildInlineDraftFromTask = (t) => ({
     projectId: t?.projectId ?? '',
     assigned_to: t?.assigned_to ?? t?.assignee ?? '',
+    // The inline row edits one assignee; remembering the original lets a save leave a
+    // task's other assignees alone unless this one was actually changed.
+    original_assigned_to: String(t?.assigned_to ?? ''),
     assigned_by: t?.assigned_by ?? '',
     status: t?.status ?? 'in_progress',
     priority: t?.priority ?? 'medium',
@@ -828,7 +835,9 @@ const ITUpdatesMain = ({ currentUser, onLogout, scope = 'internal' }) => {
       const patch = {
         team: MODULE_TEAM,
         projectId: draft.projectId === '' ? null : draft.projectId,
-        assigned_to: draft.assigned_to === '' ? null : draft.assigned_to,
+        ...(String(draft.assigned_to ?? '') !== draft.original_assigned_to
+          ? { assigned_to: draft.assigned_to === '' ? null : draft.assigned_to }
+          : {}),
         assigned_by: draft.assigned_by === '' ? null : draft.assigned_by,
         status: nextStatus,
         priority: draft.priority ?? 'medium',
@@ -1078,7 +1087,7 @@ const ITUpdatesMain = ({ currentUser, onLogout, scope = 'internal' }) => {
   const canDeleteTask = (task) =>
     isAdmin ||
     (myId != null &&
-      (String(task?.assigned_to) === String(myId) ||
+      (isAssignedTo(task, myId) ||
         String(task?.assigned_by) === String(myId) ||
         String(task?.created_by) === String(myId)));
 
@@ -1209,7 +1218,10 @@ const ITUpdatesMain = ({ currentUser, onLogout, scope = 'internal' }) => {
         title: payload.task_title,
         task_description: payload.task_description ?? payload.description,
         projectId: payload.project_id ?? payload.projectId,
-        assigned_to: payload.assigned_to,
+        // The task form sends every assignee; older one-person callers send assigned_to.
+        ...(payload.assignee_ids !== undefined
+          ? { assignee_ids: payload.assignee_ids }
+          : { assigned_to: payload.assigned_to }),
         assigned_by: payload.assigned_by,
         status: payload.status,
         priority: payload.priority,
@@ -1309,13 +1321,13 @@ const ITUpdatesMain = ({ currentUser, onLogout, scope = 'internal' }) => {
 
   // My Tasks list: "+ Create" adds a task from its title alone, assigned to me.
   // Admins may pick the assignee and assigner; otherwise the task is the user's own.
-  const handleQuickCreateTask = async ({ title, status, projectId, assigned_to, assigned_by }) => {
+  const handleQuickCreateTask = async ({ title, status, projectId, assignee_ids, assigned_by }) => {
     try {
       await itUpdatesApi.createTask({
         title,
         status,
         projectId,
-        assigned_to: assigned_to ?? myId,
+        assignee_ids: assignee_ids?.length ? assignee_ids : [myId],
         assigned_by: assigned_by ?? myId,
         is_crm: false,
         team: MODULE_TEAM,
@@ -2899,7 +2911,7 @@ export function TaskModal({ task, currentUser, projects, developers, managers, o
     task_title: task?.title ?? '',
     task_description: task?.task_description ?? task?.description ?? '',
     project_id: task?.projectId ?? task?.project_id ?? '',
-    assigned_to: task?.assigned_to ?? '',
+    assignee_ids: initialAssigneeIds(task),
     assigned_by: task?.assigned_by ?? '',
     status: task?.id != null ? (task?.status ?? 'in_progress') : 'todo',
     priority: task?.priority ?? 'medium',
@@ -3145,8 +3157,8 @@ export function TaskModal({ task, currentUser, projects, developers, managers, o
       toastError('Task title is required.');
       return;
     }
-    if (!String(form.assigned_to ?? '').trim()) {
-      toastError('Please assign this task to a staff member.');
+    if (!form.assignee_ids.length) {
+      toastError('Please assign this task to at least one staff member.');
       return;
     }
     if (requireProject && !form.project_id) {
@@ -3185,7 +3197,7 @@ export function TaskModal({ task, currentUser, projects, developers, managers, o
       taskAutoSaveSkip.current = false;
       return;
     }
-    if (!form.task_title.trim() || !String(form.assigned_to ?? '').trim()) return;
+    if (!form.task_title.trim() || !form.assignee_ids.length) return;
     const h = setTimeout(async () => {
       setSaveState({ saving: true, saved: false });
       let ok = false;
@@ -3447,31 +3459,28 @@ export function TaskModal({ task, currentUser, projects, developers, managers, o
           </label>
           <label>
             Assigned by
-            <select
-              value={form.assigned_by}
-              onChange={(e) => setForm((f) => ({ ...f, assigned_by: e.target.value }))}
-            >
-              <option value="">—</option>
-              {(managers.length ? managers : []).map((u) => (
-                <option key={u.user_id} value={u.user_id}>
-                  {u.username ?? u.assignee}
-                </option>
-              ))}
-            </select>
+            <MemberPicker
+              members={managers}
+              by="id"
+              value={form.assigned_by == null ? '' : String(form.assigned_by)}
+              onChange={(id) => setForm((f) => ({ ...f, assigned_by: id }))}
+              emptyLabel="—"
+              searchPlaceholder="Search people…"
+              ariaLabel="Assigned by"
+            />
           </label>
           <label>
             Assign to
-            <select
-              value={form.assigned_to}
-              onChange={(e) => setForm((f) => ({ ...f, assigned_to: e.target.value }))}
-            >
-              <option value="">—</option>
-              {(developers.length ? developers : [{ assignee: 'Unassigned', user_id: '' }]).map((u) => (
-                <option key={u.user_id ?? u.assignee} value={u.user_id ?? u.assignee ?? ''}>
-                  {u.username ?? u.assignee}
-                </option>
-              ))}
-            </select>
+            <MemberPicker
+              members={developers}
+              by="id"
+              multiple
+              value={form.assignee_ids}
+              onChange={(ids) => setForm((f) => ({ ...f, assignee_ids: ids }))}
+              placeholder="Choose one or more people"
+              searchPlaceholder="Search people…"
+              ariaLabel="Assign to"
+            />
           </label>
           <label>
             Task date

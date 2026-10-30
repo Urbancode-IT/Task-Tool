@@ -394,13 +394,19 @@ async function gateProjectSecrets(list, req) {
 // Reject assigning a task/project to a KNOWN inactive user (only active users are
 // assignable). Returns true when it is OK to proceed. No-ops for empty/unknown ids.
 async function assigneeActiveOrReject(res, assignedTo) {
-  if (assignedTo == null || assignedTo === '') return true;
-  const active = await db.dbIsUserActive(assignedTo);
-  if (!active) {
-    res.status(400).json({ message: 'That user is inactive and cannot be assigned tasks or projects.' });
-    return false;
+  // Accepts one id or a list (tasks can have several assignees); every one must be active.
+  for (const id of db.normalizeAssigneeIds(assignedTo)) {
+    if (!(await db.dbIsUserActive(id))) {
+      res.status(400).json({ message: 'That user is inactive and cannot be assigned tasks or projects.' });
+      return false;
+    }
   }
   return true;
+}
+
+/** The assignee list a task body sets, or undefined when the body leaves assignment alone. */
+function assigneesInBody(body) {
+  return db.resolveAssignees(body || {})?.assignee_ids;
 }
 
 // ---- Auth: login + refresh (JWT cookie-based). DB users only when DB connected. ----
@@ -1278,20 +1284,21 @@ app.post(`${BASE_PATH}/tasks`, async (req, res) => {
       const teamForCreate = req.body?.team || req.query?.team;
       if (isLegalFinanceTeamString(teamForCreate) && !requireLegalFinanceAccess(req, res)) return;
       if (isDirectorTeamString(teamForCreate) && !requireDirectorManage(req, res)) return;
-      if (!(await assigneeActiveOrReject(res, req.body?.assigned_to))) return;
+      if (!(await assigneeActiveOrReject(res, assigneesInBody(req.body)))) return;
       // The creator is the signed-in user, never taken from the body, so whoever adds a
       // card — including a Client CRM lead with no assignee — can delete it later.
       const assignerId = req.user?.id != null ? parseInt(String(req.user.id), 10) : null;
       const task = await db.dbCreateTask({ ...req.body, created_by: assignerId, team: teamForCreate });
       if (!task) return res.status(500).json({ message: 'Failed to create task' });
-      // Notify the assignee that a card was added to them (skip self-assignment).
-      if (task.assigned_to != null && task.assigned_to !== assignerId) {
+      // Notify every assignee that a card was added to them (skip self-assignment).
+      const toNotify = db.assigneeIdsOf(task).filter((id) => id !== assignerId);
+      if (toNotify.length > 0) {
         const assignerName =
           req.user?.name ||
           req.user?.username ||
           (assignerId != null ? (await db.dbGetUsersByIds([assignerId]))[0]?.username : null) ||
           'Someone';
-        notifyAssignment({ task, assignerName }).catch((e) =>
+        notifyAssignment({ task, assignerName, userIds: toNotify }).catch((e) =>
           console.error('notifyAssignment:', e.message)
         );
       }
@@ -1323,7 +1330,8 @@ app.put(`${BASE_PATH}/tasks/:taskId`, async (req, res) => {
       if (existing?.team === 'legal_finance' && !requireLegalFinanceAccess(req, res)) return;
       if (isLegalFinanceTeamString(team) && !requireLegalFinanceAccess(req, res)) return;
       if ((existing?.team === 'director' || isDirectorTeamString(team)) && !requireDirectorManage(req, res)) return;
-      if (req.body?.assigned_to !== undefined && !(await assigneeActiveOrReject(res, req.body.assigned_to))) return;
+      const nextAssignees = assigneesInBody(req.body);
+      if (nextAssignees !== undefined && !(await assigneeActiveOrReject(res, nextAssignees))) return;
       if (existing?.pipeline_stage) {
         const nextStatus = req.body?.status;
         const movesStage =
@@ -1342,6 +1350,17 @@ app.put(`${BASE_PATH}/tasks/:taskId`, async (req, res) => {
       recordTaskRevisions(existing, req.body, existing?.team || team, req.user?.id).catch((e) =>
         console.error('recordTaskRevisions:', e.message)
       );
+      // People newly added to the task are told, as on create.
+      if (nextAssignees !== undefined) {
+        const actorId = req.user?.id != null ? parseInt(String(req.user.id), 10) : null;
+        const before = new Set(db.assigneeIdsOf(existing || {}));
+        const added = nextAssignees.filter((id) => !before.has(id) && id !== actorId);
+        if (added.length > 0) {
+          notifyAssignment({ task, assignerName: req.user?.username || req.user?.name, userIds: added }).catch((e) =>
+            console.error('notifyAssignment:', e.message)
+          );
+        }
+      }
       return res.json(task);
     }
     const idx = tasks.findIndex((t) => t.id === taskId);
@@ -1694,7 +1713,7 @@ function canDeleteTaskRow(req, task) {
   const me = req.user?.id;
   if (me == null || !task) return false;
   return (
-    String(task.assigned_to) === String(me) ||
+    db.assigneeIdsOf(task).some((id) => String(id) === String(me)) ||
     String(task.assigned_by) === String(me) ||
     String(task.created_by) === String(me)
   );
@@ -2331,7 +2350,7 @@ app.post(`${BASE_PATH}/tasks/:taskId/requirements/:reqId/timer`, async (req, res
       teamHint = t?.team || null;
     }
     if (isLegalFinanceTeamString(teamHint) && !requireLegalFinanceAccess(req, res)) return;
-    const updated = await db.dbRequirementTimer(reqId, action, taskId, teamHint);
+    const updated = await db.dbRequirementTimer(reqId, action, taskId, teamHint, req.user?.id ?? null);
     if (!updated) return res.status(404).json({ message: 'Requirement not found' });
     return res.json(updated);
   } catch (err) {
@@ -2361,7 +2380,7 @@ app.post(`${BASE_PATH}/tasks/:taskId/requirements/:reqId/manual-time`, async (re
       teamHint = t?.team || null;
     }
     if (isLegalFinanceTeamString(teamHint) && !requireLegalFinanceAccess(req, res)) return;
-    const updated = await db.dbAddRequirementManualTime(reqId, { fromTime: from, toTime: to }, taskId, teamHint);
+    const updated = await db.dbAddRequirementManualTime(reqId, { fromTime: from, toTime: to }, taskId, teamHint, req.user?.id ?? null);
     if (!updated) return res.status(404).json({ message: 'Requirement not found' });
     return res.json(updated);
   } catch (err) {
@@ -3631,30 +3650,34 @@ async function notifyMentions({ taskId, team, mentionIds, commenterName, html, t
   }
 }
 
-/** Email the assignee when a card/task is created and assigned to them. Fire-and-forget. */
-async function notifyAssignment({ task, assignerName }) {
+/**
+ * Email assignees when a card/task is assigned to them. Fire-and-forget. userIds
+ * defaults to every assignee on the task.
+ */
+async function notifyAssignment({ task, assignerName, userIds = null }) {
   if (!isMailConfigured()) {
     console.warn('[assignment] skipped: email not configured (GMAIL_* env missing).');
     return;
   }
-  const assigneeId = task?.assigned_to;
-  if (assigneeId == null) return; // unassigned card — nobody to notify
-  const [assignee] = await db.dbGetUsersByIds([assigneeId]);
-  if (!assignee?.email) {
-    console.log(`[assignment] task ${task?.id}: assignee ${assigneeId} has no email — skipping.`);
-    return;
-  }
+  const ids = userIds ?? db.assigneeIdsOf(task);
+  if (!ids.length) return; // unassigned card — nobody to notify
   const title = task?.title || `Task #${task?.id}`;
   const link = appLink();
   const who = assignerName || 'Someone';
-  const mail = renderMail('task_assigned', {
-    values: { name: assignee.username || 'there', who, task: title },
-    blocks: { quote: quoteBlock(task?.task_description ? stripHtml(task.task_description) : '') },
-    ctaUrl: link,
-    sender: { name: who },
-  });
-  const ok = await sendMail({ to: assignee.email, subject: mail.subject, html: mail.html });
-  console.log(`[assignment] email to user ${assignee.user_id}: ${ok ? 'sent' : 'FAILED'}`);
+  for (const assignee of await db.dbGetUsersByIds(ids)) {
+    if (!assignee?.email) {
+      console.log(`[assignment] task ${task?.id}: assignee ${assignee?.user_id} has no email — skipping.`);
+      continue;
+    }
+    const mail = renderMail('task_assigned', {
+      values: { name: assignee.username || 'there', who, task: title },
+      blocks: { quote: quoteBlock(task?.task_description ? stripHtml(task.task_description) : '') },
+      ctaUrl: link,
+      sender: { name: who },
+    });
+    const ok = await sendMail({ to: assignee.email, subject: mail.subject, html: mail.html });
+    console.log(`[assignment] email to user ${assignee.user_id}: ${ok ? 'sent' : 'FAILED'}`);
+  }
 }
 
 /** Check for tasks due soon / overdue and email assignee + assigner once per state. */

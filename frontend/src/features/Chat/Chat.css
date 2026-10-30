@@ -533,12 +533,22 @@
   min-height: 0;
 }
 
+/* Chat wallpaper: mint teal with a tile of teal line icons (monitor, search, hearts,
+   mail, smiley, globe, pencil, thumbs-up, wifi, bubble, bolt, headset, phone). The tile
+   is an inline SVG drawn for Seyal, so there is no image file. It stays put while
+   messages scroll. */
 .chat-messages {
+  --chat-wallpaper: #bfe8e8;
   flex: 1;
   min-height: 0;
   overflow-y: auto;
   padding: 0.75rem 1rem 0.5rem;
-  background: var(--clr-slate-50);
+  background-color: var(--chat-wallpaper);
+  background-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20width%3D'240'%20height%3D'240'%20viewBox%3D'0%200%20240%20240'%3E%3Cg%20fill%3D'none'%20stroke%3D'%236fc4c4'%20stroke-width%3D'1.3'%20stroke-linecap%3D'round'%20stroke-linejoin%3D'round'%3E%3Cg%20transform%3D'translate(30%2026)%20rotate(-8)%20scale(1.25)'%3E%3Crect%20x%3D'-11'%20y%3D'-9'%20width%3D'22'%20height%3D'14'%20rx%3D'2'%2F%3E%3Cpath%20d%3D'M-4%209h8M0%205v4'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(86%2022)%20rotate(12)%20scale(1.25)'%3E%3Ccircle%20cx%3D'-2'%20cy%3D'-2'%20r%3D'6'%2F%3E%3Cpath%20d%3D'M2.5%202.5l6%206'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(140%2030)%20rotate(-14)%20scale(1.25)'%3E%3Cpath%20d%3D'M0%207c-6-4-9-7-9-10.5a4.5%204.5%200%200%201%209-1.5%204.5%204.5%200%200%201%209%201.5C9%200%206%203%200%207z'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(196%2024)%20rotate(10)%20scale(1.25)'%3E%3Crect%20x%3D'-10'%20y%3D'-7'%20width%3D'20'%20height%3D'14'%20rx%3D'1.5'%2F%3E%3Cpath%20d%3D'M-10-6l10%207%2010-7'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(22%2078)%20rotate(0)%20scale(1.25)'%3E%3Ccircle%20r%3D'9'%2F%3E%3Ccircle%20cx%3D'-3'%20cy%3D'-2'%20r%3D'0.8'%2F%3E%3Ccircle%20cx%3D'3'%20cy%3D'-2'%20r%3D'0.8'%2F%3E%3Cpath%20d%3D'M-4.5%202.5a5%205%200%200%200%209%200'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(72%2070)%20rotate(0)%20scale(1.25)'%3E%3Ccircle%20r%3D'9'%2F%3E%3Cpath%20d%3D'M-9%200h18M0-9c-5%205-5%2013%200%2018M0-9c5%205%205%2013%200%2018M-8-4.5h16M-8%204.5h16'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(122%2080)%20rotate(20)%20scale(1.25)'%3E%3Cpath%20d%3D'M-8%208l2-6%2010-10%204%204-10%2010z'%2F%3E%3Cpath%20d%3D'M2-6l4%204'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(174%2072)%20rotate(-10)%20scale(1.25)'%3E%3Cpath%20d%3D'M-8-1h4v10h-4zM-4%208h9a2%202%200%200%200%202-1.6l1.6-6A2%202%200%200%200%206.6-2H2l1-5a2%202%200%200%200-3.8-1L-4-1'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(220%2084)%20rotate(-18)%20scale(1.25)'%3E%3Cpath%20d%3D'M-10-2a14%2014%200%200%201%2020%200M-6.5%202a9%209%200%200%201%2013%200M-3%206a4%204%200%200%201%206%200'%2F%3E%3Ccircle%20cx%3D'0'%20cy%3D'9'%20r%3D'0.8'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(40%20128)%20rotate(6)%20scale(1.25)'%3E%3Cpath%20d%3D'M-10-7h20a2%202%200%200%201%202%202v9a2%202%200%200%201-2%202H-2l-5%204v-4h-3a2%202%200%200%201-2-2v-9a2%202%200%200%201%202-2z'%2F%3E%3Ccircle%20cx%3D'-4'%20cy%3D'-0.5'%20r%3D'0.8'%2F%3E%3Ccircle%20cx%3D'0'%20cy%3D'-0.5'%20r%3D'0.8'%2F%3E%3Ccircle%20cx%3D'4'%20cy%3D'-0.5'%20r%3D'0.8'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(96%20122)%20rotate(14)%20scale(1.25)'%3E%3Cpath%20d%3D'M2-10l-8%2011h6l-2%209%208-11h-6z'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(148%20128)%20rotate(-6)%20scale(1.25)'%3E%3Cpath%20d%3D'M-8%203v-3a8%208%200%200%201%2016%200v3'%2F%3E%3Crect%20x%3D'-10'%20y%3D'2'%20width%3D'4'%20height%3D'7'%20rx%3D'1.5'%2F%3E%3Crect%20x%3D'6'%20y%3D'2'%20width%3D'4'%20height%3D'7'%20rx%3D'1.5'%2F%3E%3Cpath%20d%3D'M8%209c0%202-2%203-5%203'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(200%20132)%20rotate(16)%20scale(1.25)'%3E%3Crect%20x%3D'-6'%20y%3D'-10'%20width%3D'12'%20height%3D'20'%20rx%3D'2'%2F%3E%3Cpath%20d%3D'M-1.5%207h3'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(22%20180)%20rotate(-20)%20scale(1.25)'%3E%3Ccircle%20cx%3D'-2'%20cy%3D'-2'%20r%3D'6'%2F%3E%3Cpath%20d%3D'M2.5%202.5l6%206'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(72%20178)%20rotate(8)%20scale(1.25)'%3E%3Cpath%20d%3D'M-3%205c-4-3-6-5-6-7.5a3%203%200%200%201%206-1%203%203%200%200%201%206%201C3%200%201%202-3%205z'%2F%3E%3Cpath%20d%3D'M5%209c-3-2-4.5-3.5-4.5-5.5a2.3%202.3%200%200%201%204.5-.8%202.3%202.3%200%200%201%204.5.8C9.5%205.5%208%207%205%209z'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(126%20182)%20rotate(6)%20scale(1.25)'%3E%3Crect%20x%3D'-11'%20y%3D'-9'%20width%3D'22'%20height%3D'14'%20rx%3D'2'%2F%3E%3Cpath%20d%3D'M-4%209h8M0%205v4'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(182%20178)%20rotate(0)%20scale(1.25)'%3E%3Ccircle%20r%3D'9'%2F%3E%3Ccircle%20cx%3D'-3'%20cy%3D'-2'%20r%3D'0.8'%2F%3E%3Ccircle%20cx%3D'3'%20cy%3D'-2'%20r%3D'0.8'%2F%3E%3Cpath%20d%3D'M-4.5%202.5a5%205%200%200%200%209%200'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(222%20212)%20rotate(-12)%20scale(1.25)'%3E%3Crect%20x%3D'-10'%20y%3D'-7'%20width%3D'20'%20height%3D'14'%20rx%3D'1.5'%2F%3E%3Cpath%20d%3D'M-10-6l10%207%2010-7'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(46%20222)%20rotate(12)%20scale(1.25)'%3E%3Cpath%20d%3D'M-8-1h4v10h-4zM-4%208h9a2%202%200%200%200%202-1.6l1.6-6A2%202%200%200%200%206.6-2H2l1-5a2%202%200%200%200-3.8-1L-4-1'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(100%20224)%20rotate(0)%20scale(1.25)'%3E%3Ccircle%20r%3D'9'%2F%3E%3Cpath%20d%3D'M-9%200h18M0-9c-5%205-5%2013%200%2018M0-9c5%205%205%2013%200%2018M-8-4.5h16M-8%204.5h16'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(150%20222)%20rotate(-10)%20scale(1.25)'%3E%3Cpath%20d%3D'M2-10l-8%2011h6l-2%209%208-11h-6z'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(196%20232)%20rotate(8)%20scale(1.25)'%3E%3Cpath%20d%3D'M-10-2a14%2014%200%200%201%2020%200M-6.5%202a9%209%200%200%201%2013%200M-3%206a4%204%200%200%201%206%200'%2F%3E%3Ccircle%20cx%3D'0'%20cy%3D'9'%20r%3D'0.8'%2F%3E%3C%2Fg%3E%3C%2Fg%3E%3C%2Fsvg%3E");
+  background-size: 240px 240px;
+  background-attachment: local;
+  /* Message menus never push the conversation sideways. */
+  overflow-x: hidden;
 }
 
 .chat-load-earlier {
@@ -659,11 +669,28 @@
 }
 
 .chat-time {
-  display: block;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 3px;
   margin-top: 0.1rem;
-  opacity: 0.65;
   font-size: 0.66rem;
-  text-align: right;
+}
+
+/* The time is dimmed; the ticks are not, so the read colour stays bright. */
+.chat-time-text {
+  opacity: 0.65;
+}
+
+/* Ticks on my messages: one = sent, two = delivered, two in sky blue = read. */
+.chat-ticks {
+  display: inline-flex;
+  color: rgba(255, 255, 255, 0.7);
+  line-height: 0;
+}
+
+.chat-ticks.read {
+  color: #7dd3fc;
 }
 
 .chat-quote {
@@ -759,68 +786,198 @@
   background: var(--clr-primary-50, #eaf2fd);
 }
 
-/* Hover actions beside a bubble. */
-.chat-msg-actions {
+/* ── Message actions, WhatsApp style ──
+   Quick Reply / React buttons beside the bubble, and a ⌄ in the bubble's top corner
+   that opens the message menu. Both appear on hover (or keyboard focus). */
+.chat-msg.menu-open {
+  z-index: 6;
+}
+
+.chat-msg-side {
   position: relative;
   display: flex;
   align-self: center;
-  gap: 0.1rem;
+  gap: 0.15rem;
   opacity: 0;
   transition: opacity 0.12s;
 }
 
-.chat-msg.mine .chat-msg-actions {
+.chat-msg.mine .chat-msg-side {
   order: -1;
 }
 
-.chat-msg:hover .chat-msg-actions,
-.chat-msg-actions:focus-within {
+.chat-msg:hover .chat-msg-side,
+.chat-msg.menu-open .chat-msg-side,
+.chat-msg-side:focus-within {
   opacity: 1;
 }
 
-.chat-msg-actions > button {
+.chat-msg-side > button {
   display: inline-flex;
-  padding: 0.2rem;
+  padding: 0.3rem;
   border: none;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--clr-slate-400);
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.85);
+  box-shadow: 0 1px 2px rgba(11, 20, 26, 0.15);
+  color: #54656f;
   cursor: pointer;
 }
 
-.chat-msg-actions > button:hover {
-  background: var(--clr-slate-100);
-  color: var(--clr-slate-700);
-}
-
-.chat-msg-actions > button.danger:hover {
-  color: #dc2626;
+.chat-msg-side > button:hover {
+  background: #fff;
+  color: #111b21;
 }
 
 .chat-react-picker {
   position: absolute;
-  bottom: 120%;
-  z-index: 5;
+  bottom: calc(100% + 6px);
+  z-index: 8;
   display: flex;
   gap: 0.1rem;
-  padding: 0.25rem;
-  border: 1px solid var(--clr-slate-200);
+  padding: 0.3rem 0.4rem;
   border-radius: 999px;
   background: #fff;
-  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.12);
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.18);
 }
 
-.chat-react-picker button {
-  padding: 0.15rem 0.25rem;
+.chat-msg:not(.mine) .chat-react-picker {
+  left: 0;
+}
+
+.chat-msg.mine .chat-react-picker {
+  right: 0;
+}
+
+.chat-react-picker button,
+.chat-menu-reacts button {
+  padding: 0.2rem 0.3rem;
   border: none;
-  border-radius: 6px;
+  border-radius: 50%;
   background: transparent;
-  font-size: 1.05rem;
+  font-size: 1.2rem;
+  line-height: 1;
+  cursor: pointer;
+  transition: transform 0.1s;
+}
+
+.chat-react-picker button:hover,
+.chat-menu-reacts button:hover {
+  background: var(--clr-slate-100);
+  transform: scale(1.18);
+}
+
+/* The ⌄ in the bubble corner, on a soft fade so it reads over text and media. */
+.chat-menu-btn {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  z-index: 2;
+  display: inline-flex;
+  padding: 0 0 0.35rem 0.6rem;
+  border: none;
+  border-radius: 0 10px 0 16px;
+  background: radial-gradient(at top right, var(--chat-bubble-bg, #fff) 55%, transparent 75%);
+  color: #8696a0;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+
+.chat-msg.mine .chat-menu-btn {
+  --chat-bubble-bg: var(--clr-primary-600, #0054c4);
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.chat-msg:hover .chat-menu-btn,
+.chat-msg.menu-open .chat-menu-btn,
+.chat-menu-btn:focus-visible {
+  opacity: 1;
+}
+
+.chat-menu {
+  position: absolute;
+  right: 0;
+  z-index: 8;
+  width: max-content;
+  min-width: 200px;
+  padding: 0.35rem 0;
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: 0 8px 28px rgba(11, 20, 26, 0.22);
+  color: #111b21;
+  text-align: left;
+}
+
+.chat-menu.down {
+  top: 26px;
+}
+
+.chat-menu.up {
+  bottom: calc(100% - 4px);
+}
+
+.chat-msg:not(.mine) .chat-menu {
+  right: auto;
+  left: calc(100% - 28px);
+}
+
+.chat-menu-reacts {
+  display: flex;
+  flex-wrap: nowrap;
+  justify-content: space-between;
+  gap: 0.1rem;
+  margin: 0 0.4rem 0.3rem;
+  padding: 0.15rem 0.2rem 0.4rem;
+  border-bottom: 1px solid var(--clr-slate-100);
+}
+
+.chat-menu > button {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  width: 100%;
+  padding: 0.55rem 1rem;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-size: 0.88rem;
+  text-align: left;
   cursor: pointer;
 }
 
-.chat-react-picker button:hover {
-  background: var(--clr-slate-100);
+.chat-menu > button svg {
+  color: #54656f;
+}
+
+.chat-menu > button:hover {
+  background: #f5f6f6;
+}
+
+.chat-menu > button.danger,
+.chat-menu > button.danger svg {
+  color: #dc2626;
+}
+
+/* Inline media inside a bubble. */
+.chat-video {
+  display: block;
+  width: min(300px, 100%);
+  max-height: 360px;
+  border-radius: 8px;
+  background: #000;
+}
+
+.chat-audio {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-width: 240px;
+}
+
+.chat-audio audio {
+  flex: 1;
+  height: 36px;
 }
 
 .chat-receipt {
@@ -996,8 +1153,13 @@
   .chat-msg-body {
     max-width: 85%;
   }
-  .chat-msg-actions {
+  /* Touch screens have no hover: keep the ⌄ menu visible (the side buttons stay hidden
+     to save room; React and Reply are in the menu). */
+  .chat-menu-btn {
     opacity: 1;
+  }
+  .chat-msg-side {
+    display: none;
   }
   .chat-header-btn span:not(.chat-header-badge) {
     display: none;
@@ -1011,4 +1173,433 @@
 
 .chat-composer {
   padding-inline: max(0.75rem, calc((100% - 1000px) / 2));
+}
+
+/* New-message popups (ChatPopups): stacked bottom right, above the page and the chat. */
+.chat-popups {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 2000;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: min(340px, calc(100vw - 32px));
+  pointer-events: none;
+}
+
+.chat-popup {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  border: 1px solid #e2e8f0;
+  border-left: 4px solid #2563eb;
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.18);
+  pointer-events: auto;
+  animation: chat-popup-in 0.2s ease-out;
+}
+
+.chat-popup.mentioned {
+  border-left-color: #f59e0b;
+}
+
+.chat-popup-body {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 10px 6px 10px 12px;
+  border: none;
+  background: none;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+}
+
+.chat-popup-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.chat-popup-text strong {
+  overflow: hidden;
+  color: #0f172a;
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-popup-text span {
+  display: -webkit-box;
+  overflow: hidden;
+  color: #475569;
+  font-size: 12.5px;
+  line-height: 1.35;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.chat-popup-close {
+  align-self: flex-start;
+  margin: 6px 6px 0 0;
+  padding: 2px;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: #94a3b8;
+  cursor: pointer;
+}
+
+.chat-popup-close:hover {
+  background: #f1f5f9;
+  color: #334155;
+}
+
+@keyframes chat-popup-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-popup {
+    animation: none;
+  }
+}
+
+/* ── WhatsApp-style messages on the wallpaper ── */
+.chat-placeholder {
+  background-color: #f0f2f5;
+}
+
+.chat-bubble {
+  border: none;
+  box-shadow: 0 1px 0.5px rgba(11, 20, 26, 0.13);
+}
+
+/* A small tail on the first bubble of each run, pointing at the sender. */
+.chat-msg.head .chat-bubble::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  width: 10px;
+  height: 12px;
+  background: inherit;
+}
+
+.chat-msg.head:not(.mine) .chat-bubble {
+  border-top-left-radius: 0;
+}
+
+.chat-msg.head:not(.mine) .chat-bubble::before {
+  left: -8px;
+  clip-path: polygon(100% 0, 0 0, 100% 100%);
+}
+
+.chat-msg.head.mine .chat-bubble {
+  border-top-right-radius: 0;
+}
+
+.chat-msg.head.mine .chat-bubble::before {
+  right: -8px;
+  clip-path: polygon(0 0, 100% 0, 0 100%);
+}
+
+/* Mentions and deleted bubbles keep their own look; no tail on a dashed outline. */
+.chat-bubble.mentioned {
+  box-shadow: 0 0 0 1px #fbbf24, 0 1px 0.5px rgba(11, 20, 26, 0.13);
+}
+
+.chat-bubble.deleted {
+  box-shadow: none;
+}
+
+.chat-bubble.deleted::before {
+  display: none;
+}
+
+/* Day separators and system lines sit in pills so they read on the pattern. */
+.chat-day {
+  width: fit-content;
+  margin: 0.9rem auto 0.5rem;
+  padding: 0.25rem 0.7rem;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 1px 0.5px rgba(11, 20, 26, 0.13);
+  color: #54656f;
+  letter-spacing: 0.03em;
+}
+
+.chat-messages > .chat-muted,
+.chat-typing {
+  width: fit-content;
+  margin-left: auto;
+  margin-right: auto;
+  padding: 0.25rem 0.7rem;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.85);
+}
+
+.chat-typing {
+  margin-left: 0;
+}
+
+.chat-receipt {
+  width: fit-content;
+  padding: 0 0.4rem;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.7);
+  color: #54656f;
+}
+
+/* ── Chat themes (generated) ── */
+/* One rule per theme in chatThemes.js, each with its own drawings and colours. The
+   tiles are inline SVG drawn for Seyal; the Emoji theme uses the device's emoji font. */
+.chat-messages[data-chat-theme='tech'] {
+  --chat-wallpaper: #bfe8e8;
+  background-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20width%3D'240'%20height%3D'240'%20viewBox%3D'0%200%20240%20240'%3E%3Cg%20fill%3D'none'%20stroke%3D'%236fc4c4'%20stroke-width%3D'1.3'%20stroke-linecap%3D'round'%20stroke-linejoin%3D'round'%3E%3Cg%20transform%3D'translate(30%2026)%20rotate(-8)%20scale(1.25)'%3E%3Crect%20x%3D'-11'%20y%3D'-9'%20width%3D'22'%20height%3D'14'%20rx%3D'2'%2F%3E%3Cpath%20d%3D'M-4%209h8M0%205v4'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(86%2022)%20rotate(12)%20scale(1.25)'%3E%3Ccircle%20cx%3D'-2'%20cy%3D'-2'%20r%3D'6'%2F%3E%3Cpath%20d%3D'M2.5%202.5l6%206'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(140%2030)%20rotate(-14)%20scale(1.25)'%3E%3Cpath%20d%3D'M0%207c-6-4-9-7-9-10.5a4.5%204.5%200%200%201%209-1.5%204.5%204.5%200%200%201%209%201.5C9%200%206%203%200%207z'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(196%2024)%20rotate(10)%20scale(1.25)'%3E%3Crect%20x%3D'-10'%20y%3D'-7'%20width%3D'20'%20height%3D'14'%20rx%3D'1.5'%2F%3E%3Cpath%20d%3D'M-10-6l10%207%2010-7'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(22%2078)%20rotate(0)%20scale(1.25)'%3E%3Ccircle%20r%3D'9'%2F%3E%3Ccircle%20cx%3D'-3'%20cy%3D'-2'%20r%3D'0.8'%2F%3E%3Ccircle%20cx%3D'3'%20cy%3D'-2'%20r%3D'0.8'%2F%3E%3Cpath%20d%3D'M-4.5%202.5a5%205%200%200%200%209%200'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(72%2070)%20rotate(6)%20scale(1.25)'%3E%3Ccircle%20r%3D'9'%2F%3E%3Cpath%20d%3D'M-9%200h18M0-9c-5%205-5%2013%200%2018M0-9c5%205%205%2013%200%2018M-8-4.5h16M-8%204.5h16'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(122%2080)%20rotate(20)%20scale(1.25)'%3E%3Cpath%20d%3D'M-8%208l2-6%2010-10%204%204-10%2010z'%2F%3E%3Cpath%20d%3D'M2-6l4%204'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(174%2072)%20rotate(-10)%20scale(1.25)'%3E%3Cpath%20d%3D'M-8-1h4v10h-4zM-4%208h9a2%202%200%200%200%202-1.6l1.6-6A2%202%200%200%200%206.6-2H2l1-5a2%202%200%200%200-3.8-1L-4-1'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(220%2084)%20rotate(-18)%20scale(1.25)'%3E%3Cpath%20d%3D'M-10-2a14%2014%200%200%201%2020%200M-6.5%202a9%209%200%200%201%2013%200M-3%206a4%204%200%200%201%206%200'%2F%3E%3Ccircle%20cx%3D'0'%20cy%3D'9'%20r%3D'0.8'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(40%20128)%20rotate(6)%20scale(1.25)'%3E%3Cpath%20d%3D'M-10-7h20a2%202%200%200%201%202%202v9a2%202%200%200%201-2%202H-2l-5%204v-4h-3a2%202%200%200%201-2-2v-9a2%202%200%200%201%202-2z'%2F%3E%3Ccircle%20cx%3D'-4'%20cy%3D'-0.5'%20r%3D'0.8'%2F%3E%3Ccircle%20cx%3D'0'%20cy%3D'-0.5'%20r%3D'0.8'%2F%3E%3Ccircle%20cx%3D'4'%20cy%3D'-0.5'%20r%3D'0.8'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(96%20122)%20rotate(14)%20scale(1.25)'%3E%3Cpath%20d%3D'M2-10l-8%2011h6l-2%209%208-11h-6z'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(148%20128)%20rotate(-6)%20scale(1.25)'%3E%3Cpath%20d%3D'M-8%203v-3a8%208%200%200%201%2016%200v3'%2F%3E%3Crect%20x%3D'-10'%20y%3D'2'%20width%3D'4'%20height%3D'7'%20rx%3D'1.5'%2F%3E%3Crect%20x%3D'6'%20y%3D'2'%20width%3D'4'%20height%3D'7'%20rx%3D'1.5'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(200%20132)%20rotate(16)%20scale(1.25)'%3E%3Crect%20x%3D'-6'%20y%3D'-10'%20width%3D'12'%20height%3D'20'%20rx%3D'2'%2F%3E%3Cpath%20d%3D'M-1.5%207h3'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(22%20180)%20rotate(-20)%20scale(1.25)'%3E%3Crect%20x%3D'-11'%20y%3D'-9'%20width%3D'22'%20height%3D'14'%20rx%3D'2'%2F%3E%3Cpath%20d%3D'M-4%209h8M0%205v4'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(72%20178)%20rotate(8)%20scale(1.25)'%3E%3Ccircle%20cx%3D'-2'%20cy%3D'-2'%20r%3D'6'%2F%3E%3Cpath%20d%3D'M2.5%202.5l6%206'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(126%20182)%20rotate(6)%20scale(1.25)'%3E%3Cpath%20d%3D'M0%207c-6-4-9-7-9-10.5a4.5%204.5%200%200%201%209-1.5%204.5%204.5%200%200%201%209%201.5C9%200%206%203%200%207z'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(182%20178)%20rotate(-4)%20scale(1.25)'%3E%3Crect%20x%3D'-10'%20y%3D'-7'%20width%3D'20'%20height%3D'14'%20rx%3D'1.5'%2F%3E%3Cpath%20d%3D'M-10-6l10%207%2010-7'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(222%20212)%20rotate(-12)%20scale(1.25)'%3E%3Ccircle%20r%3D'9'%2F%3E%3Ccircle%20cx%3D'-3'%20cy%3D'-2'%20r%3D'0.8'%2F%3E%3Ccircle%20cx%3D'3'%20cy%3D'-2'%20r%3D'0.8'%2F%3E%3Cpath%20d%3D'M-4.5%202.5a5%205%200%200%200%209%200'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(46%20222)%20rotate(12)%20scale(1.25)'%3E%3Ccircle%20r%3D'9'%2F%3E%3Cpath%20d%3D'M-9%200h18M0-9c-5%205-5%2013%200%2018M0-9c5%205%205%2013%200%2018M-8-4.5h16M-8%204.5h16'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(100%20224)%20rotate(-6)%20scale(1.25)'%3E%3Cpath%20d%3D'M-8%208l2-6%2010-10%204%204-10%2010z'%2F%3E%3Cpath%20d%3D'M2-6l4%204'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(150%20222)%20rotate(-10)%20scale(1.25)'%3E%3Cpath%20d%3D'M-8-1h4v10h-4zM-4%208h9a2%202%200%200%200%202-1.6l1.6-6A2%202%200%200%200%206.6-2H2l1-5a2%202%200%200%200-3.8-1L-4-1'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(196%20232)%20rotate(8)%20scale(1.25)'%3E%3Cpath%20d%3D'M-10-2a14%2014%200%200%201%2020%200M-6.5%202a9%209%200%200%201%2013%200M-3%206a4%204%200%200%201%206%200'%2F%3E%3Ccircle%20cx%3D'0'%20cy%3D'9'%20r%3D'0.8'%2F%3E%3C%2Fg%3E%3C%2Fg%3E%3C%2Fsvg%3E");
+}
+.chat-messages[data-chat-theme='emoji'] {
+  --chat-wallpaper: #fff6d6;
+  background-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20width%3D'240'%20height%3D'240'%20viewBox%3D'0%200%20240%20240'%3E%3Cg%20opacity%3D'0.34'%20font-family%3D'Segoe%20UI%20Emoji%2C%20Apple%20Color%20Emoji%2C%20Noto%20Color%20Emoji%2C%20sans-serif'%3E%3Ctext%20x%3D'30'%20y%3D'26'%20transform%3D'rotate(-8%2030%2026)'%20font-size%3D'22'%20text-anchor%3D'middle'%20dominant-baseline%3D'central'%3E%F0%9F%98%80%3C%2Ftext%3E%3Ctext%20x%3D'86'%20y%3D'22'%20transform%3D'rotate(12%2086%2022)'%20font-size%3D'22'%20text-anchor%3D'middle'%20dominant-baseline%3D'central'%3E%F0%9F%98%8D%3C%2Ftext%3E%3Ctext%20x%3D'140'%20y%3D'30'%20transform%3D'rotate(-14%20140%2030)'%20font-size%3D'22'%20text-anchor%3D'middle'%20dominant-baseline%3D'central'%3E%F0%9F%91%8D%3C%2Ftext%3E%3Ctext%20x%3D'196'%20y%3D'24'%20transform%3D'rotate(10%20196%2024)'%20font-size%3D'22'%20text-anchor%3D'middle'%20dominant-baseline%3D'central'%3E%F0%9F%8E%89%3C%2Ftext%3E%3Ctext%20x%3D'22'%20y%3D'78'%20transform%3D'rotate(0%2022%2078)'%20font-size%3D'22'%20text-anchor%3D'middle'%20dominant-baseline%3D'central'%3E%F0%9F%98%82%3C%2Ftext%3E%3Ctext%20x%3D'72'%20y%3D'70'%20transform%3D'rotate(6%2072%2070)'%20font-size%3D'22'%20text-anchor%3D'middle'%20dominant-baseline%3D'central'%3E%E2%9D%A4%EF%B8%8F%3C%2Ftext%3E%3Ctext%20x%3D'122'%20y%3D'80'%20transform%3D'rotate(20%20122%2080)'%20font-size%3D'22'%20text-anchor%3D'middle'%20dominant-baseline%3D'central'%3E%F0%9F%98%8E%3C%2Ftext%3E%3Ctext%20x%3D'174'%20y%3D'72'%20transform%3D'rotate(-10%20174%2072)'%20font-size%3D'22'%20text-anchor%3D'middle'%20dominant-baseline%3D'central'%3E%E2%AD%90%3C%2Ftext%3E%3Ctext%20x%3D'220'%20y%3D'84'%20transform%3D'rotate(-18%20220%2084)'%20font-size%3D'22'%20text-anchor%3D'middle'%20dominant-baseline%3D'central'%3E%F0%9F%A5%B3%3C%2Ftext%3E%3Ctext%20x%3D'40'%20y%3D'128'%20transform%3D'rotate(6%2040%20128)'%20font-size%3D'22'%20text-anchor%3D'middle'%20dominant-baseline%3D'central'%3E%F0%9F%94%A5%3C%2Ftext%3E%3Ctext%20x%3D'96'%20y%3D'122'%20transform%3D'rotate(14%2096%20122)'%20font-size%3D'22'%20text-anchor%3D'middle'%20dominant-baseline%3D'central'%3E%F0%9F%98%8A%3C%2Ftext%3E%3Ctext%20x%3D'148'%20y%3D'128'%20transform%3D'rotate(-6%20148%20128)'%20font-size%3D'22'%20text-anchor%3D'middle'%20dominant-baseline%3D'central'%3E%F0%9F%99%8C%3C%2Ftext%3E%3Ctext%20x%3D'200'%20y%3D'132'%20transform%3D'rotate(16%20200%20132)'%20font-size%3D'22'%20text-anchor%3D'middle'%20dominant-baseline%3D'central'%3E%F0%9F%98%80%3C%2Ftext%3E%3Ctext%20x%3D'22'%20y%3D'180'%20transform%3D'rotate(-20%2022%20180)'%20font-size%3D'22'%20text-anchor%3D'middle'%20dominant-baseline%3D'central'%3E%F0%9F%98%8D%3C%2Ftext%3E%3Ctext%20x%3D'72'%20y%3D'178'%20transform%3D'rotate(8%2072%20178)'%20font-size%3D'22'%20text-anchor%3D'middle'%20dominant-baseline%3D'central'%3E%F0%9F%91%8D%3C%2Ftext%3E%3Ctext%20x%3D'126'%20y%3D'182'%20transform%3D'rotate(6%20126%20182)'%20font-size%3D'22'%20text-anchor%3D'middle'%20dominant-baseline%3D'central'%3E%F0%9F%8E%89%3C%2Ftext%3E%3Ctext%20x%3D'182'%20y%3D'178'%20transform%3D'rotate(-4%20182%20178)'%20font-size%3D'22'%20text-anchor%3D'middle'%20dominant-baseline%3D'central'%3E%F0%9F%98%82%3C%2Ftext%3E%3Ctext%20x%3D'222'%20y%3D'212'%20transform%3D'rotate(-12%20222%20212)'%20font-size%3D'22'%20text-anchor%3D'middle'%20dominant-baseline%3D'central'%3E%E2%9D%A4%EF%B8%8F%3C%2Ftext%3E%3Ctext%20x%3D'46'%20y%3D'222'%20transform%3D'rotate(12%2046%20222)'%20font-size%3D'22'%20text-anchor%3D'middle'%20dominant-baseline%3D'central'%3E%F0%9F%98%8E%3C%2Ftext%3E%3Ctext%20x%3D'100'%20y%3D'224'%20transform%3D'rotate(-6%20100%20224)'%20font-size%3D'22'%20text-anchor%3D'middle'%20dominant-baseline%3D'central'%3E%E2%AD%90%3C%2Ftext%3E%3Ctext%20x%3D'150'%20y%3D'222'%20transform%3D'rotate(-10%20150%20222)'%20font-size%3D'22'%20text-anchor%3D'middle'%20dominant-baseline%3D'central'%3E%F0%9F%A5%B3%3C%2Ftext%3E%3Ctext%20x%3D'196'%20y%3D'232'%20transform%3D'rotate(8%20196%20232)'%20font-size%3D'22'%20text-anchor%3D'middle'%20dominant-baseline%3D'central'%3E%F0%9F%94%A5%3C%2Ftext%3E%3C%2Fg%3E%3C%2Fsvg%3E");
+}
+.chat-messages[data-chat-theme='study'] {
+  --chat-wallpaper: #d4e6ff;
+  background-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20width%3D'240'%20height%3D'240'%20viewBox%3D'0%200%20240%20240'%3E%3Cg%20fill%3D'none'%20stroke%3D'%238fb5ee'%20stroke-width%3D'1.3'%20stroke-linecap%3D'round'%20stroke-linejoin%3D'round'%3E%3Cg%20transform%3D'translate(30%2026)%20rotate(-8)%20scale(1.25)'%3E%3Cpath%20d%3D'M0-6c-3-2-7-2-10-1v14c3-1%207-1%2010%201%203-2%207-2%2010-1V-7c-3-1-7-1-10%201zM0-6v14'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(86%2022)%20rotate(12)%20scale(1.25)'%3E%3Cpath%20d%3D'M-11-2L0-7l11%205L0%203z'%2F%3E%3Cpath%20d%3D'M-6%200v5c3%203%209%203%2012%200V0M11-2v6'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(140%2030)%20rotate(-14)%20scale(1.25)'%3E%3Cpath%20d%3D'M-8%208l2-6%2010-10%204%204-10%2010z'%2F%3E%3Cpath%20d%3D'M2-6l4%204'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(196%2024)%20rotate(10)%20scale(1.25)'%3E%3Cpath%20d%3D'M-4%205c0-3-4-4-4-9a8%208%200%200%201%2016%200c0%205-4%206-4%209z'%2F%3E%3Cpath%20d%3D'M-3%208h6M-2%2011h4'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(22%2078)%20rotate(0)%20scale(1.25)'%3E%3Cellipse%20rx%3D'11'%20ry%3D'4'%2F%3E%3Cellipse%20rx%3D'11'%20ry%3D'4'%20transform%3D'rotate(60)'%2F%3E%3Cellipse%20rx%3D'11'%20ry%3D'4'%20transform%3D'rotate(-60)'%2F%3E%3Ccircle%20r%3D'1.2'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(72%2070)%20rotate(6)%20scale(1.25)'%3E%3Crect%20x%3D'-8'%20y%3D'-10'%20width%3D'16'%20height%3D'20'%20rx%3D'2'%2F%3E%3Crect%20x%3D'-5'%20y%3D'-7'%20width%3D'10'%20height%3D'4'%2F%3E%3Cpath%20d%3D'M-4%201h0M0%201h0M4%201h0M-4%205h0M0%205h0M4%205h0'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(122%2080)%20rotate(20)%20scale(1.25)'%3E%3Cpath%20d%3D'M-11%206l3-10%203%2010M-10%202.5h4M-2%206V-4h3a2.5%202.5%200%200%201%200%205H-2h3.5a2.5%202.5%200%200%201%200%205zM11-3a4.5%204.5%200%201%200%200%207'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(174%2072)%20rotate(-10)%20scale(1.25)'%3E%3Crect%20x%3D'-11'%20y%3D'-4'%20width%3D'22'%20height%3D'8'%20rx%3D'1'%20transform%3D'rotate(-30)'%2F%3E%3Cpath%20d%3D'M-6-1l1.5%202.5M-2-3.4l1.5%202.5M2-5.7l1.5%202.5'%20%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(220%2084)%20rotate(-18)%20scale(1.25)'%3E%3Cpath%20d%3D'M4-4l-7%207a2.5%202.5%200%200%200%203.5%203.5l8-8a5%205%200%200%200-7-7l-8%208a7.5%207.5%200%200%200%2010.6%2010.6l6-6'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(40%20128)%20rotate(6)%20scale(1.25)'%3E%3Ccircle%20cy%3D'-2'%20r%3D'7'%2F%3E%3Cpath%20d%3D'M-7-2h14M0-9c-3%203-3%2011%200%2014M0%205v5M-5%2010h10'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(96%20122)%20rotate(14)%20scale(1.25)'%3E%3Cpath%20d%3D'M0-6c-3-2-7-2-10-1v14c3-1%207-1%2010%201%203-2%207-2%2010-1V-7c-3-1-7-1-10%201zM0-6v14'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(148%20128)%20rotate(-6)%20scale(1.25)'%3E%3Cpath%20d%3D'M-11-2L0-7l11%205L0%203z'%2F%3E%3Cpath%20d%3D'M-6%200v5c3%203%209%203%2012%200V0M11-2v6'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(200%20132)%20rotate(16)%20scale(1.25)'%3E%3Cpath%20d%3D'M-8%208l2-6%2010-10%204%204-10%2010z'%2F%3E%3Cpath%20d%3D'M2-6l4%204'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(22%20180)%20rotate(-20)%20scale(1.25)'%3E%3Cpath%20d%3D'M-4%205c0-3-4-4-4-9a8%208%200%200%201%2016%200c0%205-4%206-4%209z'%2F%3E%3Cpath%20d%3D'M-3%208h6M-2%2011h4'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(72%20178)%20rotate(8)%20scale(1.25)'%3E%3Cellipse%20rx%3D'11'%20ry%3D'4'%2F%3E%3Cellipse%20rx%3D'11'%20ry%3D'4'%20transform%3D'rotate(60)'%2F%3E%3Cellipse%20rx%3D'11'%20ry%3D'4'%20transform%3D'rotate(-60)'%2F%3E%3Ccircle%20r%3D'1.2'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(126%20182)%20rotate(6)%20scale(1.25)'%3E%3Crect%20x%3D'-8'%20y%3D'-10'%20width%3D'16'%20height%3D'20'%20rx%3D'2'%2F%3E%3Crect%20x%3D'-5'%20y%3D'-7'%20width%3D'10'%20height%3D'4'%2F%3E%3Cpath%20d%3D'M-4%201h0M0%201h0M4%201h0M-4%205h0M0%205h0M4%205h0'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(182%20178)%20rotate(-4)%20scale(1.25)'%3E%3Cpath%20d%3D'M-11%206l3-10%203%2010M-10%202.5h4M-2%206V-4h3a2.5%202.5%200%200%201%200%205H-2h3.5a2.5%202.5%200%200%201%200%205zM11-3a4.5%204.5%200%201%200%200%207'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(222%20212)%20rotate(-12)%20scale(1.25)'%3E%3Crect%20x%3D'-11'%20y%3D'-4'%20width%3D'22'%20height%3D'8'%20rx%3D'1'%20transform%3D'rotate(-30)'%2F%3E%3Cpath%20d%3D'M-6-1l1.5%202.5M-2-3.4l1.5%202.5M2-5.7l1.5%202.5'%20%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(46%20222)%20rotate(12)%20scale(1.25)'%3E%3Cpath%20d%3D'M4-4l-7%207a2.5%202.5%200%200%200%203.5%203.5l8-8a5%205%200%200%200-7-7l-8%208a7.5%207.5%200%200%200%2010.6%2010.6l6-6'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(100%20224)%20rotate(-6)%20scale(1.25)'%3E%3Ccircle%20cy%3D'-2'%20r%3D'7'%2F%3E%3Cpath%20d%3D'M-7-2h14M0-9c-3%203-3%2011%200%2014M0%205v5M-5%2010h10'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(150%20222)%20rotate(-10)%20scale(1.25)'%3E%3Cpath%20d%3D'M0-6c-3-2-7-2-10-1v14c3-1%207-1%2010%201%203-2%207-2%2010-1V-7c-3-1-7-1-10%201zM0-6v14'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(196%20232)%20rotate(8)%20scale(1.25)'%3E%3Cpath%20d%3D'M-11-2L0-7l11%205L0%203z'%2F%3E%3Cpath%20d%3D'M-6%200v5c3%203%209%203%2012%200V0M11-2v6'%2F%3E%3C%2Fg%3E%3C%2Fg%3E%3C%2Fsvg%3E");
+}
+.chat-messages[data-chat-theme='space'] {
+  --chat-wallpaper: #0f1530;
+  background-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20width%3D'240'%20height%3D'240'%20viewBox%3D'0%200%20240%20240'%3E%3Cg%20fill%3D'none'%20stroke%3D'%232f3a6b'%20stroke-width%3D'1.3'%20stroke-linecap%3D'round'%20stroke-linejoin%3D'round'%3E%3Cg%20transform%3D'translate(30%2026)%20rotate(-8)%20scale(1.25)'%3E%3Cpath%20d%3D'M0-10l3%206.5%207%201-5%205%201.2%207L0%206l-6.2%203.5L-5%202.5l-5-5%207-1z'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(86%2022)%20rotate(12)%20scale(1.25)'%3E%3Ccircle%20r%3D'6'%2F%3E%3Cellipse%20rx%3D'11'%20ry%3D'3.5'%20transform%3D'rotate(-20)'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(140%2030)%20rotate(-14)%20scale(1.25)'%3E%3Cpath%20d%3D'M0-11c4%203%205%208%204%2014H-4c-1-6%200-11%204-14z'%2F%3E%3Ccircle%20cy%3D'-3'%20r%3D'1.8'%2F%3E%3Cpath%20d%3D'M-4%201l-4%204v3l4-2M4%201l4%204v3l-4-2M-2%206l2%205%202-5'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(196%2024)%20rotate(10)%20scale(1.25)'%3E%3Cpath%20d%3D'M4-9a9%209%200%201%200%205%2013%207%207%200%200%201-5-13z'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(22%2078)%20rotate(0)%20scale(1.25)'%3E%3Cpath%20d%3D'M0-9v18M-9%200h18M-4-4l8%208M-4%204l8-8'%20stroke-width%3D'0.9'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(72%2070)%20rotate(6)%20scale(1.25)'%3E%3Ccircle%20cx%3D'5'%20cy%3D'-5'%20r%3D'3.5'%2F%3E%3Cpath%20d%3D'M2.5-2.5L-10%2010M1-6l-9%204M6-1l-4%209'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(122%2080)%20rotate(20)%20scale(1.25)'%3E%3Cellipse%20cy%3D'2'%20rx%3D'11'%20ry%3D'4'%2F%3E%3Cpath%20d%3D'M-6%200a6%206%200%200%201%2012%200'%2F%3E%3Cpath%20d%3D'M-6%208l-2%203M6%208l2%203M0%207v4'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(174%2072)%20rotate(-10)%20scale(1.25)'%3E%3Cpath%20d%3D'M0-10l3%206.5%207%201-5%205%201.2%207L0%206l-6.2%203.5L-5%202.5l-5-5%207-1z'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(220%2084)%20rotate(-18)%20scale(1.25)'%3E%3Cpath%20d%3D'M0-10l3%206.5%207%201-5%205%201.2%207L0%206l-6.2%203.5L-5%202.5l-5-5%207-1z'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(40%20128)%20rotate(6)%20scale(1.25)'%3E%3Ccircle%20r%3D'6'%2F%3E%3Cellipse%20rx%3D'11'%20ry%3D'3.5'%20transform%3D'rotate(-20)'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(96%20122)%20rotate(14)%20scale(1.25)'%3E%3Cpath%20d%3D'M0-11c4%203%205%208%204%2014H-4c-1-6%200-11%204-14z'%2F%3E%3Ccircle%20cy%3D'-3'%20r%3D'1.8'%2F%3E%3Cpath%20d%3D'M-4%201l-4%204v3l4-2M4%201l4%204v3l-4-2M-2%206l2%205%202-5'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(148%20128)%20rotate(-6)%20scale(1.25)'%3E%3Cpath%20d%3D'M4-9a9%209%200%201%200%205%2013%207%207%200%200%201-5-13z'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(200%20132)%20rotate(16)%20scale(1.25)'%3E%3Cpath%20d%3D'M0-9v18M-9%200h18M-4-4l8%208M-4%204l8-8'%20stroke-width%3D'0.9'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(22%20180)%20rotate(-20)%20scale(1.25)'%3E%3Ccircle%20cx%3D'5'%20cy%3D'-5'%20r%3D'3.5'%2F%3E%3Cpath%20d%3D'M2.5-2.5L-10%2010M1-6l-9%204M6-1l-4%209'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(72%20178)%20rotate(8)%20scale(1.25)'%3E%3Cellipse%20cy%3D'2'%20rx%3D'11'%20ry%3D'4'%2F%3E%3Cpath%20d%3D'M-6%200a6%206%200%200%201%2012%200'%2F%3E%3Cpath%20d%3D'M-6%208l-2%203M6%208l2%203M0%207v4'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(126%20182)%20rotate(6)%20scale(1.25)'%3E%3Cpath%20d%3D'M0-10l3%206.5%207%201-5%205%201.2%207L0%206l-6.2%203.5L-5%202.5l-5-5%207-1z'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(182%20178)%20rotate(-4)%20scale(1.25)'%3E%3Cpath%20d%3D'M0-10l3%206.5%207%201-5%205%201.2%207L0%206l-6.2%203.5L-5%202.5l-5-5%207-1z'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(222%20212)%20rotate(-12)%20scale(1.25)'%3E%3Ccircle%20r%3D'6'%2F%3E%3Cellipse%20rx%3D'11'%20ry%3D'3.5'%20transform%3D'rotate(-20)'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(46%20222)%20rotate(12)%20scale(1.25)'%3E%3Cpath%20d%3D'M0-11c4%203%205%208%204%2014H-4c-1-6%200-11%204-14z'%2F%3E%3Ccircle%20cy%3D'-3'%20r%3D'1.8'%2F%3E%3Cpath%20d%3D'M-4%201l-4%204v3l4-2M4%201l4%204v3l-4-2M-2%206l2%205%202-5'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(100%20224)%20rotate(-6)%20scale(1.25)'%3E%3Cpath%20d%3D'M4-9a9%209%200%201%200%205%2013%207%207%200%200%201-5-13z'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(150%20222)%20rotate(-10)%20scale(1.25)'%3E%3Cpath%20d%3D'M0-9v18M-9%200h18M-4-4l8%208M-4%204l8-8'%20stroke-width%3D'0.9'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(196%20232)%20rotate(8)%20scale(1.25)'%3E%3Ccircle%20cx%3D'5'%20cy%3D'-5'%20r%3D'3.5'%2F%3E%3Cpath%20d%3D'M2.5-2.5L-10%2010M1-6l-9%204M6-1l-4%209'%2F%3E%3C%2Fg%3E%3C%2Fg%3E%3C%2Fsvg%3E");
+}
+.chat-messages[data-chat-theme='nature'] {
+  --chat-wallpaper: #dcf2d9;
+  background-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20width%3D'240'%20height%3D'240'%20viewBox%3D'0%200%20240%20240'%3E%3Cg%20fill%3D'none'%20stroke%3D'%2393cc8c'%20stroke-width%3D'1.3'%20stroke-linecap%3D'round'%20stroke-linejoin%3D'round'%3E%3Cg%20transform%3D'translate(30%2026)%20rotate(-8)%20scale(1.25)'%3E%3Cpath%20d%3D'M-9%209C-9-4%200-10%2010-10%2010%201%204%209-9%209z'%2F%3E%3Cpath%20d%3D'M-9%209L5-5'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(86%2022)%20rotate(12)%20scale(1.25)'%3E%3Ccircle%20r%3D'2.5'%2F%3E%3Ccircle%20cy%3D'-6'%20r%3D'3.5'%2F%3E%3Ccircle%20cy%3D'6'%20r%3D'3.5'%2F%3E%3Ccircle%20cx%3D'-6'%20r%3D'3.5'%2F%3E%3Ccircle%20cx%3D'6'%20r%3D'3.5'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(140%2030)%20rotate(-14)%20scale(1.25)'%3E%3Ccircle%20r%3D'5'%2F%3E%3Cpath%20d%3D'M0-11v3M0%208v3M-11%200h3M8%200h3M-8-8l2%202M6%206l2%202M-8%208l2-2M6-6l2-2'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(196%2024)%20rotate(10)%20scale(1.25)'%3E%3Cpath%20d%3D'M-6%206a5%205%200%200%201%200-10%207%207%200%200%201%2013%202%204%204%200%200%201%200%208z'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(22%2078)%20rotate(0)%20scale(1.25)'%3E%3Cpath%20d%3D'M0-11l7%209h-4l5%207H-8l5-7h-4zM0%205v6'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(72%2070)%20rotate(6)%20scale(1.25)'%3E%3Cpath%20d%3D'M0-10C4-4%207%200%207%204a7%207%200%200%201-14%200c0-4%203-8%207-14z'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(122%2080)%20rotate(20)%20scale(1.25)'%3E%3Cpath%20d%3D'M-5-8l2.5%203L0-9l2.5%204L5-8v5a5%205%200%200%201-10%200zM0%202v9M0%207c-3-3-6-3-7-2M0%208c3-3%206-3%207-2'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(174%2072)%20rotate(-10)%20scale(1.25)'%3E%3Cpath%20d%3D'M-9%209C-9-4%200-10%2010-10%2010%201%204%209-9%209z'%2F%3E%3Cpath%20d%3D'M-9%209L5-5'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(220%2084)%20rotate(-18)%20scale(1.25)'%3E%3Ccircle%20r%3D'2.5'%2F%3E%3Ccircle%20cy%3D'-6'%20r%3D'3.5'%2F%3E%3Ccircle%20cy%3D'6'%20r%3D'3.5'%2F%3E%3Ccircle%20cx%3D'-6'%20r%3D'3.5'%2F%3E%3Ccircle%20cx%3D'6'%20r%3D'3.5'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(40%20128)%20rotate(6)%20scale(1.25)'%3E%3Ccircle%20r%3D'5'%2F%3E%3Cpath%20d%3D'M0-11v3M0%208v3M-11%200h3M8%200h3M-8-8l2%202M6%206l2%202M-8%208l2-2M6-6l2-2'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(96%20122)%20rotate(14)%20scale(1.25)'%3E%3Cpath%20d%3D'M-6%206a5%205%200%200%201%200-10%207%207%200%200%201%2013%202%204%204%200%200%201%200%208z'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(148%20128)%20rotate(-6)%20scale(1.25)'%3E%3Cpath%20d%3D'M0-11l7%209h-4l5%207H-8l5-7h-4zM0%205v6'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(200%20132)%20rotate(16)%20scale(1.25)'%3E%3Cpath%20d%3D'M0-10C4-4%207%200%207%204a7%207%200%200%201-14%200c0-4%203-8%207-14z'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(22%20180)%20rotate(-20)%20scale(1.25)'%3E%3Cpath%20d%3D'M-5-8l2.5%203L0-9l2.5%204L5-8v5a5%205%200%200%201-10%200zM0%202v9M0%207c-3-3-6-3-7-2M0%208c3-3%206-3%207-2'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(72%20178)%20rotate(8)%20scale(1.25)'%3E%3Cpath%20d%3D'M-9%209C-9-4%200-10%2010-10%2010%201%204%209-9%209z'%2F%3E%3Cpath%20d%3D'M-9%209L5-5'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(126%20182)%20rotate(6)%20scale(1.25)'%3E%3Ccircle%20r%3D'2.5'%2F%3E%3Ccircle%20cy%3D'-6'%20r%3D'3.5'%2F%3E%3Ccircle%20cy%3D'6'%20r%3D'3.5'%2F%3E%3Ccircle%20cx%3D'-6'%20r%3D'3.5'%2F%3E%3Ccircle%20cx%3D'6'%20r%3D'3.5'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(182%20178)%20rotate(-4)%20scale(1.25)'%3E%3Ccircle%20r%3D'5'%2F%3E%3Cpath%20d%3D'M0-11v3M0%208v3M-11%200h3M8%200h3M-8-8l2%202M6%206l2%202M-8%208l2-2M6-6l2-2'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(222%20212)%20rotate(-12)%20scale(1.25)'%3E%3Cpath%20d%3D'M-6%206a5%205%200%200%201%200-10%207%207%200%200%201%2013%202%204%204%200%200%201%200%208z'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(46%20222)%20rotate(12)%20scale(1.25)'%3E%3Cpath%20d%3D'M0-11l7%209h-4l5%207H-8l5-7h-4zM0%205v6'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(100%20224)%20rotate(-6)%20scale(1.25)'%3E%3Cpath%20d%3D'M0-10C4-4%207%200%207%204a7%207%200%200%201-14%200c0-4%203-8%207-14z'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(150%20222)%20rotate(-10)%20scale(1.25)'%3E%3Cpath%20d%3D'M-5-8l2.5%203L0-9l2.5%204L5-8v5a5%205%200%200%201-10%200zM0%202v9M0%207c-3-3-6-3-7-2M0%208c3-3%206-3%207-2'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(196%20232)%20rotate(8)%20scale(1.25)'%3E%3Cpath%20d%3D'M-9%209C-9-4%200-10%2010-10%2010%201%204%209-9%209z'%2F%3E%3Cpath%20d%3D'M-9%209L5-5'%2F%3E%3C%2Fg%3E%3C%2Fg%3E%3C%2Fsvg%3E");
+}
+.chat-messages[data-chat-theme='love'] {
+  --chat-wallpaper: #fde4e6;
+  background-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20width%3D'240'%20height%3D'240'%20viewBox%3D'0%200%20240%20240'%3E%3Cg%20fill%3D'none'%20stroke%3D'%23f0a8b2'%20stroke-width%3D'1.3'%20stroke-linecap%3D'round'%20stroke-linejoin%3D'round'%3E%3Cg%20transform%3D'translate(30%2026)%20rotate(-8)%20scale(1.25)'%3E%3Cpath%20d%3D'M0%207c-6-4-9-7-9-10.5a4.5%204.5%200%200%201%209-1.5%204.5%204.5%200%200%201%209%201.5C9%200%206%203%200%207z'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(86%2022)%20rotate(12)%20scale(1.25)'%3E%3Cpath%20d%3D'M-3%205c-4-3-6-5-6-7.5a3%203%200%200%201%206-1%203%203%200%200%201%206%201C3%200%201%202-3%205z'%2F%3E%3Cpath%20d%3D'M5%209c-3-2-4.5-3.5-4.5-5.5a2.3%202.3%200%200%201%204.5-.8%202.3%202.3%200%200%201%204.5.8C9.5%205.5%208%207%205%209z'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(140%2030)%20rotate(-14)%20scale(1.25)'%3E%3Crect%20x%3D'-10'%20y%3D'-7'%20width%3D'20'%20height%3D'14'%20rx%3D'1.5'%2F%3E%3Cpath%20d%3D'M-10-6l10%207%2010-7'%2F%3E%3Cpath%20d%3D'M0%204c-2-1.5-3-2.5-3-3.7a1.5%201.5%200%200%201%203-.5%201.5%201.5%200%200%201%203%20.5C3%201.5%202%202.5%200%204z'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(196%2024)%20rotate(10)%20scale(1.25)'%3E%3Ccircle%20cy%3D'3'%20r%3D'7'%2F%3E%3Cpath%20d%3D'M-3-4l3-5%203%205z'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(22%2078)%20rotate(0)%20scale(1.25)'%3E%3Cpath%20d%3D'M0%206c-5-3.5-7-6-7-9a3.5%203.5%200%200%201%207-1.2A3.5%203.5%200%200%201%207-3c0%203-2%205.5-7%209z'%2F%3E%3Cpath%20d%3D'M-11%209L11-9M7-9h4v4'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(72%2070)%20rotate(6)%20scale(1.25)'%3E%3Crect%20x%3D'-9'%20y%3D'-3'%20width%3D'18'%20height%3D'13'%20rx%3D'1'%2F%3E%3Cpath%20d%3D'M-10-7h20v4h-20zM0-7v17M0-7c-3-5-8-3-5%200M0-7c3-5%208-3%205%200'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(122%2080)%20rotate(20)%20scale(1.25)'%3E%3Cpath%20d%3D'M0%207c-6-4-9-7-9-10.5a4.5%204.5%200%200%201%209-1.5%204.5%204.5%200%200%201%209%201.5C9%200%206%203%200%207z'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(174%2072)%20rotate(-10)%20scale(1.25)'%3E%3Cpath%20d%3D'M-3%205c-4-3-6-5-6-7.5a3%203%200%200%201%206-1%203%203%200%200%201%206%201C3%200%201%202-3%205z'%2F%3E%3Cpath%20d%3D'M5%209c-3-2-4.5-3.5-4.5-5.5a2.3%202.3%200%200%201%204.5-.8%202.3%202.3%200%200%201%204.5.8C9.5%205.5%208%207%205%209z'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(220%2084)%20rotate(-18)%20scale(1.25)'%3E%3Crect%20x%3D'-10'%20y%3D'-7'%20width%3D'20'%20height%3D'14'%20rx%3D'1.5'%2F%3E%3Cpath%20d%3D'M-10-6l10%207%2010-7'%2F%3E%3Cpath%20d%3D'M0%204c-2-1.5-3-2.5-3-3.7a1.5%201.5%200%200%201%203-.5%201.5%201.5%200%200%201%203%20.5C3%201.5%202%202.5%200%204z'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(40%20128)%20rotate(6)%20scale(1.25)'%3E%3Ccircle%20cy%3D'3'%20r%3D'7'%2F%3E%3Cpath%20d%3D'M-3-4l3-5%203%205z'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(96%20122)%20rotate(14)%20scale(1.25)'%3E%3Cpath%20d%3D'M0%206c-5-3.5-7-6-7-9a3.5%203.5%200%200%201%207-1.2A3.5%203.5%200%200%201%207-3c0%203-2%205.5-7%209z'%2F%3E%3Cpath%20d%3D'M-11%209L11-9M7-9h4v4'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(148%20128)%20rotate(-6)%20scale(1.25)'%3E%3Crect%20x%3D'-9'%20y%3D'-3'%20width%3D'18'%20height%3D'13'%20rx%3D'1'%2F%3E%3Cpath%20d%3D'M-10-7h20v4h-20zM0-7v17M0-7c-3-5-8-3-5%200M0-7c3-5%208-3%205%200'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(200%20132)%20rotate(16)%20scale(1.25)'%3E%3Cpath%20d%3D'M0%207c-6-4-9-7-9-10.5a4.5%204.5%200%200%201%209-1.5%204.5%204.5%200%200%201%209%201.5C9%200%206%203%200%207z'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(22%20180)%20rotate(-20)%20scale(1.25)'%3E%3Cpath%20d%3D'M-3%205c-4-3-6-5-6-7.5a3%203%200%200%201%206-1%203%203%200%200%201%206%201C3%200%201%202-3%205z'%2F%3E%3Cpath%20d%3D'M5%209c-3-2-4.5-3.5-4.5-5.5a2.3%202.3%200%200%201%204.5-.8%202.3%202.3%200%200%201%204.5.8C9.5%205.5%208%207%205%209z'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(72%20178)%20rotate(8)%20scale(1.25)'%3E%3Crect%20x%3D'-10'%20y%3D'-7'%20width%3D'20'%20height%3D'14'%20rx%3D'1.5'%2F%3E%3Cpath%20d%3D'M-10-6l10%207%2010-7'%2F%3E%3Cpath%20d%3D'M0%204c-2-1.5-3-2.5-3-3.7a1.5%201.5%200%200%201%203-.5%201.5%201.5%200%200%201%203%20.5C3%201.5%202%202.5%200%204z'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(126%20182)%20rotate(6)%20scale(1.25)'%3E%3Ccircle%20cy%3D'3'%20r%3D'7'%2F%3E%3Cpath%20d%3D'M-3-4l3-5%203%205z'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(182%20178)%20rotate(-4)%20scale(1.25)'%3E%3Cpath%20d%3D'M0%206c-5-3.5-7-6-7-9a3.5%203.5%200%200%201%207-1.2A3.5%203.5%200%200%201%207-3c0%203-2%205.5-7%209z'%2F%3E%3Cpath%20d%3D'M-11%209L11-9M7-9h4v4'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(222%20212)%20rotate(-12)%20scale(1.25)'%3E%3Crect%20x%3D'-9'%20y%3D'-3'%20width%3D'18'%20height%3D'13'%20rx%3D'1'%2F%3E%3Cpath%20d%3D'M-10-7h20v4h-20zM0-7v17M0-7c-3-5-8-3-5%200M0-7c3-5%208-3%205%200'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(46%20222)%20rotate(12)%20scale(1.25)'%3E%3Cpath%20d%3D'M0%207c-6-4-9-7-9-10.5a4.5%204.5%200%200%201%209-1.5%204.5%204.5%200%200%201%209%201.5C9%200%206%203%200%207z'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(100%20224)%20rotate(-6)%20scale(1.25)'%3E%3Cpath%20d%3D'M-3%205c-4-3-6-5-6-7.5a3%203%200%200%201%206-1%203%203%200%200%201%206%201C3%200%201%202-3%205z'%2F%3E%3Cpath%20d%3D'M5%209c-3-2-4.5-3.5-4.5-5.5a2.3%202.3%200%200%201%204.5-.8%202.3%202.3%200%200%201%204.5.8C9.5%205.5%208%207%205%209z'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(150%20222)%20rotate(-10)%20scale(1.25)'%3E%3Crect%20x%3D'-10'%20y%3D'-7'%20width%3D'20'%20height%3D'14'%20rx%3D'1.5'%2F%3E%3Cpath%20d%3D'M-10-6l10%207%2010-7'%2F%3E%3Cpath%20d%3D'M0%204c-2-1.5-3-2.5-3-3.7a1.5%201.5%200%200%201%203-.5%201.5%201.5%200%200%201%203%20.5C3%201.5%202%202.5%200%204z'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(196%20232)%20rotate(8)%20scale(1.25)'%3E%3Ccircle%20cy%3D'3'%20r%3D'7'%2F%3E%3Cpath%20d%3D'M-3-4l3-5%203%205z'%2F%3E%3C%2Fg%3E%3C%2Fg%3E%3C%2Fsvg%3E");
+}
+.chat-messages[data-chat-theme='food'] {
+  --chat-wallpaper: #ffe9d6;
+  background-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20width%3D'240'%20height%3D'240'%20viewBox%3D'0%200%20240%20240'%3E%3Cg%20fill%3D'none'%20stroke%3D'%23f2b88a'%20stroke-width%3D'1.3'%20stroke-linecap%3D'round'%20stroke-linejoin%3D'round'%3E%3Cg%20transform%3D'translate(30%2026)%20rotate(-8)%20scale(1.25)'%3E%3Cpath%20d%3D'M-9-4h14v7a7%207%200%200%201-14%200zM5-2h2a3%203%200%200%201%200%206H4M-5-11c-1%202%201%203%200%205M-1-11c-1%202%201%203%200%205'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(86%2022)%20rotate(12)%20scale(1.25)'%3E%3Cpath%20d%3D'M-10-8C-3-11%203-11%2010-8L0%2011z'%2F%3E%3Ccircle%20cx%3D'-3'%20cy%3D'-4'%20r%3D'1.4'%2F%3E%3Ccircle%20cx%3D'3'%20cy%3D'-3'%20r%3D'1.4'%2F%3E%3Ccircle%20cx%3D'0'%20cy%3D'2'%20r%3D'1.4'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(140%2030)%20rotate(-14)%20scale(1.25)'%3E%3Ccircle%20r%3D'9'%2F%3E%3Ccircle%20r%3D'3'%2F%3E%3Cpath%20d%3D'M-5-6l1%201M5-6l-1%202M-7%203l2%200M6%204l-1-2M0%207v-1'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(196%2024)%20rotate(10)%20scale(1.25)'%3E%3Cpath%20d%3D'M-6-2L0%2011l6-13'%2F%3E%3Cpath%20d%3D'M-7-2a7%207%200%200%201%2014%200z'%2F%3E%3Ccircle%20cy%3D'-9'%20r%3D'2'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(22%2078)%20rotate(0)%20scale(1.25)'%3E%3Cpath%20d%3D'M-7%201l2%209h10l2-9z'%2F%3E%3Cpath%20d%3D'M-8%201c0-6%204-9%208-9s8%203%208%209z'%2F%3E%3Cpath%20d%3D'M-2%201l1%209M2%201l-1%209'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(72%2070)%20rotate(6)%20scale(1.25)'%3E%3Cpath%20d%3D'M0-4c-4-3-10-1-10%205s4%2010%207%2010c1%200%202-1%203-1s2%201%203%201c3%200%207-4%207-10S4-7%200-4z'%2F%3E%3Cpath%20d%3D'M0-4c0-3%201-5%203-6'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(122%2080)%20rotate(20)%20scale(1.25)'%3E%3Cpath%20d%3D'M-7-2h14l-2%2012H-5z'%2F%3E%3Cpath%20d%3D'M-5-2v-8M-2-2v-10M1-2v-9M4-2v-7'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(174%2072)%20rotate(-10)%20scale(1.25)'%3E%3Cpath%20d%3D'M-9-4h14v7a7%207%200%200%201-14%200zM5-2h2a3%203%200%200%201%200%206H4M-5-11c-1%202%201%203%200%205M-1-11c-1%202%201%203%200%205'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(220%2084)%20rotate(-18)%20scale(1.25)'%3E%3Cpath%20d%3D'M-10-8C-3-11%203-11%2010-8L0%2011z'%2F%3E%3Ccircle%20cx%3D'-3'%20cy%3D'-4'%20r%3D'1.4'%2F%3E%3Ccircle%20cx%3D'3'%20cy%3D'-3'%20r%3D'1.4'%2F%3E%3Ccircle%20cx%3D'0'%20cy%3D'2'%20r%3D'1.4'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(40%20128)%20rotate(6)%20scale(1.25)'%3E%3Ccircle%20r%3D'9'%2F%3E%3Ccircle%20r%3D'3'%2F%3E%3Cpath%20d%3D'M-5-6l1%201M5-6l-1%202M-7%203l2%200M6%204l-1-2M0%207v-1'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(96%20122)%20rotate(14)%20scale(1.25)'%3E%3Cpath%20d%3D'M-6-2L0%2011l6-13'%2F%3E%3Cpath%20d%3D'M-7-2a7%207%200%200%201%2014%200z'%2F%3E%3Ccircle%20cy%3D'-9'%20r%3D'2'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(148%20128)%20rotate(-6)%20scale(1.25)'%3E%3Cpath%20d%3D'M-7%201l2%209h10l2-9z'%2F%3E%3Cpath%20d%3D'M-8%201c0-6%204-9%208-9s8%203%208%209z'%2F%3E%3Cpath%20d%3D'M-2%201l1%209M2%201l-1%209'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(200%20132)%20rotate(16)%20scale(1.25)'%3E%3Cpath%20d%3D'M0-4c-4-3-10-1-10%205s4%2010%207%2010c1%200%202-1%203-1s2%201%203%201c3%200%207-4%207-10S4-7%200-4z'%2F%3E%3Cpath%20d%3D'M0-4c0-3%201-5%203-6'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(22%20180)%20rotate(-20)%20scale(1.25)'%3E%3Cpath%20d%3D'M-7-2h14l-2%2012H-5z'%2F%3E%3Cpath%20d%3D'M-5-2v-8M-2-2v-10M1-2v-9M4-2v-7'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(72%20178)%20rotate(8)%20scale(1.25)'%3E%3Cpath%20d%3D'M-9-4h14v7a7%207%200%200%201-14%200zM5-2h2a3%203%200%200%201%200%206H4M-5-11c-1%202%201%203%200%205M-1-11c-1%202%201%203%200%205'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(126%20182)%20rotate(6)%20scale(1.25)'%3E%3Cpath%20d%3D'M-10-8C-3-11%203-11%2010-8L0%2011z'%2F%3E%3Ccircle%20cx%3D'-3'%20cy%3D'-4'%20r%3D'1.4'%2F%3E%3Ccircle%20cx%3D'3'%20cy%3D'-3'%20r%3D'1.4'%2F%3E%3Ccircle%20cx%3D'0'%20cy%3D'2'%20r%3D'1.4'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(182%20178)%20rotate(-4)%20scale(1.25)'%3E%3Ccircle%20r%3D'9'%2F%3E%3Ccircle%20r%3D'3'%2F%3E%3Cpath%20d%3D'M-5-6l1%201M5-6l-1%202M-7%203l2%200M6%204l-1-2M0%207v-1'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(222%20212)%20rotate(-12)%20scale(1.25)'%3E%3Cpath%20d%3D'M-6-2L0%2011l6-13'%2F%3E%3Cpath%20d%3D'M-7-2a7%207%200%200%201%2014%200z'%2F%3E%3Ccircle%20cy%3D'-9'%20r%3D'2'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(46%20222)%20rotate(12)%20scale(1.25)'%3E%3Cpath%20d%3D'M-7%201l2%209h10l2-9z'%2F%3E%3Cpath%20d%3D'M-8%201c0-6%204-9%208-9s8%203%208%209z'%2F%3E%3Cpath%20d%3D'M-2%201l1%209M2%201l-1%209'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(100%20224)%20rotate(-6)%20scale(1.25)'%3E%3Cpath%20d%3D'M0-4c-4-3-10-1-10%205s4%2010%207%2010c1%200%202-1%203-1s2%201%203%201c3%200%207-4%207-10S4-7%200-4z'%2F%3E%3Cpath%20d%3D'M0-4c0-3%201-5%203-6'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(150%20222)%20rotate(-10)%20scale(1.25)'%3E%3Cpath%20d%3D'M-7-2h14l-2%2012H-5z'%2F%3E%3Cpath%20d%3D'M-5-2v-8M-2-2v-10M1-2v-9M4-2v-7'%2F%3E%3C%2Fg%3E%3Cg%20transform%3D'translate(196%20232)%20rotate(8)%20scale(1.25)'%3E%3Cpath%20d%3D'M-9-4h14v7a7%207%200%200%201-14%200zM5-2h2a3%203%200%200%201%200%206H4M-5-11c-1%202%201%203%200%205M-1-11c-1%202%201%203%200%205'%2F%3E%3C%2Fg%3E%3C%2Fg%3E%3C%2Fsvg%3E");
+}
+.chat-messages[data-chat-theme='plain'] {
+  --chat-wallpaper: #f1f5f9;
+  background-image: none;
+}
+
+/* Dark themes: dark bubbles and pills so the text stays readable. */
+.chat-messages[data-chat-theme='space'] .chat-bubble {
+  background: #1e2747;
+  color: #e6e9f5;
+  box-shadow: none;
+}
+.chat-messages[data-chat-theme='space'] .chat-msg.mine .chat-bubble {
+  background: var(--clr-primary-600, #0054c4);
+  color: #fff;
+}
+.chat-messages[data-chat-theme='space'] .chat-bubble.mentioned {
+  background: #3a3020;
+}
+.chat-messages[data-chat-theme='space'] .chat-day,
+.chat-messages[data-chat-theme='space'] .chat-receipt,
+.chat-messages[data-chat-theme='space'] > .chat-muted,
+.chat-messages[data-chat-theme='space'] .chat-typing {
+  background: rgba(30, 39, 71, 0.92);
+  color: #9aa3c7;
+}
+.chat-messages[data-chat-theme='space'] .chat-msg-name,
+.chat-messages[data-chat-theme='space'] .chat-msg:not(.mine) .chat-time {
+  color: #9aa3c7;
+}
+/* ── End chat themes ── */
+
+/* ── Header: photo + name open the contact / group info (WhatsApp style) ── */
+.chat-pane-who {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex: 1;
+  min-width: 0;
+  margin: -0.3rem 0;
+  padding: 0.3rem 0.4rem;
+  border: none;
+  border-radius: 10px;
+  background: none;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.chat-pane-who:hover,
+.chat-pane-who[aria-expanded='true'] {
+  background: var(--clr-slate-50, #f8fafc);
+}
+
+.chat-pane-who:focus-visible {
+  outline: 2px solid var(--clr-primary-400, #60a5fa);
+  outline-offset: 1px;
+}
+
+/* ── Contact / group info panel (ChatInfo) ── */
+.chat-info .chat-settings-body {
+  gap: 0;
+  padding: 0;
+  background: #f0f2f5;
+}
+
+.chat-info-hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 1.5rem 1rem 1.25rem;
+  background: #fff;
+  text-align: center;
+}
+
+.chat-info-hero .chat-avatar {
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.16);
+}
+
+.chat-info-name {
+  margin: 0.6rem 0 0;
+  color: var(--clr-slate-800);
+  font-size: 1.15rem;
+  overflow-wrap: anywhere;
+}
+
+.chat-info-sub {
+  color: var(--clr-slate-500);
+  font-size: 0.82rem;
+  overflow-wrap: anywhere;
+}
+
+.chat-info-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  margin-top: 0.6rem;
+  padding: 0.9rem 1rem;
+  background: #fff;
+}
+
+.chat-info-themes {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.55rem;
+}
+
+.chat-info-theme {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--clr-slate-600);
+  font: inherit;
+  font-size: 0.72rem;
+  cursor: pointer;
+}
+
+.chat-info-theme-tile {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  aspect-ratio: 1;
+  border: 2px solid;
+  border-radius: 12px;
+  font-size: 1.35rem;
+  transition: transform 0.12s ease;
+}
+
+.chat-info-theme:hover .chat-info-theme-tile {
+  transform: translateY(-2px);
+}
+
+.chat-info-theme.active {
+  color: var(--clr-primary-700, #1d4ed8);
+  font-weight: 700;
+}
+
+.chat-info-theme.active .chat-info-theme-tile {
+  box-shadow: 0 0 0 2px #fff, 0 0 0 4px var(--clr-primary-500, #3b82f6);
+}
+
+.chat-info-theme-check {
+  position: absolute;
+  right: -6px;
+  bottom: -6px;
+  display: inline-flex;
+  padding: 2px;
+  border-radius: 50%;
+  background: var(--clr-primary-600, #0054c4);
+  color: #fff;
+}
+
+.chat-info-hint {
+  color: var(--clr-slate-400);
+  font-size: 0.72rem;
+}
+
+.chat-info-members {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.chat-info-members li {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.35rem 0;
+  color: var(--clr-slate-700);
+  font-size: 0.86rem;
+}
+
+.chat-info-members em {
+  margin-left: auto;
+  padding: 0.1rem 0.45rem;
+  border-radius: 6px;
+  background: #e7f6ec;
+  color: #15803d;
+  font-size: 0.68rem;
+  font-style: normal;
+  font-weight: 700;
+}
+
+.chat-info-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  width: fit-content;
+  padding: 0.45rem 0.75rem;
+  border: 1px solid var(--clr-slate-200);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--clr-slate-700);
+  font: inherit;
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+
+.chat-info-action:hover {
+  background: var(--clr-slate-50);
 }

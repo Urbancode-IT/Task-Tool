@@ -12,9 +12,11 @@ import {
 } from 'react-icons/md';
 import { isTaskOverdue } from '../utils/taskDue';
 import { taskInPeriod, CURRENT_MONTH_PERIOD, EMPTY_PERIOD, isAllDates, periodEmptyText } from '../utils/taskPeriod';
-import { newestFirst } from '../utils/taskSort';
+import { newestFirst, oldestFirst } from '../utils/taskSort';
 import useTaskView from '../utils/useTaskView';
 import { toastInfo } from '../utils/toast';
+import { taskAssignees } from '../utils/assignees';
+import MemberPicker from './MemberPicker';
 import PeriodFilter from './PeriodFilter';
 import BulkImportButton from './BulkImportButton';
 import './MyTaskList.css';
@@ -56,6 +58,22 @@ const openPicker = (input) => {
     input.click();
   }
 };
+
+/** Up to three assignee avatars, overlapped, with "+n" for the rest. */
+function AvatarStack({ people }) {
+  if (!people?.length) return <Avatar name="" />;
+  if (people.length === 1) return <Avatar name={people[0].username} src={people[0].profile_image} />;
+  const shown = people.slice(0, 3);
+  const names = people.map((p) => p.username || p.user_id).join(', ');
+  return (
+    <span className="mtl-avatar-stack" title={names}>
+      {shown.map((p) => (
+        <Avatar key={p.user_id} name={p.username} src={p.profile_image} />
+      ))}
+      {people.length > shown.length ? <span className="mtl-avatar mtl-avatar-more">+{people.length - shown.length}</span> : null}
+    </span>
+  );
+}
 
 function Avatar({ name, src }) {
   if (src) return <img className="mtl-avatar" src={src} alt="" title={name} />;
@@ -121,9 +139,14 @@ export default function MyTaskList({
     const ok = await onQuickCreate(data);
     if (!ok) return ok;
     const meId = currentUser?.id ?? currentUser?.user_id;
-    if (data.assigned_to && String(data.assigned_to) !== String(meId)) {
-      const person = (assignees || []).find((m) => String(memberId(m)) === String(data.assigned_to));
-      toastInfo(`Assigned to ${person ? memberName(person) : 'another member'}. It shows in their My Tasks and in All Tasks.`);
+    const ids = (data.assignee_ids || []).map(String);
+    if (ids.length && !ids.includes(String(meId))) {
+      const names = ids.map((id) => {
+        const person = (assignees || []).find((m) => String(memberId(m)) === id);
+        return person ? memberName(person) : 'another member';
+      });
+      const who = names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}` : names[0];
+      toastInfo(`Assigned to ${who}. It shows in their My Tasks and in All Tasks.`);
       return ok;
     }
     setFilters((f) => ({
@@ -286,7 +309,8 @@ export function TaskRows({
   onBulkDelete,
   canDelete = () => true,
 }) {
-  const rows = useMemo(() => newestFirst(tasks), [tasks]);
+  // A queue: the first task added is on top and new tasks join the end, next to "+ Create".
+  const rows = useMemo(() => oldestFirst(tasks), [tasks]);
   // Bulk delete: tick rows, then delete them together. Only tasks the user may delete
   // can be ticked; ids that leave the list (filtered out, deleted) drop from the selection.
   const [picked, setPicked] = useState(() => new Set());
@@ -487,7 +511,7 @@ function TaskRow({
         </select>
       </label>
 
-      <Avatar name={task.assignee} src={task.assignee_profile_image} />
+      <AvatarStack people={taskAssignees(task)} />
     </li>
   );
 }
@@ -512,15 +536,18 @@ export function QuickCreateRow({ status, onCreate, projects, requireProject, cur
   const [open, setOpen] = useState(false);
   const [title, setTitle] = useState('');
   const [projectId, setProjectId] = useState('');
-  const [assigneeId, setAssigneeId] = useState('');
+  const [assigneeIds, setAssigneeIds] = useState([]);
   const [assignerId, setAssignerId] = useState('');
   const [saving, setSaving] = useState(false);
   const inputRef = useRef(null);
   const hasProjects = Array.isArray(projects) && projects.length > 0;
   const meId = currentUser?.id ?? currentUser?.user_id;
-  const assigneeChoices = useMemo(() => othersThan(assignees, meId), [assignees, meId]);
+  // Assignees list everyone, me included, so a task can be shared with me and others.
+  const assigneeChoices = useMemo(
+    () => (Array.isArray(assignees) ? assignees.filter((m) => memberId(m) != null) : null),
+    [assignees]
+  );
   const assignerChoices = useMemo(() => othersThan(assigners, meId), [assigners, meId]);
-  const chosenAssignee = assigneeId ? assigneeChoices?.find((m) => String(memberId(m)) === assigneeId) : null;
 
   useEffect(() => {
     if (open) inputRef.current?.focus();
@@ -541,7 +568,7 @@ export function QuickCreateRow({ status, onCreate, projects, requireProject, cur
       status,
       projectId: projectId || null,
       // Only sent when an admin picked someone; otherwise the task is the user's own.
-      ...(assigneeId ? { assigned_to: assigneeId } : {}),
+      ...(assigneeIds.length ? { assignee_ids: assigneeIds } : {}),
       ...(assignerId ? { assigned_by: assignerId } : {}),
     });
     setSaving(false);
@@ -604,33 +631,41 @@ export function QuickCreateRow({ status, onCreate, projects, requireProject, cur
         </select>
       ) : null}
       {assigneeChoices ? (
-        <label className="mtl-create-person">
-          <span>Assignee</span>
-          <select value={assigneeId} onChange={(e) => setAssigneeId(e.target.value)} aria-label="Assignee">
-            <option value="">Me</option>
-            {assigneeChoices.map((m) => (
-              <option key={memberId(m)} value={String(memberId(m))}>
-                {memberName(m)}
-              </option>
-            ))}
-          </select>
-        </label>
+        <div className="mtl-create-person mtl-create-assignees">
+          <span>Assignees</span>
+          <MemberPicker
+            members={assigneeChoices}
+            by="id"
+            multiple
+            value={assigneeIds}
+            onChange={setAssigneeIds}
+            placeholder="Me"
+            searchPlaceholder="Search people…"
+            ariaLabel="Assignees"
+          />
+        </div>
       ) : null}
       {assignerChoices ? (
-        <label className="mtl-create-person">
+        <div className="mtl-create-person mtl-create-assignees">
           <span>Assigned by</span>
-          <select value={assignerId} onChange={(e) => setAssignerId(e.target.value)} aria-label="Assigned by">
-            <option value="">Me</option>
-            {assignerChoices.map((m) => (
-              <option key={memberId(m)} value={String(memberId(m))}>
-                {memberName(m)}
-              </option>
-            ))}
-          </select>
-        </label>
+          <MemberPicker
+            members={assignerChoices}
+            by="id"
+            value={assignerId}
+            onChange={setAssignerId}
+            emptyLabel="Me"
+            searchPlaceholder="Search people…"
+            ariaLabel="Assigned by"
+          />
+        </div>
       ) : null}
-      {chosenAssignee ? (
-        <Avatar name={memberName(chosenAssignee)} src={chosenAssignee.profile_image} />
+      {assigneeIds.length ? (
+        <AvatarStack
+          people={assigneeIds.map((id) => {
+            const m = assigneeChoices?.find((x) => String(memberId(x)) === id);
+            return { user_id: id, username: m ? memberName(m) : id, profile_image: m?.profile_image };
+          })}
+        />
       ) : (
         <Avatar name={currentUser?.name || currentUser?.username} src={currentUser?.profile_image} />
       )}

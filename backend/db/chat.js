@@ -7,7 +7,8 @@
  *   chat_members       — who is in a conversation, their role ('admin' runs a group)
  *                        and the last message they have read (read receipts, unread).
  *   chat_messages      — text, optional reply, edit / soft-delete markers.
- *   chat_attachments   — files stored as bytes next to their message.
+ *   chat_attachments   — files of a message: stored in Google Drive (drive_file_id)
+ *                        when Drive is connected, otherwise as bytes (data).
  *   chat_reactions     — one row per (message, user, emoji).
  *   chat_mentions      — who a message @mentions, for highlighting and badges.
  *
@@ -15,6 +16,7 @@
  * forget to; failures throw ChatError with an HTTP status.
  */
 import { getPool, avatarUrlFor } from './index.js';
+import { isDriveConfigured, uploadChatFile, trashContentFile } from '../driveContent.js';
 
 export class ChatError extends Error {
   constructor(status, message) {
@@ -37,6 +39,18 @@ export const CHAT_REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '🙏',
 
 // Images of these types may be shown inline; every other file is served as a download.
 export const INLINE_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
+// Video and audio the browser can play in the chat (served inline, never as HTML).
+export const INLINE_VIDEO_TYPES = ['video/mp4', 'video/webm', 'video/ogg', 'video/quicktime'];
+export const INLINE_AUDIO_TYPES = ['audio/mpeg', 'audio/mp4', 'audio/aac', 'audio/ogg', 'audio/wav', 'audio/webm', 'audio/x-m4a'];
+
+/** How the chat shows a file: 'image', 'video', 'audio', or null for a download. */
+export function mediaKind(mime) {
+  const type = String(mime || '').toLowerCase();
+  if (INLINE_IMAGE_TYPES.includes(type)) return 'image';
+  if (INLINE_VIDEO_TYPES.includes(type)) return 'video';
+  if (INLINE_AUDIO_TYPES.includes(type)) return 'audio';
+  return null;
+}
 
 const toInt = (v) => {
   const n = parseInt(String(v ?? ''), 10);
@@ -106,6 +120,50 @@ export async function ensureChatTables() {
     );
     CREATE INDEX IF NOT EXISTS idx_chat_mentions_user ON chat_mentions(user_id);
   `);
+  // Files moved to Google Drive: a Drive row keeps the file id and no bytes. Older rows
+  // (and uploads made while Drive is not connected) keep their bytes in data.
+  await p.query(`
+    ALTER TABLE chat_attachments ADD COLUMN IF NOT EXISTS drive_file_id TEXT;
+    ALTER TABLE chat_attachments ALTER COLUMN data DROP NOT NULL;
+  `);
+  // Delivery ticks: the newest message that reached each member's device (their app
+  // received it live, or they came online afterwards). Read implies delivered.
+  await p.query(`
+    ALTER TABLE chat_members ADD COLUMN IF NOT EXISTS last_delivered_message_id BIGINT NOT NULL DEFAULT 0;
+  `);
+}
+
+/**
+ * Put each file in Drive before the message is written, so a slow upload never holds
+ * a database transaction open. Returns one { driveId } per file; driveId is null when
+ * Drive is not connected or the upload failed, and that file is kept in the database
+ * instead, so sending never fails because of Drive.
+ */
+async function storeFilesInDrive(files, conversationId) {
+  if (!files.length || !isDriveConfigured()) return files.map(() => ({ driveId: null }));
+  const out = [];
+  for (const f of files) {
+    try {
+      const driveId = await uploadChatFile({
+        buffer: f.buffer,
+        mime: f.mimetype,
+        originalName: f.originalname,
+        conversationId,
+      });
+      out.push({ driveId });
+    } catch (err) {
+      console.warn('chat: Drive upload failed, keeping the file in the database:', err?.message || err);
+      out.push({ driveId: null });
+    }
+  }
+  return out;
+}
+
+/** Move a message's Drive files to the Drive trash. Best effort; never blocks a delete. */
+function trashDriveFiles(ids) {
+  for (const id of ids) {
+    trashContentFile(id).catch((err) => console.warn('chat: could not trash Drive file', id, err?.message || err));
+  }
 }
 
 // ── Membership ──────────────────────────────────────────────────────────────
@@ -161,7 +219,9 @@ export async function chatDirectory() {
 async function membersOf(p, conversationIds) {
   if (!conversationIds.length) return new Map();
   const { rows } = await p.query(
-    `SELECT m.conversation_id, m.user_id, m.role, m.last_read_message_id, u.username, u.profile_image
+    `SELECT m.conversation_id, m.user_id, m.role, m.last_read_message_id,
+            GREATEST(m.last_delivered_message_id, m.last_read_message_id) AS last_delivered_message_id,
+            u.username, u.profile_image
        FROM chat_members m JOIN users u ON u.user_id = m.user_id
       WHERE m.conversation_id = ANY($1) ORDER BY LOWER(u.username)`,
     [conversationIds]
@@ -175,6 +235,7 @@ async function membersOf(p, conversationIds) {
       avatar: avatarUrlFor(r.user_id, r.profile_image),
       role: r.role,
       last_read_message_id: Number(r.last_read_message_id || 0),
+      last_delivered_message_id: Number(r.last_delivered_message_id || 0),
     });
   });
   return map;
@@ -444,6 +505,7 @@ async function hydrate(p, rows) {
             mime_type: f.mime_type,
             size: f.size_bytes,
             inline: INLINE_IMAGE_TYPES.includes(f.mime_type),
+            media: mediaKind(f.mime_type),
           })),
       reactions: deleted ? [] : [...grouped.entries()].map(([emoji, user_ids]) => ({ emoji, user_ids })),
       mentions: (mentionMap.get(id) || []).map((x) => x.user_id),
@@ -514,6 +576,7 @@ export async function chatSendMessage(userId, conversationId, { body, reply_to_i
     if (!rows.length) replyTo = null;
   }
 
+  const stored = await storeFilesInDrive(files, cid);
   const client = await p.connect();
   let messageId;
   try {
@@ -524,15 +587,18 @@ export async function chatSendMessage(userId, conversationId, { body, reply_to_i
         [cid, userId, text || null, replyTo]
       )
     ).rows[0].message_id;
-    for (const f of files) {
+    for (const [index, f] of files.entries()) {
+      const { driveId } = stored[index];
       await client.query(
-        `INSERT INTO chat_attachments (message_id, file_name, mime_type, size_bytes, data) VALUES ($1, $2, $3, $4, $5)`,
+        `INSERT INTO chat_attachments (message_id, file_name, mime_type, size_bytes, data, drive_file_id)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
         [
           messageId,
           String(f.originalname || 'file').slice(0, 255),
           String(f.mimetype || 'application/octet-stream').slice(0, 120),
           f.size,
-          f.buffer,
+          driveId ? null : f.buffer,
+          driveId,
         ]
       );
     }
@@ -552,6 +618,8 @@ export async function chatSendMessage(userId, conversationId, { body, reply_to_i
     await client.query('COMMIT');
   } catch (err) {
     await client.query('ROLLBACK').catch(() => {});
+    // The message was not saved, so its Drive copies must not linger.
+    trashDriveFiles(stored.map((x) => x.driveId).filter(Boolean));
     throw err;
   } finally {
     client.release();
@@ -598,7 +666,11 @@ export async function chatDeleteMessage(userId, messageId, isSiteAdmin) {
   const p = pool();
   const { mid } = await ownMessage(p, messageId, userId, { allowSiteAdmin: true, isSiteAdmin });
   await p.query('UPDATE chat_messages SET body = NULL, deleted_at = CURRENT_TIMESTAMP WHERE message_id = $1', [mid]);
-  await p.query('DELETE FROM chat_attachments WHERE message_id = $1', [mid]);
+  const { rows: gone } = await p.query(
+    'DELETE FROM chat_attachments WHERE message_id = $1 RETURNING drive_file_id',
+    [mid]
+  );
+  trashDriveFiles(gone.map((r) => r.drive_file_id).filter(Boolean));
   await p.query('DELETE FROM chat_reactions WHERE message_id = $1', [mid]);
   await p.query('DELETE FROM chat_mentions WHERE message_id = $1', [mid]);
   return getMessage(p, mid);
@@ -638,11 +710,47 @@ export async function chatMarkRead(userId, conversationId, messageId) {
   return Number(rows[0]?.last_read_message_id || 0);
 }
 
+/**
+ * Record that messages up to messageId reached the user's device. Returns the stored
+ * position when it moved forward, or null when nothing changed (no update to send).
+ */
+export async function chatMarkDelivered(userId, conversationId, messageId) {
+  const p = pool();
+  const cid = toInt(conversationId);
+  const { rows } = await p.query(
+    `UPDATE chat_members SET last_delivered_message_id = LEAST($1::bigint,
+        COALESCE((SELECT MAX(message_id) FROM chat_messages WHERE conversation_id = $2), 0))
+      WHERE conversation_id = $2 AND user_id = $3
+        AND last_delivered_message_id < LEAST($1::bigint,
+          COALESCE((SELECT MAX(message_id) FROM chat_messages WHERE conversation_id = $2), 0))
+      RETURNING last_delivered_message_id`,
+    [toInt(messageId) ?? 0, cid, userId]
+  );
+  return rows[0] ? Number(rows[0].last_delivered_message_id) : null;
+}
+
+/**
+ * When the user comes online, everything sent to them so far has been delivered.
+ * Returns [{ conversation_id, message_id }] for the conversations whose position moved.
+ */
+export async function chatMarkAllDelivered(userId) {
+  const p = pool();
+  const { rows } = await p.query(
+    `UPDATE chat_members m SET last_delivered_message_id = x.max_id
+       FROM (SELECT conversation_id, MAX(message_id) AS max_id FROM chat_messages GROUP BY conversation_id) x
+      WHERE m.user_id = $1 AND x.conversation_id = m.conversation_id
+        AND m.last_delivered_message_id < x.max_id
+      RETURNING m.conversation_id, m.last_delivered_message_id`,
+    [userId]
+  );
+  return rows.map((r) => ({ conversation_id: r.conversation_id, message_id: Number(r.last_delivered_message_id) }));
+}
+
 /** A file, for a member of its conversation. */
 export async function chatGetAttachment(userId, attachmentId) {
   const p = pool();
   const { rows } = await p.query(
-    `SELECT a.file_name, a.mime_type, a.size_bytes, a.data, msg.conversation_id
+    `SELECT a.file_name, a.mime_type, a.size_bytes, a.data, a.drive_file_id, msg.conversation_id
        FROM chat_attachments a JOIN chat_messages msg ON msg.message_id = a.message_id
       WHERE a.attachment_id = $1`,
     [toInt(attachmentId)]

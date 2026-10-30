@@ -20,11 +20,12 @@ import multer from 'multer';
 import { Server } from 'socket.io';
 import { JWT_SECRET } from './middlewares/authMiddleware.js';
 import * as db from './db/index.js';
+import { openContentFile } from './driveContent.js';
 import {
   ChatError,
   CHAT_LIMITS,
   CHAT_REACTIONS,
-  INLINE_IMAGE_TYPES,
+  mediaKind,
   chatAddMembers,
   chatCreateGroup,
   chatDeleteMessage,
@@ -34,6 +35,8 @@ import {
   chatIsMember,
   chatListConversations,
   chatListMessages,
+  chatMarkAllDelivered,
+  chatMarkDelivered,
   chatMarkRead,
   chatMemberIds,
   chatOpenDirect,
@@ -85,7 +88,8 @@ const emitToUsers = (ids, event, payload) => {
   if (io && ids.length) io.to(ids.map((id) => `user:${id}`)).emit(event, payload);
 };
 
-// Up to 5 files of 10 MB each, held in memory and written to the database.
+// Up to 5 files of 10 MB each, held in memory, then stored in Google Drive (or in the
+// database when Drive is not connected).
 const chatUpload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: CHAT_LIMITS.attachmentBytes, files: CHAT_LIMITS.attachmentsPerMessage },
@@ -248,22 +252,58 @@ export function registerChatRoutes(app, basePath) {
     })
   );
 
-  // Files are served only to members. Only common image types are shown inline; any
-  // other type is forced to download, so an uploaded HTML/SVG file can never run here.
+  // Files are served only to members. Common image, video and audio types are shown
+  // inline; any other type is forced to download, so an uploaded HTML/SVG file can
+  // never run here.
   app.get(
     `${P}/attachments/:id`,
     handle('Failed to load the file', async (req, res, me) => {
       const f = await chatGetAttachment(me, req.params.id);
-      const inline = INLINE_IMAGE_TYPES.includes(f.mime_type) && req.query?.download !== '1';
+      const inline = mediaKind(f.mime_type) != null && req.query?.download !== '1';
+      // Byte ranges let a video or audio file stored in the database be seeked.
+      const range = !f.drive_file_id && f.data ? /^bytes=(\d*)-(\d*)$/.exec(String(req.headers.range || '')) : null;
+      if (range && inline) {
+        const total = f.data.length;
+        const start = range[1] === '' ? Math.max(0, total - Number(range[2] || 0)) : Number(range[1]);
+        const end = range[1] !== '' && range[2] !== '' ? Math.min(Number(range[2]), total - 1) : total - 1;
+        if (start >= total || start > end) {
+          res.setHeader('Content-Range', `bytes */${total}`);
+          return res.status(416).end();
+        }
+        res.status(206);
+        res.setHeader('Content-Type', f.mime_type);
+        res.setHeader('Content-Range', `bytes ${start}-${end}/${total}`);
+        res.setHeader('Accept-Ranges', 'bytes');
+        res.setHeader('Content-Length', String(end - start + 1));
+        res.setHeader('X-Content-Type-Options', 'nosniff');
+        res.setHeader('Cache-Control', 'private, max-age=86400');
+        return res.end(f.data.subarray(start, end + 1));
+      }
+      // Files in Drive are fetched by the server and streamed through, so the member
+      // check above still decides who can see them; Drive never shares them itself.
+      let drive = null;
+      if (f.drive_file_id) {
+        try {
+          drive = await openContentFile(f.drive_file_id);
+        } catch {
+          return res.status(502).json({ message: 'Could not fetch the file from Google Drive.' });
+        }
+      }
       res.setHeader('Content-Type', inline ? f.mime_type : 'application/octet-stream');
-      res.setHeader('Content-Length', String(f.data.length));
+      res.setHeader('Content-Length', String(drive ? f.size_bytes : f.data.length));
+      if (!drive) res.setHeader('Accept-Ranges', 'bytes');
       res.setHeader('X-Content-Type-Options', 'nosniff');
       res.setHeader('Cache-Control', 'private, max-age=86400');
       res.setHeader(
         'Content-Disposition',
         `${inline ? 'inline' : 'attachment'}; filename*=UTF-8''${encodeURIComponent(f.file_name)}`
       );
-      res.end(f.data);
+      if (!drive) return res.end(f.data);
+      drive.stream.on('error', (err) => {
+        console.warn('chat: Drive stream failed:', err?.message || err);
+        res.destroy(err);
+      });
+      drive.stream.pipe(res);
     })
   );
 }
@@ -309,6 +349,33 @@ export function attachChatSocket(httpServer, allowedOrigins = []) {
     } catch {
       /* the name is only a nicety for "is typing" */
     }
+
+    // Delivery ticks. Coming online delivers everything already sent to this user;
+    // after that, the app confirms each message it receives live ("chat:delivered").
+    const announceDelivered = (conversationId, messageId) =>
+      emitToConversation(conversationId, 'chat:delivered', {
+        conversation_id: conversationId,
+        user_id: me,
+        message_id: messageId,
+      });
+    if (db.useDb()) {
+      chatMarkAllDelivered(me)
+        .then((moved) => moved.forEach((d) => announceDelivered(d.conversation_id, d.message_id)))
+        .catch(() => {
+          /* ticks are best-effort */
+        });
+    }
+    socket.on('chat:delivered', async (data) => {
+      const cid = parseInt(String(data?.conversation_id ?? ''), 10);
+      const mid = parseInt(String(data?.message_id ?? ''), 10);
+      if (!Number.isFinite(cid) || !Number.isFinite(mid) || !db.useDb()) return;
+      try {
+        const stored = await chatMarkDelivered(me, cid, mid);
+        if (stored != null) announceDelivered(cid, stored);
+      } catch {
+        /* ticks are best-effort */
+      }
+    });
 
     socket.on('chat:typing', async (data) => {
       const cid = parseInt(String(data?.conversation_id ?? ''), 10);

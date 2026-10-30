@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { Readable } from 'node:stream';
 import { google } from 'googleapis';
 import { ContentError, PIPELINE_STAGES, POSTING_CHANNELS } from './db/socialContent.js';
 
@@ -304,6 +305,59 @@ export async function openContentFile(fileId) {
     );
     return { name: meta.data.name, mime: meta.data.mimeType, stream: media.data };
   } catch (err) {
+    driveFailure(err);
+  }
+}
+
+// ---- Chat attachments --------------------------------------------------------
+// Chat files go to the same Google account as the Content Pipeline, but NOT inside DM
+// Root: DM Root is shared "anyone with the link", and Drive passes that on to every
+// folder inside it. Chat files sit in a private "Seyal Chat" folder in the account's
+// My Drive (or GOOGLE_DRIVE_CHAT_FOLDER_ID), are never shared, and are only served
+// through Seyal to members of the conversation.
+
+const CHAT_FOLDER_NAME = 'Seyal Chat';
+
+/** True when Drive credentials are present, so chat can store files there. */
+export function isDriveConfigured() {
+  const refresh = String(process.env.GOOGLE_DRIVE_REFRESH_TOKEN || '').trim();
+  const clientId = String(process.env.GOOGLE_DRIVE_CLIENT_ID || process.env.GMAIL_CLIENT_ID || '').trim();
+  const clientSecret = String(process.env.GOOGLE_DRIVE_CLIENT_SECRET || process.env.GMAIL_CLIENT_SECRET || '').trim();
+  return Boolean(refresh && clientId && clientSecret);
+}
+
+let chatRootId = null;
+async function chatRootFolder() {
+  if (chatRootId) return chatRootId;
+  const configured = String(process.env.GOOGLE_DRIVE_CHAT_FOLDER_ID || '').trim();
+  chatRootId = configured || (await ensureFolder('root', CHAT_FOLDER_NAME)).id;
+  return chatRootId;
+}
+
+/**
+ * Store one chat attachment (multer memory file) in Drive under
+ * Seyal Chat / YYYY-MM / Conversation-<id>. Returns the Drive file id.
+ */
+export async function uploadChatFile({ buffer, mime, originalName, conversationId }) {
+  const fileMime = resolveUploadMime(mime, originalName);
+  const now = new Date();
+  const month = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  try {
+    const root = await chatRootFolder();
+    const monthFolder = await ensureFolder(root, month);
+    const convFolder = await ensureFolder(monthFolder.id, `Conversation-${conversationId}`);
+    const drive = await getDrive();
+    const created = await drive.files.create({
+      requestBody: { name: String(originalName || 'file').slice(0, 255), parents: [convFolder.id] },
+      media: { mimeType: fileMime || 'application/octet-stream', body: Readable.from(buffer) },
+      fields: 'id',
+      supportsAllDrives: true,
+    });
+    return created.data.id;
+  } catch (err) {
+    // A stale cached folder id (deleted in Drive) is looked up again next time.
+    chatRootId = null;
+    if (err instanceof ContentError) throw err;
     driveFailure(err);
   }
 }

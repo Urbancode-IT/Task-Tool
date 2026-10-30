@@ -1,9 +1,10 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { MdAdd, MdClose, MdGroupAdd, MdSearch } from 'react-icons/md';
+import { MdAdd, MdClose, MdGroupAdd, MdNotificationsActive, MdNotificationsOff, MdSearch } from 'react-icons/md';
 import { useChat, conversationTitle } from './chatContext';
 import { lastMessagePreview } from './chatText';
 import { ChatAvatar, NewChatPanel } from './ChatParts';
 import MessagePane from './MessagePane';
+import { requestNotificationPermission } from './chatAlerts';
 import './Chat.css';
 
 const timeLabel = (iso) => {
@@ -16,7 +17,13 @@ const timeLabel = (iso) => {
 
 /** The chat window: conversation list on the left, the open conversation on the right. */
 export default function ChatWindow() {
-  const { meId, conversations, config, activeId, setActiveId, setOpen } = useChat();
+  const { meId, conversations, config, activeId, setActiveId, setOpen, soundOn, setSoundOn } = useChat();
+
+  // Opening the chat is a user gesture, so it is the moment to ask (once) for system
+  // notifications, used when a message arrives while this tab is in the background.
+  useEffect(() => {
+    requestNotificationPermission();
+  }, []);
   const [panel, setPanel] = useState(null); // null | 'direct' | 'group'
   const [q, setQ] = useState('');
 
@@ -51,6 +58,15 @@ export default function ChatWindow() {
                       <MdGroupAdd size={20} />
                     </button>
                   ) : null}
+                  <button
+                    type="button"
+                    className="chat-icon-btn"
+                    onClick={() => setSoundOn(!soundOn)}
+                    title={soundOn ? 'Message sound on (click to mute)' : 'Message sound off (click to turn on)'}
+                    aria-pressed={soundOn}
+                  >
+                    {soundOn ? <MdNotificationsActive size={20} /> : <MdNotificationsOff size={20} />}
+                  </button>
                   <button type="button" className="chat-icon-btn" onClick={() => setPanel('direct')} title="New message">
                     <MdAdd size={20} />
                   </button>
@@ -114,7 +130,47 @@ export default function ChatWindow() {
 }
 
 /** Renders the chat window only while it is open. */
+/**
+ * New-message popups, bottom right. Clicking one opens that conversation; each closes
+ * by itself after a few seconds.
+ */
+function ChatPopups() {
+  const chat = useChat();
+  const popups = chat?.popups || [];
+  if (!popups.length) return null;
+  return (
+    <div className="chat-popups" role="status" aria-live="polite">
+      {popups.map((p) => (
+        <div key={p.key} className={`chat-popup${p.mentioned ? ' mentioned' : ''}`}>
+          <button
+            type="button"
+            className="chat-popup-body"
+            onClick={() => {
+              chat.dismissPopup(p.key);
+              chat.openConversation(p.cid);
+            }}
+          >
+            <ChatAvatar name={p.title} src={p.image} size={38} />
+            <span className="chat-popup-text">
+              <strong>{p.title}</strong>
+              <span>{p.mentioned ? `Mentioned you: ${p.preview}` : p.preview}</span>
+            </span>
+          </button>
+          <button type="button" className="chat-popup-close" onClick={() => chat.dismissPopup(p.key)} aria-label="Dismiss">
+            <MdClose size={16} />
+          </button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export function ChatOverlay() {
   const chat = useChat();
-  return chat?.open ? <ChatWindow /> : null;
+  return (
+    <>
+      {chat?.open ? <ChatWindow /> : null}
+      <ChatPopups />
+    </>
+  );
 }

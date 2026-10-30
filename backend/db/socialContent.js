@@ -656,6 +656,12 @@ export async function dbDeleteContentTask(taskId, meta = {}) {
   }
 }
 
+// The pipeline hands a row to one person per stage, so assignee_ids (shared tasks on
+// the other boards) always mirrors assigned_to here. paramIndex is assigned_to's $n.
+function syncAssigneeIdsSql(paramIndex) {
+  return `assignee_ids = CASE WHEN $${paramIndex}::int IS NULL THEN '{}'::int[] ELSE ARRAY[$${paramIndex}::int] END`;
+}
+
 export async function dbCreateContentTask(body, actorId) {
   const p = getPool();
   if (!p) throw new ContentError(500, 'Database is not available.');
@@ -666,13 +672,13 @@ export async function dbCreateContentTask(body, actorId) {
   const { rows } = await p.query(
     `INSERT INTO social_media_tasks (
        task_title, task_description, priority, status, task_date, due_date,
-       created_by, assigned_by, assigned_to,
+       created_by, assigned_by, assigned_to, assignee_ids,
        campaign_name, content_type, pipeline_stage, workflow_status, content_branch,
        platforms, objective, target_audience, key_message, cta, reference_urls, progress, draft_version,
        production_meta
      ) VALUES (
        $1, $2, $3, 'content_pipeline', COALESCE($17::date, CURRENT_DATE), $4,
-       $5, $5, $6,
+       $5, $5, $6, CASE WHEN $6::int IS NULL THEN '{}'::int[] ELSE ARRAY[$6::int] END,
        $7, $8, 'content_generation', 'in_progress', $9,
        $10::jsonb, $11, $12, $13, $14, $15, 0, 0,
        $16::jsonb
@@ -726,6 +732,7 @@ const EDITABLE = {
   dueDate: 'due_date',
   task_date: 'task_date',
   start_date: 'task_date',
+  publish_date: 'publish_date',
   progress: 'progress',
   draft_script: 'draft_script',
   draft_caption: 'draft_caption',
@@ -772,6 +779,11 @@ function normalizeField(column, value) {
     const due = cleanText(value, 10);
     if (due && !/^\d{4}-\d{2}-\d{2}$/.test(due)) throw new ContentError(400, 'Deadline must be a date.');
     return due;
+  }
+  if (column === 'publish_date') {
+    const publish = cleanText(value, 10);
+    if (publish && !/^\d{4}-\d{2}-\d{2}$/.test(publish)) throw new ContentError(400, 'Publish date must be a date.');
+    return publish || null;
   }
   if (column === 'task_date') {
     const start = cleanText(value, 10);
@@ -830,6 +842,7 @@ export async function dbUpdateContentTask(taskId, body) {
     } else {
       sets.push(`${column} = $${i++}`);
     }
+    if (column === 'assigned_to') sets.push(syncAssigneeIdsSql(i - 1));
     params.push(value);
   }
   if (!sets.length) return existing;
@@ -1088,7 +1101,8 @@ export function planContentTransition(task, action, input = {}, { canManage = fa
       patch.published_url = links[channel];
       patch.publish_link = links[channel];
       patch.publication_confirmed = true;
-      patch.publish_date = new Date().toISOString().slice(0, 10);
+      // A publish date planned on the board is kept; otherwise posting sets today.
+      patch.publish_date = String(task.publish_date || '').slice(0, 10) || new Date().toISOString().slice(0, 10);
       patch.pipeline_stage = 'ready_to_post';
       patch.workflow_status = 'in_progress';
       return {
@@ -1151,6 +1165,7 @@ export async function dbTransitionContentTask(taskId, action, input, actor) {
       } else {
         sets.push(`${column} = $${i++}`);
       }
+      if (column === 'assigned_to') sets.push(syncAssigneeIdsSql(i - 1));
       params.push(plan.patch[key]);
     }
     if (plan.review) {

@@ -24,6 +24,8 @@ import { getDisplayRole } from '../../utils/displayRole';
 import { newestFirst } from '../../utils/taskSort';
 import { isTaskOverdue } from '../../utils/taskDue';
 import { toastSuccess, toastError, toastInfo } from '../../utils/toast';
+import MemberPicker from '../../components/MemberPicker';
+import { initialAssigneeIds, isAssignedTo, cardAssignees } from '../../utils/assignees';
 import { loadEodSections, sectionsToText, localToday } from '../../utils/eodSummary';
 import { reasonDialog } from '../../utils/confirm';
 import { taskInPeriod, CURRENT_MONTH_PERIOD, EMPTY_PERIOD, isAllDates, periodEmptyText } from '../../utils/taskPeriod';
@@ -189,7 +191,7 @@ export default function CreativeTeamMain({ currentUser, onLogout }) {
   const canDeleteTask = (task) =>
     isAdmin ||
     (userId != null &&
-      (String(task?.assigned_to) === String(userId) ||
+      (isAssignedTo(task, userId) ||
         String(task?.assigned_by) === String(userId) ||
         String(task?.created_by) === String(userId)));
 
@@ -282,7 +284,7 @@ export default function CreativeTeamMain({ currentUser, onLogout }) {
     if (!userId) return tasks;
     return tasks.filter(
       (t) =>
-        String(t.assigned_to) === String(userId) ||
+        isAssignedTo(t, userId) ||
         (user && (t.assignee === user.name || t.assignee === user.username))
     );
   }, [tasks, userId, user]);
@@ -294,7 +296,7 @@ export default function CreativeTeamMain({ currentUser, onLogout }) {
     if (allTasksFiltersApplied.status) result = result.filter((t) => t.status === allTasksFiltersApplied.status);
     if (allTasksFiltersApplied.priority) result = result.filter((t) => t.priority === allTasksFiltersApplied.priority);
     if (allTasksFiltersApplied.assignee)
-      result = result.filter((t) => String(t.assigned_to) === String(allTasksFiltersApplied.assignee));
+      result = result.filter((t) => isAssignedTo(t, allTasksFiltersApplied.assignee));
     if (allTasksFiltersApplied.branch)
       result = result.filter((t) => t.assignee_branch === allTasksFiltersApplied.branch);
     if (allTasksFiltersApplied.period)
@@ -309,7 +311,7 @@ export default function CreativeTeamMain({ currentUser, onLogout }) {
     if (overviewFiltersApplied.to_date)
       result = result.filter((t) => t.task_date && t.task_date.slice(0, 10) <= overviewFiltersApplied.to_date);
     if (overviewFiltersApplied.assigned_to)
-      result = result.filter((t) => String(t.assigned_to) === String(overviewFiltersApplied.assigned_to));
+      result = result.filter((t) => isAssignedTo(t, overviewFiltersApplied.assigned_to));
     return result;
   }, [tasks, overviewFiltersApplied]);
 
@@ -403,7 +405,10 @@ export default function CreativeTeamMain({ currentUser, onLogout }) {
         target_date: payload.target_date,
         publish_date: payload.publish_date,
         projectId: payload.project_id ?? payload.projectId,
-        assigned_to: (payload.assigned_to === '' ? userId : payload.assigned_to),
+        // Every assignee picked on the form; the task falls back to me when none is set.
+        ...(payload.assignee_ids !== undefined
+          ? { assignee_ids: payload.assignee_ids.length ? payload.assignee_ids : [userId] }
+          : { assigned_to: payload.assigned_to === '' ? userId : payload.assigned_to }),
         assigned_by: payload.assigned_by || null,
         status: payload.status,
         priority: payload.priority,
@@ -486,12 +491,12 @@ export default function CreativeTeamMain({ currentUser, onLogout }) {
 
   // My Tasks list: "+ Create" adds a task from its title alone, assigned to me.
   // Admins may pick the assignee and assigner; otherwise the task is the user's own.
-  const handleQuickCreateTask = async ({ title, status, assigned_to, assigned_by }) => {
+  const handleQuickCreateTask = async ({ title, status, assignee_ids, assigned_by }) => {
     try {
       await itUpdatesApi.createTask({
         title,
         status,
-        assigned_to: assigned_to ?? userId,
+        assignee_ids: assignee_ids?.length ? assignee_ids : [userId],
         assigned_by: assigned_by ?? userId,
         team: MODULE_TEAM,
       });
@@ -669,9 +674,15 @@ export default function CreativeTeamMain({ currentUser, onLogout }) {
                             <Avatar user={{ username: task.assigned_by_name, profile_image: task.assigned_by_profile_image }} />
                           </span>
                         ) : null}
-                        <span className="it-updates-task-card-person">
-                          <Avatar user={{ username: task.assignee, profile_image: task.assignee_profile_image }} />
-                        </span>
+                        {/* Every assignee of a shared task, up to three, then "+n". */}
+                        {cardAssignees(task).slice(0, 3).map((person) => (
+                          <span key={person.user_id} className="it-updates-task-card-person">
+                            <Avatar user={person} />
+                          </span>
+                        ))}
+                        {cardAssignees(task).length > 3 ? (
+                          <span className="it-updates-task-card-more">+{cardAssignees(task).length - 3}</span>
+                        ) : null}
                       </div>
                     </div>
                     {task.status === 'completed' &&
@@ -1400,7 +1411,7 @@ function TaskModal({ task, currentUser, onClose, onSave, onRefresh, teamMembers,
     publish_link: task?.publish_link ?? '',
     target_date: task?.target_date ? String(task.target_date).slice(0, 10) : '',
     publish_date: task?.publish_date ? String(task.publish_date).slice(0, 10) : '',
-    assigned_to: task?.assigned_to ?? '',
+    assignee_ids: initialAssigneeIds(task),
     assigned_by: task?.assigned_by ?? '',
     status: task?.id != null ? (task?.status ?? 'in_progress') : 'todo',
     priority: task?.priority ?? 'medium',
@@ -1659,8 +1670,8 @@ function TaskModal({ task, currentUser, onClose, onSave, onRefresh, teamMembers,
       toastError('Task title is required.');
       return;
     }
-    if (!String(form.assigned_to ?? '').trim()) {
-      toastError('Please assign this task to a staff member.');
+    if (!form.assignee_ids.length) {
+      toastError('Please assign this task to at least one staff member.');
       return;
     }
 
@@ -1950,25 +1961,28 @@ function TaskModal({ task, currentUser, onClose, onSave, onRefresh, teamMembers,
           </label>
           <label>
             Assigned by
-            <select value={form.assigned_by} onChange={(e) => setForm((f) => ({ ...f, assigned_by: e.target.value }))}>
-              <option value="">—</option>
-              {(assignedByOptions || []).map((u) => (
-                <option key={u.user_id ?? u.assignee} value={u.user_id ?? u.assignee ?? ''}>
-                  {u.username ?? u.assignee}
-                </option>
-              ))}
-            </select>
+            <MemberPicker
+              members={assignedByOptions || []}
+              by="id"
+              value={form.assigned_by == null ? '' : String(form.assigned_by)}
+              onChange={(id) => setForm((f) => ({ ...f, assigned_by: id }))}
+              emptyLabel="—"
+              searchPlaceholder="Search people…"
+              ariaLabel="Assigned by"
+            />
           </label>
           <label>
             Assign to
-            <select value={form.assigned_to} onChange={(e) => setForm((f) => ({ ...f, assigned_to: e.target.value }))}>
-              <option value="">—</option>
-              {teamMembers.map((u) => (
-                <option key={u.user_id ?? u.assignee} value={u.user_id ?? u.assignee ?? ''}>
-                  {u.username ?? u.assignee}
-                </option>
-              ))}
-            </select>
+            <MemberPicker
+              members={teamMembers}
+              by="id"
+              multiple
+              value={form.assignee_ids}
+              onChange={(ids) => setForm((f) => ({ ...f, assignee_ids: ids }))}
+              placeholder="Choose one or more people"
+              searchPlaceholder="Search people…"
+              ariaLabel="Assign to"
+            />
           </label>
           <label>
             Priority
