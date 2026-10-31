@@ -21,6 +21,7 @@ import {
   MdVpnKey,
   MdDeleteSweep,
   MdTimer,
+  MdSearch,
 } from 'react-icons/md';
 import adminApi from '../../api/adminApi';
 import PerformanceEfficiency from './PerformanceEfficiency';
@@ -93,22 +94,8 @@ function formatDeletedAt(value) {
   return Number.isNaN(d.getTime()) ? String(value) : d.toLocaleString();
 }
 
-const IT_TEAM_ROLE_CODES = new Set(['it_developer', 'it_manager', 'admin']);
-
-function userMatchesTeamFilter(u, filter) {
-  if (filter === 'all') return true;
-  const codes = Array.isArray(u.role_codes) ? u.role_codes.map(String) : [];
-  const inItTeam =
-    Boolean(u.is_it_developer) ||
-    Boolean(u.is_it_manager) ||
-    codes.some((c) => IT_TEAM_ROLE_CODES.has(c));
-  if (filter === 'it') return inItTeam;
-  if (filter === 'consultant') return codes.includes('consultant');
-  if (filter === 'creative') return codes.includes('creative_team');
-  if (filter === 'social') return codes.includes('social_media');
-  if (filter === 'legal_finance') return codes.includes('legal_finance') || codes.includes('admin');
-  return true;
-}
+// Users tab Branch filter value for users with no branch set.
+const NO_BRANCH = '__none__';
 
 const USERS_TEAM_FILTERS = [
   { key: 'all', label: 'All users' },
@@ -218,7 +205,10 @@ export default function AdminMain({ currentUser, onLogout }) {
   const [reviewSubmitting, setReviewSubmitting] = useState(false);
   const [editUserRoles, setEditUserRoles] = useState(null);
   const [userRoleIds, setUserRoleIds] = useState([]);
-  const [usersTeamFilter, setUsersTeamFilter] = useState('all');
+  const [userSearch, setUserSearch] = useState('');
+  const [userBranchFilter, setUserBranchFilter] = useState('');
+  const [userRoleFilter, setUserRoleFilter] = useState('');
+  const [userStatusFilter, setUserStatusFilter] = useState('');
   const [tasksTeamFilter, setTasksTeamFilter] = useState('all');
   const [overviewTeamFilter, setOverviewTeamFilter] = useState('all');
   const [overviewFiltersApplied, setOverviewFiltersApplied] = useState(EMPTY_ADMIN_OVERVIEW_FILTERS);
@@ -827,10 +817,40 @@ export default function AdminMain({ currentUser, onLogout }) {
     [users]
   );
 
-  const filteredUsers = useMemo(
-    () => users.filter((u) => userMatchesTeamFilter(u, usersTeamFilter)),
-    [users, usersTeamFilter]
+  // Users tab: the search box matches names; Branch, Role and Status are filters.
+  const userRoleNames = (u) =>
+    Array.isArray(u.role_names) && u.role_names.some(Boolean)
+      ? [...new Set(u.role_names.filter(Boolean))]
+      : [formatUserRowRole(u)];
+  const userBranchOptions = useMemo(() => {
+    const names = [...new Set(users.map((u) => String(u.branch || '').trim()).filter(Boolean))];
+    return names.sort((a, b) => a.localeCompare(b));
+  }, [users]);
+  const userRoleOptions = useMemo(
+    () => [...new Set(users.flatMap(userRoleNames))].sort((a, b) => a.localeCompare(b)),
+    [users]
   );
+  const filteredUsers = useMemo(() => {
+    const q = userSearch.trim().toLowerCase();
+    return users.filter((u) => {
+      if (q &&!String(u.username || '').toLowerCase().includes(q)) return false;
+      if (userBranchFilter) {
+        const branch = String(u.branch || '').trim();
+        if (userBranchFilter === NO_BRANCH ? branch : branch !== userBranchFilter) return false;
+      }
+      if (userRoleFilter && !userRoleNames(u).includes(userRoleFilter)) return false;
+      if (userStatusFilter === 'active' && u.is_active === false) return false;
+      if (userStatusFilter === 'inactive' && u.is_active !== false) return false;
+      return true;
+    });
+  }, [users, userSearch, userBranchFilter, userRoleFilter, userStatusFilter]);
+  const userFiltersActive = Boolean(userSearch.trim() || userBranchFilter || userRoleFilter || userStatusFilter);
+  const clearUserFilters = () => {
+    setUserSearch('');
+    setUserBranchFilter('');
+    setUserRoleFilter('');
+    setUserStatusFilter('');
+  };
 
   const tabConfig = visibleTabs.find((t) => t.key === activeTab);
   const handleNavClick = (key) => {
@@ -1180,6 +1200,66 @@ export default function AdminMain({ currentUser, onLogout }) {
           {activeTab === 'users' && (
             <section className="admin-panel admin-panel-inline">
               <div className="admin-users-toolbar">
+                <label className="admin-users-search">
+                  <MdSearch size={18} aria-hidden="true" />
+                  <input
+                    type="search"
+                    value={userSearch}
+                    onChange={(e) => setUserSearch(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Escape') setUserSearch('');
+                    }}
+                    placeholder="Search by name"
+                    aria-label="Search users by name"
+                  />
+                  {userFiltersActive ? (
+                    <span className="admin-users-search-count">
+                      {filteredUsers.length} of {users.length}
+                    </span>
+                  ) : null}
+                </label>
+                <select
+                  className="admin-users-filter"
+                  value={userBranchFilter}
+                  onChange={(e) => setUserBranchFilter(e.target.value)}
+                  aria-label="Filter by branch"
+                >
+                  <option value="">All branches</option>
+                  {userBranchOptions.map((b) => (
+                    <option key={b} value={b}>
+                      {b}
+                    </option>
+                  ))}
+                  <option value={NO_BRANCH}>No branch</option>
+                </select>
+                <select
+                  className="admin-users-filter"
+                  value={userRoleFilter}
+                  onChange={(e) => setUserRoleFilter(e.target.value)}
+                  aria-label="Filter by role"
+                >
+                  <option value="">All roles</option>
+                  {userRoleOptions.map((r) => (
+                    <option key={r} value={r}>
+                      {r}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  className="admin-users-filter"
+                  value={userStatusFilter}
+                  onChange={(e) => setUserStatusFilter(e.target.value)}
+                  aria-label="Filter by status"
+                >
+                  <option value="">All statuses</option>
+                  <option value="active">Active</option>
+                  <option value="inactive">Inactive</option>
+                </select>
+                {userFiltersActive ? (
+                  <button type="button" className="admin-btn admin-users-clear" onClick={clearUserFilters}>
+                    Clear
+                  </button>
+                ) : null}
                 <button
                   type="button"
                   className="admin-btn admin-btn-primary"
@@ -1187,24 +1267,6 @@ export default function AdminMain({ currentUser, onLogout }) {
                 >
                   <MdAdd size={18} /> Add user
                 </button>
-              </div>
-              <p className="admin-users-filter-hint">
-                Filter by team. Assign Consultant, Creative Team, Social Media Management, or Legal &amp; Finance via{' '}
-                <strong>Assign roles</strong>.
-              </p>
-              <div className="admin-users-team-filter" role="tablist" aria-label="Filter by team">
-                {USERS_TEAM_FILTERS.map(({ key, label }) => (
-                  <button
-                    key={key}
-                    type="button"
-                    role="tab"
-                    aria-selected={usersTeamFilter === key}
-                    className={'admin-team-filter-btn' + (usersTeamFilter === key ? ' active' : '')}
-                    onClick={() => setUsersTeamFilter(key)}
-                  >
-                    {label}
-                  </button>
-                ))}
               </div>
               {loading ? (
                 <div className="admin-loading">Loading…</div>
@@ -1337,7 +1399,9 @@ export default function AdminMain({ currentUser, onLogout }) {
                   )}
                   {users.length > 0 && !filteredUsers.length && (
                     <div className="admin-empty">
-                      No users in this team. Try another filter or assign roles.
+                      {userFiltersActive
+                        ? 'No users match this search and these filters. Try changing or clearing them.'
+                        : 'No users found.'}
                     </div>
                   )}
                 </>
