@@ -548,13 +548,21 @@ function ColumnFilter({ label, active, children }) {
   );
 }
 
-const EMPTY_DATE_FILTER = { date: '' };
-
-/** True when a row's yyyy-mm-dd value is the filter's date (no date set = no filter). */
-function dateMatches(value, filter) {
-  if (!filter?.date) return true;
-  return value === filter.date;
+/** True when a row's value is one of the picked values (nothing picked = no filter). */
+function pickedMatches(value, picked) {
+  return !picked.length || picked.includes(String(value || ''));
 }
+
+/** Tick-list options for a date column: every date on the board, newest first. */
+function dateOptions(values) {
+  const dates = [...new Set(values.map((v) => String(v || '').slice(0, 10)))];
+  const real = dates.filter(Boolean).sort((a, b) => b.localeCompare(a));
+  const options = real.map((d) => ({ value: d, label: formatDisplayDate(d) || d }));
+  return dates.includes('') ? [...options, { value: '', label: '(No date)' }] : options;
+}
+
+/** Column heading text: "Category" or, with several values ticked, "Category (3)". */
+const filterLabel = (label, picked) => (picked.length > 1 ? `${label} (${picked.length})` : label);
 
 /** List of values for a ColumnFilter: a search box, "All", then one entry per value. */
 // A column-heading list of values. Single (default): value is one value, '' for all,
@@ -1681,7 +1689,7 @@ export default function ContentPipeline({
   const debouncedQuery = useDebouncedValue(query, 200);
   // Branch column filter: any number of branches ([] = all).
   const [branch, setBranch] = useState([]);
-  const [contentType, setContentType] = useState('');
+  const [contentType, setContentType] = useState([]);
   const [status, setStatus] = useState('');
   const [stageFilter, setStageFilter] = useState('');
   const [showStages, setShowStages] = useState(false);
@@ -1689,12 +1697,12 @@ export default function ContentPipeline({
   // Assigned by = the person who created the row (created_by).
   const [assignedBy, setAssignedBy] = useState('');
   // Start, End and Publish date column filters: one date each, matched exactly.
-  const [startFilter, setStartFilter] = useState(EMPTY_DATE_FILTER);
-  const [endFilter, setEndFilter] = useState(EMPTY_DATE_FILTER);
-  const [publishFilter, setPublishFilter] = useState(EMPTY_DATE_FILTER);
+  const [startFilter, setStartFilter] = useState([]);
+  const [endFilter, setEndFilter] = useState([]);
+  const [publishFilter, setPublishFilter] = useState([]);
   // Column-heading filters with no top-bar equivalent.
-  const [category, setCategory] = useState('');
-  const [course, setCourse] = useState('');
+  const [category, setCategory] = useState([]);
+  const [course, setCourse] = useState([]);
   const [menuFor, setMenuFor] = useState(null);
   const [adding, setAdding] = useState(false);
   // Delete mode: the # column turns into tickboxes; ticked rows are deleted together.
@@ -1896,17 +1904,17 @@ export default function ContentPipeline({
     const q = debouncedQuery.trim().toLowerCase();
     return items.filter((task) => {
       if (branch.length && !branch.includes(String(task.content_branch || ''))) return false;
-      if (contentType && task.content_type !== contentType) return false;
-      if (category && (task.production?.course_type || '') !== category) return false;
-      if (course && (task.production?.course || '') !== course) return false;
+      if (!pickedMatches(task.content_type, contentType)) return false;
+      if (!pickedMatches(task.production?.course_type, category)) return false;
+      if (!pickedMatches(task.production?.course, course)) return false;
       if (status && task.workflow_status !== status) return false;
       if (assignee && String(task.assigned_to) !== String(assignee)) return false;
       if (assignedBy && String(task.created_by) !== String(assignedBy)) return false;
       const rowEnd = String(task.production?.sheet_date || task.due_date || '').slice(0, 10);
       const rowStart = String(task.task_date || '').slice(0, 10) || rowEnd;
-      if (!dateMatches(rowStart, startFilter)) return false;
-      if (!dateMatches(rowEnd, endFilter)) return false;
-      if (!dateMatches(String(task.publish_date || '').slice(0, 10), publishFilter)) return false;
+      if (!pickedMatches(rowStart, startFilter)) return false;
+      if (!pickedMatches(rowEnd, endFilter)) return false;
+      if (!pickedMatches(String(task.publish_date || '').slice(0, 10), publishFilter)) return false;
       if (!q) return true;
       const hay = `${task.code} ${task.title} ${task.campaign_name || ''} ${task.content_branch} ${task.production?.course_type || ''} ${task.production?.course || ''}`.toLowerCase();
       return hay.includes(q);
@@ -1933,10 +1941,17 @@ export default function ContentPipeline({
     const names = new Set();
     items.forEach((task) => {
       const name = task.production?.course;
-      if (name && (!category || task.production?.course_type === category)) names.add(name);
+      if (name && (!category.length || category.includes(task.production?.course_type))) names.add(name);
     });
     return [...names].sort((a, b) => a.localeCompare(b)).map((name) => ({ value: name, label: name }));
   }, [items, category]);
+
+  const startDateOptions = useMemo(
+    () => dateOptions(items.map((t) => t.task_date || t.production?.sheet_date || t.due_date)),
+    [items]
+  );
+  const endDateOptions = useMemo(() => dateOptions(items.map((t) => t.production?.sheet_date || t.due_date)), [items]);
+  const publishDateOptions = useMemo(() => dateOptions(items.map((t) => t.publish_date)), [items]);
 
   const filtered = useMemo(() => {
     if (!stageFilter) return matched;
@@ -2694,22 +2709,22 @@ export default function ContentPipeline({
       || null)
     : null;
   const filtersActive = Boolean(
-    query || branch.length || contentType || category || course || status || assignee || assignedBy
-      || startFilter.date || endFilter.date || publishFilter.date || stageFilter
+    query || branch.length || contentType.length || category.length || course.length || status || assignee || assignedBy
+      || startFilter.length || endFilter.length || publishFilter.length || stageFilter
   );
 
   const clearFilters = () => {
     setQuery('');
     setBranch([]);
-    setPublishFilter(EMPTY_DATE_FILTER);
-    setContentType('');
-    setCategory('');
-    setCourse('');
+    setPublishFilter([]);
+    setContentType([]);
+    setCategory([]);
+    setCourse([]);
     setStatus('');
     setAssignee('');
     setAssignedBy('');
-    setStartFilter(EMPTY_DATE_FILTER);
-    setEndFilter(EMPTY_DATE_FILTER);
+    setStartFilter([]);
+    setEndFilter([]);
     setStageFilter('');
   };
 
@@ -2886,33 +2901,20 @@ export default function ContentPipeline({
                   ) : '#'}
                 </div>
                 {[
-                  { label: 'Start date', value: startFilter, set: setStartFilter },
-                  { label: 'End date', value: endFilter, set: setEndFilter },
-                  { label: 'Publish date', value: publishFilter, set: setPublishFilter },
-                ].map(({ label, value, set }) => (
+                  { label: 'Start date', value: startFilter, set: setStartFilter, options: startDateOptions },
+                  { label: 'End date', value: endFilter, set: setEndFilter, options: endDateOptions },
+                  { label: 'Publish date', value: publishFilter, set: setPublishFilter, options: publishDateOptions },
+                ].map(({ label, value, set, options }) => (
                   <div key={label} className="smc-lane-label smc-lane-label--filter">
-                    <ColumnFilter label={label} active={Boolean(value.date)}>
+                    <ColumnFilter label={filterLabel(label, value)} active={value.length > 0}>
                       {(close) => (
-                        <div className="smc-col-filter-dates">
-                          <input
-                            type="date"
-                            value={value.date}
-                            aria-label={label}
-                            onChange={(event) => set({ ...value, date: event.target.value })}
-                          />
-                          <div className="smc-col-filter-actions">
-                            <button type="button" className="smc-btn smc-btn-ghost" onClick={() => set(EMPTY_DATE_FILTER)}>
-                              Clear
-                            </button>
-                            <button type="button" className="smc-btn" onClick={close}>Done</button>
-                          </div>
-                        </div>
+                        <ColumnFilterOptions multiple value={value} onChange={set} options={options} allLabel="All dates" close={close} />
                       )}
                     </ColumnFilter>
                   </div>
                 ))}
                 <div className="smc-lane-label smc-lane-label--filter">
-                  <ColumnFilter label={branch.length > 1 ? `Branch (${branch.length})` : 'Branch'} active={branch.length > 0}>
+                  <ColumnFilter label={filterLabel('Branch', branch)} active={branch.length > 0}>
                     {(close) => (
                       <ColumnFilterOptions
                         multiple
@@ -2926,9 +2928,10 @@ export default function ContentPipeline({
                   </ColumnFilter>
                 </div>
                 <div className="smc-lane-label smc-lane-label--filter" data-pin-start>
-                  <ColumnFilter label="Content Type" active={Boolean(contentType)}>
+                  <ColumnFilter label={filterLabel('Content Type', contentType)} active={contentType.length > 0}>
                     {(close) => (
                       <ColumnFilterOptions
+                        multiple
                         value={contentType}
                         onChange={setContentType}
                         options={contentTypes.map((item) => ({ value: item.code, label: item.label }))}
@@ -2939,14 +2942,12 @@ export default function ContentPipeline({
                   </ColumnFilter>
                 </div>
                 <div className="smc-lane-label smc-lane-label--filter">
-                  <ColumnFilter label="Category" active={Boolean(category)}>
+                  <ColumnFilter label={filterLabel('Category', category)} active={category.length > 0}>
                     {(close) => (
                       <ColumnFilterOptions
+                        multiple
                         value={category}
-                        onChange={(next) => {
-                          setCategory(next);
-                          setCourse('');
-                        }}
+                        onChange={setCategory}
                         options={categoryChoices.map((name) => ({ value: name, label: name }))}
                         allLabel="All categories"
                         close={close}
@@ -2955,9 +2956,9 @@ export default function ContentPipeline({
                   </ColumnFilter>
                 </div>
                 <div className="smc-lane-label smc-lane-label--filter">
-                  <ColumnFilter label="Course" active={Boolean(course)}>
+                  <ColumnFilter label={filterLabel('Course', course)} active={course.length > 0}>
                     {(close) => (
-                      <ColumnFilterOptions value={course} onChange={setCourse} options={courseChoices} allLabel="All courses" close={close} />
+                      <ColumnFilterOptions multiple value={course} onChange={setCourse} options={courseChoices} allLabel="All courses" close={close} />
                     )}
                   </ColumnFilter>
                 </div>
