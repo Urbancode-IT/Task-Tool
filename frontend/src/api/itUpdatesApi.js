@@ -217,6 +217,11 @@ const itUpdatesApi = {
     return apiClient.get(`${BASE_PATH}/leaves`, { params });
   },
 
+  // Admin → Attendance: who is on leave / absent on a day, and the In Out link status.
+  getAttendance: (date) => {
+    return apiClient.get(`${BASE_PATH}/attendance`, { params: date ? { date } : {} });
+  },
+
   setLeave: (data) => {
     return apiClient.post(`${BASE_PATH}/leaves`, data);
   },

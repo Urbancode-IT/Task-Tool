@@ -46,6 +46,7 @@ export const ADMIN_SECTION_LABELS = [
   { id: 'section.overdue_tasks', default: 'Overdue Tasks' },
   { id: 'section.admin_overview', default: 'Overview' },
   { id: 'section.users', default: 'Users' },
+  { id: 'section.attendance', default: 'Attendance' },
   { id: 'section.departments', default: 'Departments' },
   { id: 'section.locked_users', default: 'Locked Users' },
   { id: 'section.invoices', default: 'Invoices' },
@@ -214,7 +215,7 @@ export const SECTOR_SIDEBARS = [
     sector: 'module.admin',
     sections: [
       'section.admin_dashboard', 'section.review_tasks', 'section.overdue_tasks',
-      'section.admin_overview', 'section.users', 'section.departments',
+      'section.admin_overview', 'section.users', 'section.attendance', 'section.departments',
       'section.locked_users', 'section.invoices', 'section.credentials', 'section.performance_metrics', 'section.deleted_tasks',
     ],
   },

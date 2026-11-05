@@ -335,6 +335,20 @@ async function chatRootFolder() {
 }
 
 /**
+ * Find (or create) the chat folder, so startup can show where chat files go, or why
+ * they cannot go there. Returns the folder link; throws when Drive is unreachable.
+ */
+export async function checkChatDrive() {
+  if (!isDriveConfigured()) throw new Error('Drive is not connected (GOOGLE_DRIVE_REFRESH_TOKEN missing)');
+  try {
+    return `https://drive.google.com/drive/folders/${await chatRootFolder()}`;
+  } catch (err) {
+    chatRootId = null;
+    throw new Error(String(err?.message || err));
+  }
+}
+
+/**
  * Store one chat attachment (multer memory file) in Drive under
  * Seyal Chat / YYYY-MM / Conversation-<id>. Returns the Drive file id.
  */

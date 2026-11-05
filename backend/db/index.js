@@ -1316,6 +1316,24 @@ export async function dbEnsureTables() {
     // Where a leave day came from: 'manual' (entered in Seyal) or 'inout' (an absence
     // pushed by the In Out attendance app). In Out may only undo its own leave days.
     await p.query(`ALTER TABLE member_leaves ADD COLUMN IF NOT EXISTS source VARCHAR(20) NOT NULL DEFAULT 'manual';`);
+    // What the day is: 'leave' (planned leave of any type) or 'absent' (did not turn up),
+    // plus In Out's reason or leave type, shown to admins.
+    await p.query(`ALTER TABLE member_leaves ADD COLUMN IF NOT EXISTS kind VARCHAR(20) NOT NULL DEFAULT 'leave';`);
+    await p.query(`ALTER TABLE member_leaves ADD COLUMN IF NOT EXISTS note TEXT;`);
+    // Every push from In Out, so admins can see that the link works and which people
+    // could not be matched to a Seyal user.
+    await p.query(`
+      CREATE TABLE IF NOT EXISTS inout_sync_log (
+        id SERIAL PRIMARY KEY,
+        received_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+        records INT NOT NULL DEFAULT 0,
+        leave INT NOT NULL DEFAULT 0,
+        absent INT NOT NULL DEFAULT 0,
+        present INT NOT NULL DEFAULT 0,
+        unmatched JSONB NOT NULL DEFAULT '[]'::jsonb,
+        invalid JSONB NOT NULL DEFAULT '[]'::jsonb
+      );
+    `);
     console.log('DB: member_leaves table ensured.');
   } catch (err) {
     console.warn('dbEnsureTables: member_leaves:', err.message);
@@ -4510,7 +4528,7 @@ export async function dbGetMemberDashboard(userId, from, to, team = 'it', projec
       projects = pj.map((r) => ({ id: String(r.id), name: r.name, status: r.status, logo: projectLogoUrlFor(r.id, r.logo) }));
     }
     const { rows: leaveRows } = await p.query(
-      `SELECT to_char(leave_date, 'YYYY-MM-DD') AS d FROM member_leaves
+      `SELECT to_char(leave_date, 'YYYY-MM-DD') AS d, kind, source, note FROM member_leaves
        WHERE user_id = $1 AND leave_date BETWEEN $2 AND $3 ORDER BY leave_date`,
       params
     );
@@ -4547,7 +4565,15 @@ export async function dbGetMemberDashboard(userId, from, to, team = 'it', projec
     }
     const daily = dailyRows.map((r) => ({ date: r.date, seconds: Number(r.seconds || 0) }));
     const totalSeconds = daily.reduce((s, d) => s + d.seconds, 0);
-    return { daily, byProject, projects, leaves: leaveRows.map((r) => r.d), totalSeconds, taskStats };
+    // leaves: the dates (unchanged shape); leave_details says what each day is and
+    // where it came from ('inout' = the In Out attendance app, 'manual' = Seyal).
+    const leaveDetails = leaveRows.map((r) => ({
+      date: r.d,
+      kind: r.kind || 'leave',
+      source: r.source || 'manual',
+      note: r.note || null,
+    }));
+    return { daily, byProject, projects, leaves: leaveRows.map((r) => r.d), leave_details: leaveDetails, totalSeconds, taskStats };
   } catch (err) {
     console.error('dbGetMemberDashboard:', err.message);
     return EMPTY_DASHBOARD;
@@ -4572,19 +4598,49 @@ export async function dbGetLeaves(userId, from, to) {
   }
 }
 
+// In Out status words → what Seyal records. Leave of any type and absence both make
+// the day a non-working day; present (including half day and work from home) clears
+// In Out's mark for that day.
+const INOUT_STATUS = {
+  leave: 'leave', on_leave: 'leave', onleave: 'leave', approved_leave: 'leave',
+  sick_leave: 'leave', casual_leave: 'leave', earned_leave: 'leave', privilege_leave: 'leave',
+  medical_leave: 'leave', maternity_leave: 'leave', paternity_leave: 'leave', comp_off: 'leave',
+  cl: 'leave', sl: 'leave', el: 'leave', pl: 'leave', ml: 'leave',
+  absent: 'absent', a: 'absent', lop: 'absent', loss_of_pay: 'absent', no_show: 'absent',
+  present: 'present', p: 'present', checked_in: 'present', checkin: 'present',
+  wfh: 'present', work_from_home: 'present', remote: 'present', on_duty: 'present', od: 'present',
+  half_day: 'present', halfday: 'present', half_day_leave: 'present', hd: 'present',
+};
+const INOUT_MAX_RANGE_DAYS = 62;
+const YMD = /^\d{4}-\d{2}-\d{2}$/;
+
+/** Every yyyy-mm-dd from `from` to `to` inclusive (null when invalid or too long). */
+function inoutDays(from, to) {
+  if (!YMD.test(from) || !YMD.test(to)) return null;
+  const start = Date.parse(`${from}T00:00:00Z`);
+  const end = Date.parse(`${to}T00:00:00Z`);
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) return null;
+  const count = Math.round((end - start) / 86400000) + 1;
+  if (count > INOUT_MAX_RANGE_DAYS) return null;
+  return Array.from({ length: count }, (_, i) => new Date(start + i * 86400000).toISOString().slice(0, 10));
+}
+
 /**
  * Apply attendance pushed by the In Out app. Each record names a person by email
- * (matched case-insensitively to an active or inactive Seyal user) and a day:
- *   - 'absent'  → that day becomes a leave day (source 'inout'). A leave the member
- *                 already entered themselves is left as it is. If the member had
- *                 already been EOD-locked for that very day, the lock is cleared,
- *                 since leave days are never locked.
- *   - 'present' → removes In Out's leave for that day; leave entered in Seyal stays.
- * Returns per-outcome counts plus the records that could not be applied.
+ * (matched case-insensitively to a Seyal user), a day ("date") or a range ("from" and
+ * "to", up to 62 days), a status, and optionally a reason / leave type:
+ *   - leave (any leave type) or absent → the day becomes a non-working day in Seyal
+ *     (member_leaves, source 'inout', kind 'leave' or 'absent'). A leave the member
+ *     entered in Seyal themselves is never overwritten. If the member was EOD-locked
+ *     for that very day, the lock is cleared, since leave days are never locked.
+ *   - present (also half day, WFH, on duty) → removes In Out's mark for that day;
+ *     leave entered in Seyal stays.
+ * Every push is written to inout_sync_log. Returns per-outcome counts (days) plus the
+ * records that could not be applied.
  */
 export async function dbApplyInOutAttendance(records = []) {
   const p = getPool();
-  const result = { absent: 0, present: 0, unlocked: 0, unmatched: [], invalid: [] };
+  const result = { leave: 0, absent: 0, present: 0, unlocked: 0, unmatched: [], invalid: [] };
   if (!p) return result;
 
   const emails = [...new Set(records.map((r) => String(r?.email || '').trim().toLowerCase()).filter(Boolean))];
@@ -4595,39 +4651,120 @@ export async function dbApplyInOutAttendance(records = []) {
 
   for (const r of records) {
     const email = String(r?.email || '').trim().toLowerCase();
-    const date = String(r?.date || '').slice(0, 10);
-    const status = String(r?.status || '').trim().toLowerCase();
-    if (!email || !/^\d{4}-\d{2}-\d{2}$/.test(date) || !['absent', 'present'].includes(status)) {
-      result.invalid.push({ email: r?.email ?? null, date: r?.date ?? null, status: r?.status ?? null });
+    const rawStatus = String(r?.status || '').trim().toLowerCase().replace(/[\s-]+/g, '_');
+    const status = INOUT_STATUS[rawStatus];
+    const from = String(r?.from || r?.date || '').slice(0, 10);
+    const to = String(r?.to || r?.date || r?.from || '').slice(0, 10);
+    const days = inoutDays(from, to);
+    const note = String(r?.reason || r?.leave_type || r?.note || (status && status !== rawStatus ? r?.status : '') || '')
+      .trim()
+      .slice(0, 200) || null;
+    if (!email || !status || !days) {
+      result.invalid.push({ email: r?.email ?? null, date: r?.date ?? r?.from ?? null, status: r?.status ?? null });
       continue;
     }
     const uid = byEmail.get(email);
     if (uid == null) {
-      result.unmatched.push({ email, date, status });
+      result.unmatched.push({ email, date: from === to ? from : `${from}..${to}`, status: rawStatus });
       continue;
     }
-    if (status === 'absent') {
+    for (const day of days) {
+      if (status === 'present') {
+        await p.query(
+          `DELETE FROM member_leaves WHERE user_id = $1 AND leave_date = $2 AND source = 'inout'`,
+          [uid, day]
+        );
+        result.present += 1;
+        continue;
+      }
+      // In Out may update its own mark (leave ↔ absent, new reason); a manual leave stays.
       await p.query(
-        `INSERT INTO member_leaves (user_id, leave_date, source) VALUES ($1, $2, 'inout')
-         ON CONFLICT (user_id, leave_date) DO NOTHING`,
-        [uid, date]
+        `INSERT INTO member_leaves (user_id, leave_date, source, kind, note) VALUES ($1, $2, 'inout', $3, $4)
+         ON CONFLICT (user_id, leave_date) DO UPDATE SET kind = EXCLUDED.kind, note = EXCLUDED.note
+           WHERE member_leaves.source = 'inout'`,
+        [uid, day, status, note]
       );
       const { rowCount } = await p.query(
         `UPDATE users SET eod_locked = false, eod_lock_date = NULL
           WHERE user_id = $1 AND eod_locked = true AND eod_lock_date = $2::date`,
-        [uid, date]
+        [uid, day]
       );
-      result.absent += 1;
+      result[status] += 1;
       result.unlocked += rowCount;
-    } else {
-      await p.query(
-        `DELETE FROM member_leaves WHERE user_id = $1 AND leave_date = $2 AND source = 'inout'`,
-        [uid, date]
-      );
-      result.present += 1;
     }
   }
+
+  try {
+    await p.query(
+      `INSERT INTO inout_sync_log (records, leave, absent, present, unmatched, invalid)
+       VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb)`,
+      [
+        records.length,
+        result.leave,
+        result.absent,
+        result.present,
+        JSON.stringify(result.unmatched.slice(0, 200)),
+        JSON.stringify(result.invalid.slice(0, 200)),
+      ]
+    );
+  } catch (err) {
+    console.warn('In Out sync log:', err.message);
+  }
   return result;
+}
+
+/**
+ * Admin attendance view for one day: everyone marked as on leave or absent (from In
+ * Out or entered in Seyal), plus the In Out link's status.
+ */
+export async function dbGetAttendanceDay(date) {
+  const p = getPool();
+  const empty = { date, away: [], sync: { last_received_at: null, last_24h: 0, unmatched: [] } };
+  if (!p || !YMD.test(String(date || ''))) return empty;
+  const { rows: away } = await p.query(
+    `SELECT u.user_id, u.username, u.email, u.branch, u.profile_image,
+            l.kind, l.source, l.note
+       FROM member_leaves l JOIN users u ON u.user_id = l.user_id
+      WHERE l.leave_date = $1::date
+      ORDER BY l.kind, LOWER(u.username)`,
+    [date]
+  );
+  let sync = empty.sync;
+  try {
+    const { rows } = await p.query(
+      `SELECT MAX(received_at) AS last_received_at,
+              COUNT(*) FILTER (WHERE received_at > now() - interval '24 hours')::int AS last_24h
+         FROM inout_sync_log`
+    );
+    // People In Out sent in the last 7 days who have no Seyal account with that email.
+    const { rows: miss } = await p.query(
+      `SELECT DISTINCT LOWER(x->>'email') AS email
+         FROM inout_sync_log, jsonb_array_elements(unmatched) x
+        WHERE received_at > now() - interval '7 days'
+        ORDER BY 1`
+    );
+    sync = {
+      last_received_at: rows[0]?.last_received_at || null,
+      last_24h: rows[0]?.last_24h || 0,
+      unmatched: miss.map((m) => m.email).filter(Boolean),
+    };
+  } catch (err) {
+    console.warn('dbGetAttendanceDay sync:', err.message);
+  }
+  return {
+    date,
+    away: away.map((r) => ({
+      user_id: r.user_id,
+      username: r.username,
+      email: r.email,
+      branch: r.branch,
+      profile_image: avatarUrlFor(r.user_id, r.profile_image),
+      kind: r.kind || 'leave',
+      source: r.source || 'manual',
+      note: r.note || null,
+    })),
+    sync,
+  };
 }
 
 /** Toggle a member's leave for a single day. `on=true` adds it, `on=false` removes it. */

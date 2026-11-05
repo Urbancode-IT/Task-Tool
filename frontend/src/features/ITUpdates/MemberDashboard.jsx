@@ -102,6 +102,15 @@ export default function MemberDashboard({ currentUser, members = [], isAdmin = f
   const completionRate = ts.total > 0 ? Math.round((ts.completed / ts.total) * 100) : 0;
 
   const onLeaveDay = (data.leaves || []).includes(leaveDate);
+  // What each away day is (leave or absent) and where it came from (In Out or Seyal).
+  const leaveInfo = Object.fromEntries((data.leave_details || []).map((d) => [d.date, d]));
+  const leaveText = (date) => {
+    const info = leaveInfo[date];
+    if (!info && !(data.leaves || []).includes(date)) return '';
+    const what = info?.kind === 'absent' ? 'Absent' : 'On leave';
+    const from = info?.source === 'inout' ? ' (In Out)' : '';
+    return ` · ${what}${from}${info?.note ? `: ${info.note}` : ''}`;
+  };
   const canEditLeave = isAdmin || selectedUserId === myId;
 
   const toggleLeave = async () => {
@@ -223,7 +232,7 @@ export default function MemberDashboard({ currentUser, members = [], isAdmin = f
               <YAxis fontSize={11} allowDecimals />
               <Tooltip
                 formatter={(v) => [`${v}h`, 'Worked']}
-                labelFormatter={(l) => `${l}${(data.leaves || []).includes(l) ? ' · On leave' : ''}`}
+                labelFormatter={(l) => `${l}${leaveText(l)}`}
               />
               <ReferenceLine y={WORK_HOURS_PER_DAY} stroke="#ef4444" strokeDasharray="4 4" label={{ value: `${WORK_HOURS_PER_DAY}h`, position: 'right', fontSize: 11, fill: '#ef4444' }} />
               <Bar dataKey="hours" radius={[4, 4, 0, 0]}>

@@ -1,0 +1,204 @@
+/* Admin → Attendance (Attendance.jsx) */
+.att-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.att-day {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.att-day input[type='date'] {
+  padding: 0.5rem 0.6rem;
+  border: 1px solid var(--clr-slate-200);
+  border-radius: var(--radius-md, 10px);
+  background: var(--surface-card, #fff);
+  color: var(--clr-slate-800);
+  font: inherit;
+}
+
+.att-icon-btn {
+  display: inline-flex;
+  padding: 0.3rem;
+  border: 1px solid var(--clr-slate-200);
+  border-radius: 8px;
+  background: var(--surface-card, #fff);
+  color: var(--clr-slate-600);
+  cursor: pointer;
+}
+
+.att-icon-btn:hover {
+  background: var(--clr-slate-50);
+}
+
+.att-title {
+  margin: 0.25rem 0 0.9rem;
+  color: var(--clr-slate-800);
+  font-size: 1.1rem;
+}
+
+/* In Out connection status and unmatched-people notices. */
+.att-sync,
+.att-unmatched {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  margin-bottom: 0.75rem;
+  padding: 0.7rem 0.9rem;
+  border: 1px solid;
+  border-radius: 10px;
+  font-size: 0.86rem;
+}
+
+.att-sync div,
+.att-unmatched div {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.att-sync.ok {
+  border-color: #bbf7d0;
+  background: #f0fdf4;
+  color: #166534;
+}
+
+.att-sync.idle {
+  border-color: #e2e8f0;
+  background: #f8fafc;
+  color: #475569;
+}
+
+.att-sync.off {
+  border-color: #fecaca;
+  background: #fef2f2;
+  color: #991b1b;
+}
+
+.att-unmatched {
+  border-color: #fde68a;
+  background: #fffbeb;
+  color: #92400e;
+  overflow-wrap: anywhere;
+}
+
+/* Count cards; the first three also filter the table. */
+.att-cards {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.6rem;
+  margin-bottom: 1rem;
+}
+
+.att-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  padding: 0.75rem 0.9rem;
+  border: 1px solid var(--clr-slate-200);
+  border-radius: 12px;
+  background: var(--surface-card, #fff);
+  color: var(--clr-slate-600);
+  font: inherit;
+  text-align: left;
+}
+
+button.att-card {
+  cursor: pointer;
+}
+
+.att-card span {
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.att-card strong {
+  color: var(--clr-slate-900, #0f172a);
+  font-size: 1.5rem;
+}
+
+.att-card.active {
+  border-color: var(--clr-primary-400, #60a5fa);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+}
+
+.att-card.leave strong {
+  color: #1d4ed8;
+}
+
+.att-card.absent strong {
+  color: #b91c1c;
+}
+
+.att-person {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.att-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--clr-slate-200);
+  color: var(--clr-slate-600);
+  font-size: 0.8rem;
+  font-weight: 700;
+  object-fit: cover;
+}
+
+.att-person-text {
+  display: flex;
+  flex-direction: column;
+}
+
+.att-person-text span {
+  color: var(--clr-slate-500);
+  font-size: 0.78rem;
+}
+
+.att-badge,
+.att-source {
+  display: inline-block;
+  padding: 0.15rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.76rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.att-badge.leave {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+.att-badge.absent {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+.att-source.inout {
+  background: #ede9fe;
+  color: #6d28d9;
+}
+
+.att-source.manual {
+  background: #f1f5f9;
+  color: #475569;
+}
+
+@media (max-width: 720px) {
+  .att-cards {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

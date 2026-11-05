@@ -48,6 +48,9 @@ import { makeTaskDuplicate, toSubtaskDrafts } from '../../utils/taskDuplicate';
 import ProjectRequirements from '../../components/ProjectRequirements';
 import MemberPicker from '../../components/MemberPicker';
 import { initialAssigneeIds, isAssignedTo, cardAssignees } from '../../utils/assignees';
+import TaskAge from '../../components/TaskAge';
+import ShowMoreCards from '../../components/ShowMoreCards';
+import { useColumnLimits } from '../../utils/columnLimits';
 import Preloader from '../../components/Preloader';
 import LeadModal from '../../components/LeadModal';
 import ModalKebabMenu from '../../components/ModalKebabMenu';
@@ -240,6 +243,8 @@ export function TaskBoard({ tasks = [], onDragEnd, onCardClick, onCardDuplicate,
   const groups = useMemo(() => groupTasksByStatus(tasks), [tasks]);
   const pById = projectById || new Map();
 
+  // Each column shows 25 cards, then "Show more" adds the next 25.
+  const { limitFor, showMore } = useColumnLimits();
   const renderColumn = (statusKey, items) => (
     <div
       key={statusKey}
@@ -257,7 +262,7 @@ export function TaskBoard({ tasks = [], onDragEnd, onCardClick, onCardDuplicate,
             {...provided.droppableProps}
             className={`it-updates-column-body ${snapshot.isDraggingOver ? 'it-updates-drop-zone' : ''}`}
           >
-            {items.map((task, idx) => (
+            {items.slice(0, limitFor(statusKey)).map((task, idx) => (
               <Draggable key={`task-${task.id}`} draggableId={`task-${task.id}`} index={idx}>
                 {(provided, snapshot) => {
                   const cardProject =
@@ -326,6 +331,7 @@ export function TaskBoard({ tasks = [], onDragEnd, onCardClick, onCardDuplicate,
                           size={26}
                           className="it-updates-task-card-logo"
                         />
+                        <TaskAge task={task} />
                         <div className="it-updates-task-card-people">
                           {task.assigned_by_name ? (
                             <span className="it-updates-task-card-person">
@@ -362,6 +368,7 @@ export function TaskBoard({ tasks = [], onDragEnd, onCardClick, onCardDuplicate,
                 }}
               </Draggable>
             ))}
+            <ShowMoreCards hidden={items.length - limitFor(statusKey)} onClick={() => showMore(statusKey)} />
             {provided.placeholder}
             {!items.length && <div className="it-updates-empty-column">No tasks</div>}
           </div>

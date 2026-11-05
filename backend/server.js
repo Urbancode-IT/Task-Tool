@@ -30,6 +30,7 @@ import {
 } from './db/socialContent.js';
 import {
   LOCAL_FILE_PREFIX,
+  checkChatDrive,
   isLocalFileId,
   openContentFile,
   shareStoredLinks,
@@ -604,10 +605,12 @@ app.post('/auth/master-login', asyncMw(async (req, res) => {
 }));
 
 // ---- In Out attendance integration (server-to-server) ----
-// The In Out app calls this the moment it marks someone absent or present. It is not a
-// user session, so it is authorised by a shared secret in the X-InOut-Key header,
-// compared in constant time. With INOUT_WEBHOOK_SECRET unset the endpoint is off.
-// Body: { email, date: 'YYYY-MM-DD', status: 'absent' | 'present' } or { records: [...] }.
+// The In Out app calls this the moment it marks someone on leave, absent or present. It
+// is not a user session, so it is authorised by a shared secret in the X-InOut-Key
+// header, compared in constant time. With INOUT_WEBHOOK_SECRET unset the endpoint is off.
+// Body: one record or { records: [...] }; a record is
+//   { email, date: 'YYYY-MM-DD' | from + to, status: 'leave' | 'absent' | 'present' | …,
+//     reason? }. Full format: docs/INOUT-INTEGRATION.md.
 const INOUT_MAX_RECORDS = 500;
 
 function inoutKeyValid(req) {
@@ -2478,6 +2481,21 @@ app.delete(`${BASE_PATH}/leaves/:date`, requireAuth, attachUserPermissions, asyn
   }
 });
 
+// Admin → Attendance: who is on leave or absent on a day (from In Out or Seyal), and
+// the In Out link's status (last push, people it sent that Seyal could not match).
+app.get(`${BASE_PATH}/attendance`, requireAuth, attachUserPermissions, requirePermission('admin.access'), async (req, res) => {
+  try {
+    if (!db.useDb()) return res.json({ date: null, away: [], sync: { last_received_at: null, last_24h: 0, unmatched: [] } });
+    const date = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.date || ''))
+      ? String(req.query.date)
+      : new Date(Date.now() + 330 * 60000).toISOString().slice(0, 10); // today in IST
+    res.json({ ...(await db.dbGetAttendanceDay(date)), configured: Boolean(process.env.INOUT_WEBHOOK_SECRET) });
+  } catch (err) {
+    console.error('attendance day:', err.message);
+    res.status(500).json({ message: 'Failed to load attendance' });
+  }
+});
+
 // DELETE a requirement
 app.delete(`${BASE_PATH}/tasks/:taskId/requirements/:reqId`, async (req, res) => {
   const { taskId, reqId } = req.params;
@@ -3740,6 +3758,10 @@ async function start() {
     } else {
       console.log('Email not configured (GMAIL_* env missing). Mentions/deadline emails disabled.');
     }
+    // Chat files go to Drive; say where, or why they are kept in the database instead.
+    checkChatDrive()
+      .then((link) => console.log(`Chat files: stored in Google Drive (${link}).`))
+      .catch((err) => console.warn(`Chat files: NOT stored in Drive, kept in the database instead. ${err.message}`));
     // 5:30pm / 7:30pm nudges to members who are present and still owe today's EOD.
     startEodMemberReminders(db);
     // Daily report of members who missed their EOD, sent to the directors at the day

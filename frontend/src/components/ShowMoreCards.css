@@ -1,0 +1,31 @@
+/* "Show more" button at the foot of a task board column (ShowMoreCards.jsx). */
+.show-more-cards {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  width: 100%;
+  margin-top: 0.25rem;
+  padding: 0.5rem 0.6rem;
+  border: 1px dashed var(--clr-slate-300, #cbd5e1);
+  border-radius: 10px;
+  background: var(--surface-card, #fff);
+  color: var(--clr-slate-700, #334155);
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.show-more-cards:hover {
+  border-color: var(--clr-primary-400, #60a5fa);
+  background: var(--clr-slate-50, #f8fafc);
+}
+
+.show-more-cards-count {
+  padding: 0.05rem 0.45rem;
+  border-radius: 999px;
+  background: var(--clr-slate-100, #f1f5f9);
+  color: var(--clr-slate-600, #475569);
+  font-size: 0.72rem;
+}

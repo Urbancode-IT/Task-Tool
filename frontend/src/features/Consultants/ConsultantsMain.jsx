@@ -23,6 +23,9 @@ import { isTaskOverdue } from '../../utils/taskDue';
 import { toastSuccess, toastError, toastInfo } from '../../utils/toast';
 import MemberPicker from '../../components/MemberPicker';
 import { initialAssigneeIds, isAssignedTo, cardAssignees } from '../../utils/assignees';
+import TaskAge from '../../components/TaskAge';
+import ShowMoreCards from '../../components/ShowMoreCards';
+import { useColumnLimits } from '../../utils/columnLimits';
 import { loadEodSections, sectionsToText, localToday } from '../../utils/eodSummary';
 import { reasonDialog } from '../../utils/confirm';
 import { taskInPeriod, CURRENT_MONTH_PERIOD, EMPTY_PERIOD, isAllDates, periodEmptyText } from '../../utils/taskPeriod';
@@ -491,6 +494,8 @@ export default function ConsultantsMain({ currentUser, onLogout }) {
     setSidebarOpen(false);
   };
 
+  // Each column shows 25 cards, then "Show more" adds the next 25.
+  const { limitFor, showMore } = useColumnLimits();
   const renderKanbanColumn = (statusKey, items) => (
     <div
       key={statusKey}
@@ -510,7 +515,7 @@ export default function ConsultantsMain({ currentUser, onLogout }) {
               snapshot.isDraggingOver ? 'it-updates-drop-zone' : ''
             }`}
           >
-            {items.map((task, idx) => (
+            {items.slice(0, limitFor(statusKey)).map((task, idx) => (
               <Draggable
                 key={`task-${task.id}`}
                 draggableId={`task-${task.id}`}
@@ -594,6 +599,7 @@ export default function ConsultantsMain({ currentUser, onLogout }) {
                         size={26}
                         className="it-updates-task-card-logo"
                       />
+                      <TaskAge task={task} />
                       <div className="it-updates-task-card-people">
                         {task.assigned_by_name ? (
                           <span className="it-updates-task-card-person">
@@ -627,6 +633,7 @@ export default function ConsultantsMain({ currentUser, onLogout }) {
                 }}
               </Draggable>
             ))}
+            <ShowMoreCards hidden={items.length - limitFor(statusKey)} onClick={() => showMore(statusKey)} />
             {provided.placeholder}
             {!items.length && (
               <div className="it-updates-empty-column">No tasks</div>

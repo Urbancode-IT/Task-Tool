@@ -22,6 +22,7 @@ import {
   MdDeleteSweep,
   MdTimer,
   MdSearch,
+  MdEventBusy,
 } from 'react-icons/md';
 import adminApi from '../../api/adminApi';
 import PerformanceEfficiency from './PerformanceEfficiency';
@@ -37,6 +38,7 @@ import SidebarUser from '../../components/SidebarUser';
 import useSidebarCollapsed from '../../utils/useSidebarCollapsed';
 import { AdminAddUserModal, AdminUserDetailModal } from './AdminUserModals';
 import Invoices from './Invoices';
+import Attendance from './Attendance';
 import { formatUserRowRole } from '../../utils/displayRole';
 import { escapeCloses } from '../../utils/formKeys';
 import Preloader from '../../components/Preloader';
@@ -51,6 +53,7 @@ const ADMIN_TABS = [
   { key: 'overdue_tasks', labelId: 'section.overdue_tasks', label: 'Overdue Tasks', icon: MdPendingActions },
   { key: 'overview', labelId: 'section.admin_overview', label: 'Overview', icon: MdTableChart },
   { key: 'users', labelId: 'section.users', label: 'Users', icon: MdPeople },
+  { key: 'attendance', labelId: 'section.attendance', label: 'Attendance', icon: MdEventBusy },
   { key: 'departments', labelId: 'section.departments', label: 'Departments', icon: MdBusiness },
   { key: 'locked_users', labelId: 'section.locked_users', label: 'Locked Users', icon: MdLock },
   { key: 'invoices', labelId: 'section.invoices', label: 'Invoices', icon: MdReceiptLong },
@@ -1948,6 +1951,7 @@ export default function AdminMain({ currentUser, onLogout }) {
           )}
 
           {activeTab === 'invoices' && <Invoices currentUser={user} />}
+          {activeTab === 'attendance' && isAdmin && <Attendance />}
 
           {activeTab === 'credentials' && isAdmin && (
             <section className="admin-section">
