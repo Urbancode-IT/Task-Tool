@@ -1586,6 +1586,24 @@
   font-family: monospace;
 }
 
+/* Admin-only delete on a project card (beside the status badge). */
+.it-updates-project-delete {
+  display: inline-flex;
+  flex: none;
+  padding: 0.25rem;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: none;
+  color: var(--clr-slate-400, #94a3b8);
+  cursor: pointer;
+}
+
+.it-updates-project-delete:hover {
+  border-color: #fecaca;
+  background: #fef2f2;
+  color: #dc2626;
+}
+
 .it-updates-project-badge {
   font-size: 0.65rem;
   padding: 0.2rem 0.55rem;
@@ -1724,6 +1742,45 @@
   font-size: 0.82rem;
   background: var(--surface-card);
   color: var(--clr-slate-700);
+  cursor: pointer;
+}
+
+/* Search box and member / branch pickers (EodDateRange.jsx). */
+.it-updates-eod-search {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-width: 200px;
+  padding: 0 0.6rem;
+  border: 1px solid var(--clr-slate-200);
+  border-radius: var(--radius-md);
+  background: var(--surface-card);
+  color: var(--clr-slate-400);
+}
+
+.it-updates-eod-search input {
+  flex: 1;
+  min-width: 0;
+  padding: 0.5rem 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--clr-slate-700);
+  font-size: 0.82rem;
+}
+
+.it-updates-eod-search:focus-within {
+  border-color: var(--clr-primary-400);
+  box-shadow: 0 0 0 3px rgba(0, 84, 196, 0.1);
+}
+
+.it-updates-eod-filter select {
+  padding: 0.5rem 0.6rem;
+  border: 1px solid var(--clr-slate-200);
+  border-radius: var(--radius-md);
+  background: var(--surface-card);
+  color: var(--clr-slate-700);
+  font-size: 0.82rem;
   cursor: pointer;
 }
 

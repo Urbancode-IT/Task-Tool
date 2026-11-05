@@ -1,11 +1,37 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { MdAdd, MdClose, MdGroupAdd, MdNotificationsActive, MdNotificationsOff, MdSearch } from 'react-icons/md';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  MdAdd,
+  MdClose,
+  MdCloseFullscreen,
+  MdGroupAdd,
+  MdNotificationsActive,
+  MdNotificationsOff,
+  MdOpenInFull,
+  MdSearch,
+} from 'react-icons/md';
 import { useChat, conversationTitle } from './chatContext';
 import { lastMessagePreview } from './chatText';
 import { ChatAvatar, NewChatPanel } from './ChatParts';
 import MessagePane from './MessagePane';
 import { requestNotificationPermission } from './chatAlerts';
 import './Chat.css';
+
+// Whether the panel was last left expanded to the full window (per browser).
+const EXPANDED_KEY = 'seyal.chat.expanded';
+const readExpanded = () => {
+  try {
+    return localStorage.getItem(EXPANDED_KEY) === '1';
+  } catch {
+    return false;
+  }
+};
+const writeExpanded = (on) => {
+  try {
+    localStorage.setItem(EXPANDED_KEY, on ? '1' : '0');
+  } catch {
+    // Storage blocked: the choice is simply not remembered.
+  }
+};
 
 const timeLabel = (iso) => {
   if (!iso) return '';
@@ -34,16 +60,50 @@ export default function ChatWindow() {
     return conversations.filter((c) => conversationTitle(c, meId).toLowerCase().includes(s));
   }, [conversations, q, meId]);
 
+  // The chat is a side panel beside the page, so Escape closes it only while you are
+  // working inside it, not while you are typing in a task form on the page.
+  const panelRef = useRef(null);
   useEffect(() => {
     const onKey = (e) => {
-      if (e.key === 'Escape' && !e.defaultPrevented) setOpen(false);
+      if (e.key === 'Escape' && !e.defaultPrevented && panelRef.current?.contains(document.activeElement)) setOpen(false);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [setOpen]);
 
+  // Wide screens make room for the panel instead of covering the page (see Chat.css).
+  // Half the window by default; the expand button widens it to the full window.
+  const [expanded, setExpanded] = useState(readExpanded);
+  const toggleExpanded = () => {
+    writeExpanded(!expanded);
+    setExpanded(!expanded);
+  };
+  useEffect(() => {
+    document.body.classList.add('chat-panel-open');
+    return () => document.body.classList.remove('chat-panel-open');
+  }, []);
+  useEffect(() => {
+    document.body.classList.toggle('chat-panel-expanded', expanded);
+    return () => document.body.classList.remove('chat-panel-expanded');
+  }, [expanded]);
+
   return (
-    <div className="chat-overlay" onMouseDown={(e) => e.target === e.currentTarget && setOpen(false)}>
+    <div className={`chat-overlay${expanded ? ' expanded' : ''}`} ref={panelRef}>
+      {/* One set of window controls, always in the panel's top-right corner. */}
+      <div className="chat-panel-controls">
+        <button
+          type="button"
+          className="chat-icon-btn chat-expand-btn"
+          onClick={toggleExpanded}
+          title={expanded ? 'Shrink to half the window' : 'Expand to the full window'}
+          aria-pressed={expanded}
+        >
+          {expanded ? <MdCloseFullscreen size={19} /> : <MdOpenInFull size={18} />}
+        </button>
+        <button type="button" className="chat-icon-btn" onClick={() => setOpen(false)} title="Close chat (Esc)" aria-label="Close chat">
+          <MdClose size={21} />
+        </button>
+      </div>
       <div className={`chat-window${active ? ' chat-has-active' : ''}`} role="dialog" aria-label="Chat">
         <aside className="chat-sidebar">
           {panel ? (
@@ -69,9 +129,6 @@ export default function ChatWindow() {
                   </button>
                   <button type="button" className="chat-icon-btn" onClick={() => setPanel('direct')} title="New message">
                     <MdAdd size={20} />
-                  </button>
-                  <button type="button" className="chat-icon-btn" onClick={() => setOpen(false)} title="Close chat">
-                    <MdClose size={20} />
                   </button>
                 </span>
               </div>

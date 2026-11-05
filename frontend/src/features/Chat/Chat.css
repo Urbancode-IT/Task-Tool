@@ -38,13 +38,79 @@
 }
 
 /* ── Window ── */
-/* Chat opens full screen, over the whole app; close it with the X or Escape. */
+/* Chat is a panel docked on the right, below the header: half the window by default,
+   the full window when expanded. Close it with the X in its top-right corner or Escape. */
+:root {
+  --chat-panel-w: max(380px, 50vw);
+  --chat-panel-top: var(--app-header-height, 64px);
+}
+
+.chat-overlay.expanded {
+  width: 100vw;
+  border-left: 0;
+}
+
+/* Expand / close, pinned to the panel's top-right corner over whichever header is there. */
+.chat-panel-controls {
+  position: absolute;
+  top: 0;
+  right: 0;
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  gap: 0.15rem;
+  height: 3.5rem;
+  padding-right: 0.6rem;
+}
+
+/* Keep header content clear of the corner controls. */
+.chat-pane-head {
+  padding-right: 6rem !important;
+}
+
 .chat-overlay {
   position: fixed;
-  inset: 0;
+  top: var(--chat-panel-top);
+  right: 0;
+  bottom: 0;
   z-index: 1200;
   display: flex;
+  width: var(--chat-panel-w);
+  max-width: 100vw;
+  border-left: 1px solid var(--clr-slate-200);
   background: var(--surface-card, #fff);
+  box-shadow: -12px 0 32px rgba(15, 23, 42, 0.12);
+  container-type: inline-size;
+  animation: chat-panel-in 0.18s ease-out;
+}
+
+@keyframes chat-panel-in {
+  from {
+    transform: translateX(24px);
+    opacity: 0;
+  }
+}
+
+/* Wide screens: the page narrows to make room, so the board stays fully usable. */
+@media (min-width: 1100px) {
+  body.chat-panel-open:not(.chat-panel-expanded) .main-layout-content {
+    margin-right: var(--chat-panel-w);
+  }
+}
+
+/* Phones: the panel takes the whole screen below the header. */
+@media (max-width: 760px) {
+  :root {
+    --chat-panel-w: 100vw;
+  }
+  .chat-overlay {
+    border-left: 0;
+  }
+}
+
+.chat-header-btn.active {
+  background: var(--clr-primary-50, #eff6ff);
+  color: var(--clr-primary-700, #1d4ed8);
 }
 
 .chat-window {
@@ -722,12 +788,100 @@
   margin-bottom: 0.25rem;
 }
 
+.chat-image {
+  display: block;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: zoom-in;
+}
+
 .chat-image img {
   display: block;
   max-width: min(280px, 100%);
   max-height: 260px;
   border-radius: 8px;
   object-fit: cover;
+}
+
+/* Full-screen image viewer (MediaViewer.jsx), above the chat window. */
+.chat-viewer {
+  position: fixed;
+  inset: 0;
+  z-index: 2100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 3.5rem 1rem 1rem;
+  background: rgba(2, 6, 23, 0.92);
+}
+
+.chat-viewer-img {
+  max-width: 100%;
+  max-height: 100%;
+  border-radius: 6px;
+  object-fit: contain;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+}
+
+.chat-viewer-bar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.6rem 0.9rem;
+  color: #f8fafc;
+}
+
+.chat-viewer-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 0.9rem;
+  font-weight: 600;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.chat-viewer-btn,
+.chat-viewer-nav {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.1);
+  color: #f8fafc;
+  cursor: pointer;
+}
+
+.chat-viewer-btn {
+  width: 40px;
+  height: 40px;
+}
+
+.chat-viewer-nav {
+  position: absolute;
+  top: 50%;
+  width: 48px;
+  height: 48px;
+  transform: translateY(-50%);
+}
+
+.chat-viewer-nav.prev {
+  left: 0.75rem;
+}
+
+.chat-viewer-nav.next {
+  right: 0.75rem;
+}
+
+.chat-viewer-btn:hover,
+.chat-viewer-nav:hover {
+  background: rgba(255, 255, 255, 0.22);
 }
 
 .chat-file {
@@ -1166,7 +1320,7 @@
   }
 }
 
-/* Full-screen chat: keep the conversation in a readable centred column on wide screens. */
+/* Keep the conversation in a readable centred column when the panel is very wide. */
 .chat-messages {
   padding-inline: max(1rem, calc((100% - 1000px) / 2));
 }
@@ -1602,4 +1756,41 @@
 
 .chat-info-action:hover {
   background: var(--clr-slate-50);
+}
+
+/* A narrow panel shows one pane at a time: the chat list, or the open conversation.
+   Kept at the end of the file so it overrides the two-column layout above. */
+@container (max-width: 640px) {
+  .chat-window {
+    grid-template-columns: 1fr;
+  }
+  .chat-window.chat-has-active .chat-sidebar {
+    display: none;
+  }
+  .chat-window:not(.chat-has-active) .chat-main {
+    display: none;
+  }
+  .chat-back {
+    display: inline-flex;
+  }
+  .chat-msg-body {
+    max-width: 85%;
+  }
+  /* The chat list now reaches the right edge, under the corner controls. */
+  .chat-sidebar > .chat-side-head {
+    padding-right: 6rem;
+  }
+}
+
+/* Phones already use the whole width, so there is nothing to expand. */
+@media (max-width: 760px) {
+  .chat-expand-btn {
+    display: none;
+  }
+  .chat-pane-head {
+    padding-right: 3.5rem !important;
+  }
+  .chat-sidebar > .chat-side-head {
+    padding-right: 3.5rem;
+  }
 }

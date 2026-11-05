@@ -18,6 +18,7 @@ import {
   MdMenu,
   MdCalendarToday,
   MdOpenInNew,
+  MdDeleteOutline,
   MdEdit,
   MdDelete,
   MdHome,
@@ -1185,9 +1186,8 @@ const ITUpdatesMain = ({ currentUser, onLogout, scope = 'internal' }) => {
     }
   };
 
-  // Project delete: available to admins and the project owner.
-  const canDeleteProject = (project) =>
-    isAdmin || (myId != null && String(project?.owner_user_id) === String(myId));
+  // Project delete: admins only (the server enforces the same rule).
+  const canDeleteProject = (project) => isAdmin && Boolean(project?.id);
 
   const handleDeleteProject = async (project) => {
     if (!project?.id) return false;
@@ -1977,6 +1977,20 @@ const ITUpdatesMain = ({ currentUser, onLogout, scope = 'internal' }) => {
                       >
                         {project.status ?? 'active'}
                       </span>
+                      {canDeleteProject(project) ? (
+                        <button
+                          type="button"
+                          className="it-updates-project-delete"
+                          title="Delete project"
+                          aria-label={`Delete ${project.name ?? project.project_name}`}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDeleteProject(project);
+                          }}
+                        >
+                          <MdDeleteOutline size={18} />
+                        </button>
+                      ) : null}
                     </div>
                     {String(project.project_url || '').trim() ? (
                       <div className="it-updates-project-meta">
@@ -2403,7 +2417,7 @@ const ITUpdatesMain = ({ currentUser, onLogout, scope = 'internal' }) => {
                   <MdAdd size={18} />
                   Submit EOD
                 </button>
-                <EodDateRange value={eodRange} onChange={setEodRange} />
+                <EodDateRange value={eodRange} onChange={setEodRange} reports={eodReports} />
               </div>
               <p className="it-updates-eod-intro">
                 View end-of-day reports submitted by the team. Use the <strong>EOD</strong> button in the header to submit your own report.
@@ -2412,7 +2426,7 @@ const ITUpdatesMain = ({ currentUser, onLogout, scope = 'internal' }) => {
                 {filteredEodReports.length === 0 ? (
                   <div className="it-updates-empty">
                     {eodRangeActive(eodRange)
-                      ? 'No EOD reports between the selected dates.'
+                      ? 'No EOD reports match these filters.'
                       : 'No EOD reports yet. Click "Submit EOD" or the EOD button in the header to add one.'}
                   </div>
                 ) : (

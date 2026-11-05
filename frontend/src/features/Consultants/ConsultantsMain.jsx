@@ -1064,7 +1064,7 @@ export default function ConsultantsMain({ currentUser, onLogout }) {
                   <MdAdd size={18} />
                   Submit EOD
                 </button>
-                <EodDateRange value={eodRange} onChange={setEodRange} />
+                <EodDateRange value={eodRange} onChange={setEodRange} reports={eodReports} />
               </div>
               <p className="it-updates-eod-intro">
                 Your end-of-day reports. Click <strong>Submit EOD</strong> or the EOD button in the header.
@@ -1072,7 +1072,7 @@ export default function ConsultantsMain({ currentUser, onLogout }) {
               <div className="it-updates-eod-list">
                 {filteredEodReports.length === 0 ? (
                   <div className="it-updates-empty">
-                    {eodRangeActive(eodRange) ? 'No EOD reports between the selected dates.' : 'No EOD reports yet.'}
+                    {eodRangeActive(eodRange) ? 'No EOD reports match these filters.' : 'No EOD reports yet.'}
                   </div>
                 ) : (
                   filteredEodReports.map((report) => (

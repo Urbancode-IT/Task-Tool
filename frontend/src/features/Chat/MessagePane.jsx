@@ -23,6 +23,7 @@ import { useChat, conversationTitle } from './chatContext';
 import { findMentions, formatBytes, mentionQueryAt, tokenize } from './chatText';
 import { ChatAvatar, GroupSettings } from './ChatParts';
 import ChatInfo from './ChatInfo';
+import MediaViewer from './MediaViewer';
 
 const TICK_LABELS = { sent: 'Sent', delivered: 'Delivered', read: 'Read' };
 
@@ -82,11 +83,16 @@ function MessageText({ text, members, meId }) {
  * (quick reactions, Reply, Copy, Edit, Delete) and quick React / Reply buttons beside
  * the bubble, as in WhatsApp. Images, videos and audio play inside the bubble.
  */
+const mediaKindOf = (f) => f.media || (f.inline ? 'image' : null);
+
 function Message({ msg, tick, mine, showHead, isGroup, members, meId, reactions, canDelete, onReply, onEdit, onDelete, onReact }) {
   const [menu, setMenu] = useState(null); // null | 'down' | 'up'
   const [picker, setPicker] = useState(false);
+  const [viewing, setViewing] = useState(null); // index into images, or null
   const rootRef = useRef(null);
   const mentionsMe = !mine && msg.mentions.includes(meId);
+  const images = useMemo(() => msg.attachments.filter((f) => mediaKindOf(f) === 'image'), [msg.attachments]);
+  const closeViewer = useCallback(() => setViewing(null), []);
 
   // Close the menu or the emoji row on a click elsewhere or on Escape.
   useEffect(() => {
@@ -202,12 +208,18 @@ function Message({ msg, tick, mine, showHead, isGroup, members, meId, reactions,
               {msg.attachments.length ? (
                 <div className="chat-files">
                   {msg.attachments.map((f) => {
-                    const kind = f.media || (f.inline ? 'image' : null);
+                    const kind = mediaKindOf(f);
                     if (kind === 'image') {
                       return (
-                        <a key={f.id} href={attachmentUrl(f.id)} target="_blank" rel="noopener noreferrer" className="chat-image">
+                        <button
+                          key={f.id}
+                          type="button"
+                          className="chat-image"
+                          onClick={() => setViewing(images.indexOf(f))}
+                          aria-label={`View ${f.file_name}`}
+                        >
                           <img src={attachmentUrl(f.id)} alt={f.file_name} loading="lazy" />
-                        </a>
+                        </button>
                       );
                     }
                     if (kind === 'video') {
@@ -238,6 +250,7 @@ function Message({ msg, tick, mine, showHead, isGroup, members, meId, reactions,
                 </div>
               ) : null}
               {msg.body ? <MessageText text={msg.body} members={members} meId={meId} /> : null}
+              {viewing != null ? <MediaViewer files={images} startIndex={viewing} onClose={closeViewer} /> : null}
             </>
           )}
           <span className="chat-time">

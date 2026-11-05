@@ -50,7 +50,6 @@ import {
   formatWhen,
   dueLabel,
   hasContentDemo,
-  isContentOverdue,
   isPostingColumn,
   isPostingOpen,
   sheetRows,
@@ -1153,7 +1152,6 @@ function TaskPage({
         </div>
       </div>}
       <section className="smc-work-card">
-        {isContentOverdue(task) && <div className="smc-now-banner">This date has passed.</div>}
         {notice && <div className="smc-banner ok">{notice}</div>}
         <div className="smc-work-grid">
           {stage === 'requirement' && (

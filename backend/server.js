@@ -829,7 +829,8 @@ app.put(`${BASE_PATH}/projects/:projectId`, async (req, res) => {
   }
 });
 
-app.delete(`${BASE_PATH}/projects/:projectId`, async (req, res) => {
+// Deleting a project is admin-only.
+app.delete(`${BASE_PATH}/projects/:projectId`, requirePermission('admin.access'), async (req, res) => {
   try {
     if (db.useDb()) {
       const ok = await db.dbDeleteProject(req.params.projectId);

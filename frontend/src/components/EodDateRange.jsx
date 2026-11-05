@@ -1,19 +1,53 @@
-import React from 'react';
-import { EMPTY_EOD_RANGE, eodRangeActive } from '../utils/eodRange';
+import React, { useMemo } from 'react';
+import { MdSearch } from 'react-icons/md';
+import { EMPTY_EOD_RANGE, eodFilterOptions, eodRangeActive } from '../utils/eodRange';
 
 /**
- * From / To date filter for the EOD Updates page. Each date limits the other, so the
- * range can never be backwards; pick the same day in both to see a single day.
+ * Filters for the EOD Updates page: a search box (author, branch and report text),
+ * member and branch pickers built from the loaded reports, and a From / To date range.
+ * Each date limits the other, so the range can never be backwards; pick the same day in
+ * both to see a single day.
  */
-export default function EodDateRange({ value = EMPTY_EOD_RANGE, onChange }) {
-  const set = (patch) => onChange({ ...value, ...patch });
+export default function EodDateRange({ value = EMPTY_EOD_RANGE, onChange, reports = [] }) {
+  const set = (patch) => onChange({ ...EMPTY_EOD_RANGE, ...value, ...patch });
+  const { members, branches } = useMemo(() => eodFilterOptions(reports), [reports]);
   return (
     <div className="it-updates-eod-filter">
+      <label className="it-updates-eod-search">
+        <MdSearch size={18} aria-hidden="true" />
+        <input
+          type="search"
+          value={value.q || ''}
+          onChange={(e) => set({ q: e.target.value })}
+          placeholder="Search EOD reports"
+          aria-label="Search EOD reports"
+        />
+      </label>
+      {members.length > 1 ? (
+        <select value={value.member || ''} onChange={(e) => set({ member: e.target.value })} aria-label="Member">
+          <option value="">All members</option>
+          {members.map((m) => (
+            <option key={m.id} value={m.id}>
+              {m.name}
+            </option>
+          ))}
+        </select>
+      ) : null}
+      {branches.length > 1 ? (
+        <select value={value.branch || ''} onChange={(e) => set({ branch: e.target.value })} aria-label="Branch">
+          <option value="">All branches</option>
+          {branches.map((b) => (
+            <option key={b} value={b}>
+              {b}
+            </option>
+          ))}
+        </select>
+      ) : null}
       <label className="it-updates-eod-range">
         <span>From</span>
         <input
           type="date"
-          value={value.from}
+          value={value.from || ''}
           max={value.to || undefined}
           onChange={(e) => set({ from: e.target.value })}
           aria-label="Reports from"
@@ -23,7 +57,7 @@ export default function EodDateRange({ value = EMPTY_EOD_RANGE, onChange }) {
         <span>To</span>
         <input
           type="date"
-          value={value.to}
+          value={value.to || ''}
           min={value.from || undefined}
           onChange={(e) => set({ to: e.target.value })}
           aria-label="Reports to"
