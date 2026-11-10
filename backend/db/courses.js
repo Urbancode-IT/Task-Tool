@@ -176,17 +176,22 @@ export async function listCourseCategories() {
 export async function createCourse(body = {}) {
   const p = getPool();
   if (!p) throw new CourseError(500, 'Database is not available.');
-  const courseType = cleanLabel(body.course_type, 120);
+  let courseType = cleanLabel(body.course_type, 120);
   const courseName = cleanLabel(body.course_name, 200);
   if (!courseType) throw new CourseError(400, 'Enter a category.');
   if (!courseName) throw new CourseError(400, 'Enter a course name.');
 
+  // Names that differ only in capitals, spaces, hyphens or underscores ("Web Methods",
+  // "WebMethods") are the same: reuse the existing entry or category spelling.
+  const SQUASH = (col) => `regexp_replace(LOWER(${col}), '[[:space:]_-]+', '', 'g')`;
   const { rows: existing } = await p.query(
     `SELECT course_id, course_type, course_name
      FROM social_media_courses
-     WHERE LOWER(course_type) = LOWER($1) AND LOWER(TRIM(course_name)) = LOWER($2)
+     WHERE is_active = TRUE AND ${SQUASH('course_name')} = ${SQUASH('$1')}
+       AND ${SQUASH('course_type')} = ${SQUASH('$2')}
+     ORDER BY created_at
      LIMIT 1`,
-    [courseType, courseName]
+    [courseName, courseType]
   );
   if (existing[0]) {
     return {
@@ -195,6 +200,14 @@ export async function createCourse(body = {}) {
       course_name: existing[0].course_name,
     };
   }
+
+  const { rows: sameCategory } = await p.query(
+    `SELECT course_type FROM social_media_courses
+     WHERE is_active = TRUE AND ${SQUASH('course_type')} = ${SQUASH('$1')}
+     ORDER BY created_at LIMIT 1`,
+    [courseType]
+  );
+  if (sameCategory[0]) courseType = sameCategory[0].course_type;
 
   const courseId = cleanLabel(body.course_id, 40) || await nextCourseId(courseName);
   await p.query(

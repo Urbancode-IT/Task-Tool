@@ -14,7 +14,8 @@
     "db:seed-master-admin": "node db/seed-master-admin.js",
     "db:check-master-admin": "node db/check-master-admin.js",
     "db:clean-categories": "node db/clean-content-categories.js",
-    "chat:files-to-drive": "node db/move-chat-files-to-drive.js"
+    "chat:files-to-drive": "node db/move-chat-files-to-drive.js",
+    "db:merge-course-spellings": "node db/merge-course-spellings.js"
   },
   "keywords": [],
   "author": "",
