@@ -1025,6 +1025,16 @@ function ContentSheetForm({
   const writerId = production.content_writer_id || task.assigned_to || meId || '';
   const canWriteContent = !production.content_writer_id && !task.assigned_to
     || (meId != null && String(writerId) === String(meId));
+  const contentRef = useRef(null);
+  const draftScript = task.draft_script || '';
+
+  useLayoutEffect(() => {
+    const el = contentRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${el.scrollHeight}px`;
+  }, [draftScript]);
+
   return (
     <>
       <label className="smc-field wide">Requirements
@@ -1036,10 +1046,22 @@ function ContentSheetForm({
       </label>
       <label className="smc-field wide">Content
         <textarea
+          ref={contentRef}
           className="smc-content-box"
-          value={task.draft_script || ''}
+          rows={3}
+          value={draftScript}
           disabled={!canWriteContent}
           onChange={(event) => updateField('draft_script', event.target.value)}
+        />
+      </label>
+      <label className="smc-field wide">Content Description
+        <textarea
+          className="smc-content-description-box"
+          rows={3}
+          value={production.content_description || ''}
+          disabled={!canWriteContent}
+          onChange={(event) => updateProduction('content_description', event.target.value)}
+          placeholder="Add a description for this content"
         />
       </label>
       <label className="smc-field wide">Content demo URL

@@ -2501,9 +2501,20 @@ body.smc-resizing {
 
 .smc-field textarea.smc-content-box,
 .smc-work .smc-field textarea.smc-content-box {
-  min-height: 280px;
-  height: 280px;
+  min-height: 88px;
+  height: auto;
   line-height: 1.5;
+  overflow-y: hidden;
+  resize: none;
+  field-sizing: content;
+}
+
+.smc-field textarea.smc-content-description-box,
+.smc-work .smc-field textarea.smc-content-description-box {
+  min-height: 88px;
+  height: 88px;
+  line-height: 1.45;
+  resize: vertical;
 }
 
 .smc-field textarea.smc-requirements-box,

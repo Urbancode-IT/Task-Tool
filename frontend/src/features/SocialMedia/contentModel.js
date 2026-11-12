@@ -249,6 +249,7 @@ export function sheetRows(task) {
   const demo = [
     row('Requirements', production.requirements),
     row('Content', task.draft_script),
+    row('Content Description', production.content_description),
     row('Content demo URL', production.demo_url),
     row('Demo image', production.demo_image ? (production.demo_image_name || 'Saved') : ''),
   ].filter(Boolean);
