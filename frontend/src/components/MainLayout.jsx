@@ -53,25 +53,39 @@ export default function MainLayout({ currentUser, onLogout }) {
 
   const userPermissions = user?.permissions || [];
 
+  // Sectors locked in the Master console are hidden from everyone (Management never is).
+  const lockedSectors = branding.navigation?.locked;
   const modulesToShow = useMemo(() => {
-    if (userPermissions.includes('admin.access')) return MODULES;
-    const filtered = MODULES.filter((m) => {
+    const locked = new Set(lockedSectors || []);
+    const open = MODULES.filter((m) => m.key === 'admin' || !locked.has(m.labelId));
+    if (userPermissions.includes('admin.access')) return open;
+    const filtered = open.filter((m) => {
       if (Array.isArray(m.permissions) && m.permissions.length > 0) {
         return m.permissions.some((perm) => userPermissions.includes(perm));
       }
       return !m.permission || userPermissions.includes(m.permission);
     });
-    return filtered.length > 0 ? filtered : MODULES.filter((m) => m.key === 'it_updates');
-  }, [userPermissions]);
+    // No permitted sector: fall back to Internal Projects, unless that is locked too.
+    return filtered.length > 0 ? filtered : open.filter((m) => m.key === 'it_updates');
+  }, [userPermissions, lockedSectors]);
 
   // Renames applied after filtering; permissions key off `key`, never the label.
   const visibleModules = useMemo(() => nav.apply(modulesToShow, 'sectors'), [modulesToShow, nav]);
 
   const safeActiveModule = modulesToShow.some((m) => m.key === activeModule)
     ? activeModule
-    : modulesToShow[0]?.key || 'it_updates';
+    : modulesToShow[0]?.key || '';
 
   const renderContent = () => {
+    // Every sector this user could open is locked in the Master console.
+    if (!safeActiveModule) {
+      return (
+        <div className="main-layout-locked">
+          <h2>Nothing to show right now</h2>
+          <p>Your sections are temporarily unavailable. Please contact your administrator.</p>
+        </div>
+      );
+    }
     switch (safeActiveModule) {
       case 'it_updates':
         return <ITUpdatesMain currentUser={user} onLogout={onLogout} scope="internal" />;

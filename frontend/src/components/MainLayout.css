@@ -151,3 +151,18 @@
   overflow: hidden;
   display: flex;
 }
+
+/* Shown when every sector the user could open is locked in the Master console. */
+.main-layout-locked {
+  margin: auto;
+  max-width: 420px;
+  padding: 2rem 1rem;
+  text-align: center;
+  color: var(--clr-slate-600, #475569);
+}
+
+.main-layout-locked h2 {
+  margin: 0 0 0.5rem;
+  color: var(--clr-slate-800, #1e293b);
+  font-size: 1.15rem;
+}

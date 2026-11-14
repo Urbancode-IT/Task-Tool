@@ -2545,7 +2545,7 @@ let brandingCache = null;
  * key must look like a label id.
  */
 function sanitiseNavigation(raw) {
-  const empty = { icons: {}, order: {}, bySector: {} };
+  const empty = { icons: {}, order: {}, bySector: {}, locked: [] };
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return empty;
   const isLabelId = (k) => typeof k === 'string' && /^[A-Za-z0-9_.]{1,60}$/.test(k);
   const isIconName = (n) => /^[A-Za-z][A-Za-z0-9]{0,40}$/.test(n);
@@ -2587,7 +2587,13 @@ function sanitiseNavigation(raw) {
     }
   }
 
-  return { icons: pickIcons(raw.icons), order, bySector };
+  // Top-bar sectors hidden from every user. Management can never be locked, so an
+  // admin cannot lock themselves out of the admin tools.
+  const locked = Array.isArray(raw.locked)
+    ? [...new Set(raw.locked.filter((id) => isLabelId(id) && id.startsWith('module.') && id !== 'module.admin'))].slice(0, 20)
+    : [];
+
+  return { icons: pickIcons(raw.icons), order, bySector, locked };
 }
 
 function publicBranding(data = {}) {

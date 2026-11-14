@@ -4,6 +4,8 @@ export const PIPELINE_STAGES = [
   'requirement',
   'content_generation',
   'content_approval',
+  // Reels only, and only while shooting applies (production.shooting_na not set).
+  'shooting',
   'designing_editing',
   'save_to_drive',
   'final_approval',
@@ -330,6 +332,7 @@ export function stageActorsFromEvents(events = []) {
     const to = event.to_stage;
     if (action === 'submit_for_approval') rememberActor(map, 'content_generation', name);
     if (action === 'approve_content') rememberActor(map, 'content_approval', name);
+    if (action === 'complete_shooting') rememberActor(map, 'shooting', name);
     if (action === 'complete_design' || (action === 'save_to_drive' && from === 'designing_editing')) {
       rememberActor(map, 'designing_editing', name);
       rememberActor(map, 'save_to_drive', name);
@@ -460,9 +463,29 @@ function cleanProduction(value) {
     demo_image: imageData(source.demo_image),
     post_links: postLinks(source.post_links),
     post_assignees: sanitizePostAssignees(source.post_assignees),
+    // Posting channels this content does not go to ({ youtube: true, ... }).
+    post_na: sanitizeChannelFlags(source.post_na),
+    // Reels: true when no shooting is needed, so the Shooting stage is skipped.
+    shooting_na: source.shooting_na === true || source.shooting_na === 'true',
     drive_files: sanitizeDriveFiles(source.drive_files),
     drive_folder_url: httpOrEmpty(source.drive_folder_url),
   };
+}
+
+function sanitizeChannelFlags(value) {
+  const source = asObject(value);
+  const out = {};
+  for (const channel of POSTING_CHANNELS) {
+    if (source[channel] === true || source[channel] === 'true') out[channel] = true;
+  }
+  return out;
+}
+
+/** Reels go through Shooting (unless marked not applicable); other types skip it. */
+function needsShooting(task, production) {
+  const sheet = String(production?.sheet_kind || '').toLowerCase();
+  const isReel = String(task?.content_type || '').toLowerCase() === 'reel' || sheet === 'reel';
+  return isReel && production?.shooting_na !== true;
 }
 
 function sanitizePostAssignees(value) {
@@ -669,6 +692,40 @@ export async function dbCreateContentTask(body, actorId) {
   data.contentType = await assertContentType(data.contentType, { allowEmpty: true });
   const creator = actorId != null ? parseInt(String(actorId), 10) : null;
   const assignee = Number.isFinite(data.assignedTo) ? data.assignedTo : null;
+
+  // One open row at a time: a person must fill the left side of their last row (branch,
+  // type, category, course) before adding another, so half-made rows do not pile up.
+  if (Number.isFinite(creator)) {
+    const { rows: unfinished } = await p.query(
+      `SELECT task_id, created_at,
+              COALESCE(content_branch, '') = '' AS no_branch,
+              COALESCE(content_type, '') = '' AS no_type,
+              COALESCE(production_meta->>'course_type', '') = '' AS no_category,
+              COALESCE(production_meta->>'course', '') = '' AS no_course
+         FROM social_media_tasks
+        WHERE created_by = $1 AND pipeline_stage IS NOT NULL
+          AND (COALESCE(content_branch, '') = '' OR COALESCE(content_type, '') = ''
+               OR COALESCE(production_meta->>'course_type', '') = ''
+               OR COALESCE(production_meta->>'course', '') = '')
+        ORDER BY task_id
+        LIMIT 1`,
+      [creator]
+    );
+    const open = unfinished[0];
+    if (open) {
+      const missing = [
+        open.no_branch && 'Branch',
+        open.no_type && 'Content type',
+        open.no_category && 'Category',
+        open.no_course && 'Course',
+      ].filter(Boolean);
+      throw new ContentError(
+        400,
+        `Finish row ${contentCode(open.task_id, open.created_at)} first: fill in ${missing.join(', ')}.`
+      );
+    }
+  }
+
   const { rows } = await p.query(
     `INSERT INTO social_media_tasks (
        task_title, task_description, priority, status, task_date, due_date,
@@ -881,7 +938,7 @@ export function planContentTransition(task, action, input = {}, { canManage = fa
   if (action === 'submit_for_approval' && task.assigned_to && !isAssignee) {
     throw new ContentError(403, 'Only the person assigned to write this content can submit it.');
   }
-  const assignedWork = new Set(['start_design', 'complete_design', 'save_to_drive', 'schedule_post', 'confirm_publish', 'save_channel_post']);
+  const assignedWork = new Set(['complete_shooting', 'skip_shooting', 'start_design', 'complete_design', 'save_to_drive', 'schedule_post', 'confirm_publish', 'save_channel_post']);
   if (assignedWork.has(action) && task.assigned_to && !canManage && !isAssignee) {
     throw new ContentError(403, 'This work is assigned to someone else.');
   }
@@ -982,14 +1039,31 @@ export function planContentTransition(task, action, input = {}, { canManage = fa
         ...asObject(task.production || task.production_meta),
         ...asObject(input.production),
       };
-      // Optional designer now; otherwise the next-assign popup / board can set them.
-      const designer = assigneeId(input);
-      patch.assigned_to = designer;
-      patch.pipeline_stage = 'designing_editing';
+      // Reels go to Shooting first (unless it was marked not applicable); everything
+      // else goes straight to Designing / Editing. The person chosen is optional; the
+      // next-assign popup / board can set them.
+      const next = needsShooting(task, production) ? 'shooting' : 'designing_editing';
+      patch.assigned_to = assigneeId(input);
+      patch.pipeline_stage = next;
       patch.workflow_status = 'pending';
       patch.review_comment = feedback || null;
       patch.production_meta = JSON.stringify(cleanProduction(production));
-      return { patch, event: eventBase('designing_editing', 'pending'), review: true };
+      return { patch, event: eventBase(next, 'pending'), review: true };
+    }
+    case 'complete_shooting':
+    case 'skip_shooting': {
+      if (stage !== 'shooting') throw new ContentError(400, 'This step belongs to Shooting.');
+      const production = {
+        ...asObject(task.production || task.production_meta),
+        ...asObject(input.production),
+      };
+      // Skipping records that this reel needs no shooting, so the cell reads N/A.
+      if (action === 'skip_shooting') production.shooting_na = true;
+      patch.assigned_to = assigneeId(input);
+      patch.pipeline_stage = 'designing_editing';
+      patch.workflow_status = 'pending';
+      patch.production_meta = JSON.stringify(cleanProduction(production));
+      return { patch, event: eventBase('designing_editing', 'pending') };
     }
     case 'reject_content':
     case 'revise_content': {

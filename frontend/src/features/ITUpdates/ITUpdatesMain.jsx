@@ -43,8 +43,7 @@ import DeleteTaskButton from '../../components/DeleteTaskButton';
 import MyTaskList, { TaskRows, ViewSwitch, QuickCreateRow } from '../../components/MyTaskList';
 import useTaskView from '../../utils/useTaskView';
 import BulkImportButton from '../../components/BulkImportButton';
-import EodDateRange from '../../components/EodDateRange';
-import { filterEodByRange, eodRangeActive, EMPTY_EOD_RANGE } from '../../utils/eodRange';
+import EodUpdatesPanel from '../../components/EodUpdatesPanel';
 import { makeTaskDuplicate, toSubtaskDrafts } from '../../utils/taskDuplicate';
 import ProjectRequirements from '../../components/ProjectRequirements';
 import MemberPicker from '../../components/MemberPicker';
@@ -63,7 +62,6 @@ import RequirementTimer from '../../components/RequirementTimer';
 import RequirementManualTime from '../../components/RequirementManualTime';
 import CommentEditor from '../../components/CommentEditor';
 import EodReportCard from '../../components/EodReportCard';
-import { sanitizeCommentHtml } from '../../utils/sanitizeHtml';
 import { BRANCHES } from '../Admin/AdminUserModals';
 import MemberDashboard from './MemberDashboard';
 import './ITUpdatesMain.css';
@@ -93,7 +91,6 @@ const TABS = [
 const MODULE_TEAM = 'it';
 
 const OVERVIEW_PAGE_SIZE = 20;
-const EOD_PAGE_SIZE = 20;
 const EMPTY_ALL_TASKS_FILTERS = { project_id: '', status: '', priority: '', assignee: '', branch: '', period: CURRENT_MONTH_PERIOD };
 const EMPTY_OVERVIEW_FILTERS = { from_date: '', to_date: '', assigned_to: '', project_id: '' };
 
@@ -443,15 +440,11 @@ const ITUpdatesMain = ({ currentUser, onLogout, scope = 'internal' }) => {
   const [showBacklogsOnly, setShowBacklogsOnly] = useState(false);
   const [overviewFiltersApplied, setOverviewFiltersApplied] = useState(EMPTY_OVERVIEW_FILTERS);
   const [eodReports, setEodReports] = useState([]);
-  // EOD tab: optional date filter + pagination (20 per page).
-  const [eodRange, setEodRange] = useState(EMPTY_EOD_RANGE);
   // Projects tab filters. Hidden behind a button so the grid stays uncluttered; the
   // button carries a count when something is filtering the list.
   const EMPTY_PROJECT_FILTERS = { q: '', status: '', priority: '', owner: '' };
   const [projectFiltersOpen, setProjectFiltersOpen] = useState(false);
   const [projectFilters, setProjectFilters] = useState(EMPTY_PROJECT_FILTERS);
-
-  const [eodPage, setEodPage] = useState(0);
 
   /**
    * The paging buttons sit under a long list, so after changing page the reader is
@@ -463,16 +456,6 @@ const ITUpdatesMain = ({ currentUser, onLogout, scope = 'internal' }) => {
   const scrollListToTop = useCallback(() => {
     mainRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
   }, []);
-  // Reports between the From / To dates (inclusive), newest day first.
-  const filteredEodReports = useMemo(() => filterEodByRange(eodReports, eodRange), [eodReports, eodRange]);
-  const eodPageCount = Math.max(1, Math.ceil(filteredEodReports.length / EOD_PAGE_SIZE));
-  useEffect(() => {
-    setEodPage(0);
-  }, [eodRange, eodReports]);
-  const pagedEodReports = useMemo(() => {
-    const start = eodPage * EOD_PAGE_SIZE;
-    return filteredEodReports.slice(start, start + EOD_PAGE_SIZE);
-  }, [filteredEodReports, eodPage]);
 
   const user =
     currentUser ||
@@ -612,17 +595,6 @@ const ITUpdatesMain = ({ currentUser, onLogout, scope = 'internal' }) => {
     [teamOverview]
   );
 
-  // Adapter so the shared TaskComments thread posts to EOD-report comment endpoints.
-  const eodCommentApi = useMemo(
-    () => ({
-      getComments: (id) => itUpdatesApi.getEodReportComments(id),
-      addComment: (id, body) => itUpdatesApi.addEodReportComment(id, body),
-      updateComment: (id, commentId, body) => itUpdatesApi.updateEodReportComment(id, commentId, body),
-      deleteComment: (id, commentId, userId) => itUpdatesApi.deleteEodReportComment(id, commentId, userId),
-      likeComment: (id, commentId, userId) => itUpdatesApi.likeEodReportComment(id, commentId, userId),
-    }),
-    []
-  );
   const managers = useMemo(
     () => teamOverview.filter((u) => u.is_it_manager),
     [teamOverview]
@@ -2407,82 +2379,14 @@ const ITUpdatesMain = ({ currentUser, onLogout, scope = 'internal' }) => {
           )}
 
           {activeTab === 'EOD Updates' && (
-            <section className="it-updates-panel it-updates-panel-full">
-              <div className="it-updates-panel-header">
-                <button
-                  type="button"
-                  className="it-updates-btn it-updates-btn-primary"
-                  onClick={() => setEodModal(true)}
-                >
-                  <MdAdd size={18} />
-                  Submit EOD
-                </button>
-                <EodDateRange value={eodRange} onChange={setEodRange} reports={eodReports} />
-              </div>
-              <p className="it-updates-eod-intro">
-                View end-of-day reports submitted by the team. Use the <strong>EOD</strong> button in the header to submit your own report.
-              </p>
-              <div className="it-updates-eod-list">
-                {filteredEodReports.length === 0 ? (
-                  <div className="it-updates-empty">
-                    {eodRangeActive(eodRange)
-                      ? 'No EOD reports match these filters.'
-                      : 'No EOD reports yet. Click "Submit EOD" or the EOD button in the header to add one.'}
-                  </div>
-                ) : (
-                  pagedEodReports.map((report) => (
-                    <EodReportCard
-                      key={report.report_id ?? report.id}
-                      report={report}
-                      currentUser={user}
-                      isAdmin={(user?.permissions || []).includes('admin.access')}
-                      members={teamOverview.map((u) => ({ id: u.user_id, name: u.username, image: u.profile_image }))}
-                      commentApi={eodCommentApi}
-                      onUpdate={(updated) =>
-                        setEodReports((prev) => prev.map((r) => (r.report_id === updated.report_id ? updated : r)))
-                      }
-                      onDelete={(id) => setEodReports((prev) => prev.filter((r) => r.report_id !== id))}
-                    />
-                  ))
-                )}
-              </div>
-              {filteredEodReports.length > EOD_PAGE_SIZE && (
-                <div className="it-updates-pagination">
-                  <span className="it-updates-pagination-info">
-                    {eodPage * EOD_PAGE_SIZE + 1}–
-                    {Math.min((eodPage + 1) * EOD_PAGE_SIZE, filteredEodReports.length)} of{' '}
-                    {filteredEodReports.length}
-                  </span>
-                  <div className="it-updates-pagination-actions">
-                    <button
-                      type="button"
-                      className="it-updates-btn it-updates-btn-secondary"
-                      onClick={() => {
-                        setEodPage((p) => Math.max(0, p - 1));
-                        scrollListToTop();
-                      }}
-                      disabled={eodPage === 0}
-                    >
-                      Previous
-                    </button>
-                    <span className="it-updates-pagination-page">
-                      Page {eodPage + 1} of {eodPageCount}
-                    </span>
-                    <button
-                      type="button"
-                      className="it-updates-btn it-updates-btn-secondary"
-                      onClick={() => {
-                        setEodPage((p) => Math.min(eodPageCount - 1, p + 1));
-                        scrollListToTop();
-                      }}
-                      disabled={eodPage >= eodPageCount - 1}
-                    >
-                      Next
-                    </button>
-                  </div>
-                </div>
-              )}
-            </section>
+            <EodUpdatesPanel
+              reports={eodReports}
+              setReports={setEodReports}
+              currentUser={user}
+              members={teamOverview}
+              onSubmitClick={() => setEodModal(true)}
+              onPageChange={scrollListToTop}
+            />
           )}
         </main>
       </div>

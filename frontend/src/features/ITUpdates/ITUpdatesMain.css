@@ -1774,6 +1774,11 @@
   box-shadow: 0 0 0 3px rgba(0, 84, 196, 0.1);
 }
 
+.it-updates-eod-member {
+  min-width: 190px;
+  font-size: 0.82rem;
+}
+
 .it-updates-eod-filter select {
   padding: 0.5rem 0.6rem;
   border: 1px solid var(--clr-slate-200);

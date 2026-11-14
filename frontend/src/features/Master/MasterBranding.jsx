@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import {
   MdEdit, MdDragIndicator, MdSave, MdRestartAlt, MdSearch, MdViewSidebar,
-  MdSpaceDashboard, MdClose, MdVisibility, MdBadge, MdPublic, MdMarkEmailRead,
+  MdSpaceDashboard, MdClose, MdVisibility, MdBadge, MdPublic, MdMarkEmailRead, MdLock, MdLockOpen,
 } from 'react-icons/md';
 import adminApi from '../../api/adminApi';
 import { ensureMasterSession } from './masterSession';
@@ -215,7 +215,14 @@ function IconPicker({ anchorRef, pos, onMove, value, onPick, onUseDefault, onClo
  * pencil turns the name into a text box; the icon opens the picker directly. The old
  * disclosure body meant two clicks and a jumping list to rename one item.
  */
-function NavRow({ item, index, draft, expanded, onToggle, onChange, fallbackName }) {
+// Sectors that can never be locked: Management holds the admin tools themselves.
+const UNLOCKABLE_SECTORS = new Set(['module.admin']);
+
+/**
+ * locked / onLock: top-bar sectors only. A locked sector is hidden from every user
+ * until it is unlocked here (onLock is omitted for sidebar rows and Management).
+ */
+function NavRow({ item, index, draft, expanded, onToggle, onChange, fallbackName, locked = false, onLock }) {
   // Null when closed; the measured {top,left} when open.
   const [pickerPos, setPickerPos] = useState(null);
   const iconBtnRef = useRef(null);
@@ -293,6 +300,20 @@ function NavRow({ item, index, draft, expanded, onToggle, onChange, fallbackName
             )}
 
             {customised && !expanded && <span className="mb-row-tag">edited</span>}
+            {locked && !expanded && <span className="mb-row-tag mb-row-tag-locked">hidden from users</span>}
+
+            {onLock ? (
+              <button
+                type="button"
+                className={'mb-row-editbtn mb-row-lockbtn' + (locked ? ' locked' : '')}
+                onClick={onLock}
+                aria-pressed={locked}
+                title={locked ? `${fallback} is locked: hidden from users. Click to unlock.` : `Lock ${fallback}: hide it from users`}
+                aria-label={locked ? `Unlock ${fallback}` : `Lock ${fallback}`}
+              >
+                {locked ? <MdLock size={17} /> : <MdLockOpen size={17} />}
+              </button>
+            ) : null}
 
             <button
               type="button"
@@ -358,6 +379,8 @@ export default function MasterBranding() {
   // { 'module.creative_team': { labels: {...}, icons: {...} } } — a section's name and
   // icon live under the sector that shows it, so two sectors can differ.
   const [bySector, setBySector] = useState({});
+  // Top-bar sector ids hidden from every user (['module.consultants', ...]).
+  const [locked, setLocked] = useState([]);
   const [selected, setSelected] = useState('identity');
   // Identity and navigation share one profile and one Publish, so editing both in a
   // single visit cannot have one overwrite the other.
@@ -389,6 +412,7 @@ export default function MasterBranding() {
       setIcons({ ...(p.navigation?.icons || {}) });
       setOrder({ ...(p.navigation?.order || {}) });
       setBySector({ ...(p.navigation?.bySector || {}) });
+      setLocked(Array.isArray(p.navigation?.locked) ? p.navigation.locked : []);
       const id = identityFrom(p);
       setIdentity(id);
       setSavedIdentity(id);
@@ -516,8 +540,8 @@ export default function MasterBranding() {
     for (const cfg of Object.values(bySector)) {
       n += new Set([...Object.keys(cfg.labels || {}), ...Object.keys(cfg.icons || {})]).size;
     }
-    return n + Object.keys(order).length;
-  }, [labels, icons, bySector, order]);
+    return n + Object.keys(order).length + locked.length;
+  }, [labels, icons, bySector, order, locked]);
 
   const onDragEnd = (result) => {
     const { source, destination } = result;
@@ -602,7 +626,7 @@ export default function MasterBranding() {
         ...cleanSignatures,
         email_templates_by_mail: cleanTemplates,
         labels,
-        navigation: { ...(profile.navigation || {}), icons, order, bySector },
+        navigation: { ...(profile.navigation || {}), icons, order, bySector, locked },
       };
       await adminApi.publishCompanyProfile(next);
       setProfile(next);
@@ -659,6 +683,7 @@ export default function MasterBranding() {
     setIcons({});
     setOrder({});
     setBySector({});
+    setLocked([]);
     // Navigation dirtiness is tracked separately from the form state.
     setDirty(true);
   };
@@ -675,6 +700,7 @@ export default function MasterBranding() {
       const ids = new Set(group.items.map((i) => i.id));
       setLabels((prev) => Object.fromEntries(Object.entries(prev).filter(([k]) => !ids.has(k))));
       setIcons((prev) => Object.fromEntries(Object.entries(prev).filter(([k]) => !ids.has(k))));
+      setLocked([]);
     } else {
       setBySector((prev) => {
         const next = { ...prev };
@@ -844,6 +870,17 @@ export default function MasterBranding() {
                         fallbackName={fallbackFor(item.id)}
                         onToggle={() => setOpenRow(openRow === item.id ? null : item.id)}
                         onChange={(patch) => changeRow(item.id, patch)}
+                        locked={group.kind === 'sectors' && locked.includes(item.id)}
+                        onLock={
+                          group.kind === 'sectors' && !UNLOCKABLE_SECTORS.has(item.id)
+                            ? () => {
+                                setLocked((prev) =>
+                                  prev.includes(item.id) ? prev.filter((x) => x !== item.id) : [...prev, item.id]
+                                );
+                                setDirty(true);
+                              }
+                            : undefined
+                        }
                       />
                     ))}
                     {drop.placeholder}
@@ -858,7 +895,7 @@ export default function MasterBranding() {
             <footer className="mb-editor-foot">
               <span>
                 {group.kind === 'sectors'
-                  ? 'Sets the left-to-right order of the top bar.'
+                  ? 'Sets the left-to-right order of the top bar. The lock hides a sector from every user until it is unlocked.'
                   : 'Names, icons and order here apply to this sector only.'}
               </span>
               <button type="button" className="mb-link-btn mb-link-danger" onClick={resetGroup}>
@@ -872,7 +909,8 @@ export default function MasterBranding() {
               <MdVisibility size={14} /> Preview
             </div>
             <div className={`mb-preview-box ${group.kind === 'sectors' ? 'topbar' : 'sidebar'}`}>
-              {items.map((item) => {
+              {/* Locked sectors are left out: users will not see them. */}
+              {items.filter((item) => !(group.kind === 'sectors' && locked.includes(item.id))).map((item) => {
                 const d = draftFor(item.id);
                 const Ico = previewIcon(d.icon, DEFAULT_ICON_NAMES[item.id]);
                 return (

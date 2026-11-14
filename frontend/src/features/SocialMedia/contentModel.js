@@ -2,6 +2,8 @@ export const STAGES = [
   { key: 'requirement', label: 'Requirement', color: '#3B82F6', short: 'Brief' },
   { key: 'content_generation', label: 'Content', color: '#F59E0B', short: 'Content' },
   { key: 'content_approval', label: 'Content Approval', color: '#EC4899', short: 'Approve' },
+  // Reels only (see isReelTask); can be marked not applicable per row.
+  { key: 'shooting', label: 'Shooting', color: '#F97316', short: 'Shoot' },
   { key: 'designing_editing', label: 'Designing / Editing', color: '#8B5CF6', short: 'Design' },
   { key: 'final_approval', label: 'Final Approval', color: '#F43F5E', short: 'Final' },
   { key: 'ready_to_post', label: 'Ready to Post', color: '#0EA5E9', short: 'Post' },
@@ -85,6 +87,22 @@ export function channelPostUrl(task, channelKey) {
     return task.published_url || '';
   }
   return '';
+}
+
+/** Reels are the only content with a Shooting step. */
+export function isReelTask(task) {
+  return String(task?.content_type || '').toLowerCase() === 'reel'
+    || String(task?.production?.sheet_kind || '').toLowerCase() === 'reel';
+}
+
+/** False when a reel was marked as needing no shooting (or it is not a reel). */
+export function shootingApplies(task) {
+  return isReelTask(task) && task?.production?.shooting_na !== true;
+}
+
+/** False when this content is marked as not going to that posting channel. */
+export function postApplies(task, channelKey) {
+  return task?.production?.post_na?.[channelKey] !== true;
 }
 
 export function isPostingOpen(task) {
@@ -189,6 +207,8 @@ export const ACTION_LABELS = {
   approve_content: 'Content approved',
   reject_content: 'Sent for rework',
   revise_content: 'Sent for rework',
+  complete_shooting: 'Shooting done',
+  skip_shooting: 'Shooting marked not applicable',
   start_design: 'Design started',
   complete_design: 'Sent for final approval',
   save_to_drive: 'Drive link saved',
@@ -366,6 +386,11 @@ export function actionsFor(task, canManage, userId = null) {
   } else if (stage === 'content_approval') {
     items.push({ action: 'approve_content', label: 'Approve', primary: true, manage: true });
     items.push({ action: 'revise_content', label: 'Needs Rework', manage: true, feedback: true, danger: true });
+  } else if (stage === 'shooting') {
+    if (canDoAssignedWork) {
+      items.push({ action: 'complete_shooting', label: 'Shooting done', primary: true });
+      items.push({ action: 'skip_shooting', label: 'Not applicable' });
+    }
   } else if (stage === 'designing_editing') {
     if (canDoAssignedWork && status === 'in_progress') {
       items.push({ action: 'complete_design', label: 'Send for approval', primary: true });

@@ -1,5 +1,6 @@
 import React, { useMemo } from 'react';
 import { MdSearch } from 'react-icons/md';
+import MemberPicker from './MemberPicker';
 import { EMPTY_EOD_RANGE, eodFilterOptions, eodRangeActive } from '../utils/eodRange';
 
 /**
@@ -23,17 +24,22 @@ export default function EodDateRange({ value = EMPTY_EOD_RANGE, onChange, report
           aria-label="Search EOD reports"
         />
       </label>
-      {members.length > 1 ? (
-        <select value={value.member || ''} onChange={(e) => set({ member: e.target.value })} aria-label="Member">
-          <option value="">All members</option>
-          {members.map((m) => (
-            <option key={m.id} value={m.id}>
-              {m.name}
-            </option>
-          ))}
-        </select>
+      {members.length ? (
+        // Searchable: type a name to narrow the list; arrow keys and Enter pick.
+        <div className="it-updates-eod-member">
+          <MemberPicker
+            members={members}
+            by="id"
+            value={value.member || ''}
+            onChange={(id) => set({ member: id || '' })}
+            emptyLabel="All members"
+            placeholder="All members"
+            searchPlaceholder="Search members…"
+            ariaLabel="Member"
+          />
+        </div>
       ) : null}
-      {branches.length > 1 ? (
+      {branches.length ? (
         <select value={value.branch || ''} onChange={(e) => set({ branch: e.target.value })} aria-label="Branch">
           <option value="">All branches</option>
           {branches.map((b) => (

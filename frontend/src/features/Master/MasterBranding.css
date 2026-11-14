@@ -362,6 +362,16 @@
   flex-shrink: 0;
 }
 
+/* Locked sector: hidden from every user (lock button beside the rename pencil). */
+.mb-row-tag-locked {
+  background: #fef2f2;
+  color: #b91c1c;
+}
+
+.mb-row-lockbtn.locked {
+  color: #b91c1c;
+}
+
 
 
 .mb-field {

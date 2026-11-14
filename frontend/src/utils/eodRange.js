@@ -42,18 +42,25 @@ export function filterEodByRange(reports = [], range = EMPTY_EOD_RANGE) {
 export const eodRangeActive = (range) =>
   Boolean(range?.from || range?.to || String(range?.q || '').trim() || range?.member || range?.branch);
 
-/** Member and branch choices for the filters, taken from the loaded reports. */
+/**
+ * Member and branch choices for the filters, taken from the loaded reports. Members
+ * come in MemberPicker's shape ({ user_id, username, profile_image }).
+ */
 export function eodFilterOptions(reports = []) {
   const members = new Map();
   const branches = new Set();
   for (const r of reports || []) {
     if (r?.user_id != null && !members.has(String(r.user_id))) {
-      members.set(String(r.user_id), r.username || `User ${r.user_id}`);
+      members.set(String(r.user_id), {
+        user_id: String(r.user_id),
+        username: r.username || `User ${r.user_id}`,
+        profile_image: r.author_profile_image || null,
+      });
     }
     if (r?.branch) branches.add(r.branch);
   }
   return {
-    members: [...members].map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name)),
+    members: [...members.values()].sort((a, b) => a.username.localeCompare(b.username)),
     branches: [...branches].sort((a, b) => a.localeCompare(b)),
   };
 }

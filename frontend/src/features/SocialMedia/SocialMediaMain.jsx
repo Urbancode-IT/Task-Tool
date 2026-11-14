@@ -43,8 +43,7 @@ import DeleteTaskButton from '../../components/DeleteTaskButton';
 import MyTaskList, { TaskRows, ViewSwitch, QuickCreateRow } from '../../components/MyTaskList';
 import useTaskView from '../../utils/useTaskView';
 import BulkImportButton from '../../components/BulkImportButton';
-import EodDateRange from '../../components/EodDateRange';
-import { filterEodByRange, eodRangeActive, EMPTY_EOD_RANGE } from '../../utils/eodRange';
+import EodUpdatesPanel from '../../components/EodUpdatesPanel';
 import { makeTaskDuplicate, toSubtaskDrafts } from '../../utils/taskDuplicate';
 import SidebarUser from '../../components/SidebarUser';
 import useSidebarCollapsed from '../../utils/useSidebarCollapsed';
@@ -53,7 +52,6 @@ import RequirementManualTime from '../../components/RequirementManualTime';
 import { BRANCHES } from '../Admin/AdminUserModals';
 import MemberDashboard from '../ITUpdates/MemberDashboard';
 import Preloader from '../../components/Preloader';
-import { sanitizeCommentHtml } from '../../utils/sanitizeHtml';
 import '../ITUpdates/ITUpdatesMain.css';
 import DueTasksPanel from '../../components/DueTasksPanel';
 import ContentPipeline from './ContentPipeline';
@@ -264,9 +262,6 @@ export default function SocialMediaMain({ currentUser, onLogout }) {
 
   const [tasks, setTasks] = useState([]);
   const [eodReports, setEodReports] = useState([]);
-  // EOD Updates: From / To date filter; reports are listed newest day first.
-  const [eodRange, setEodRange] = useState(EMPTY_EOD_RANGE);
-  const filteredEodReports = useMemo(() => filterEodByRange(eodReports, eodRange), [eodReports, eodRange]);
   const [teamOverview, setTeamOverview] = useState([]);
   const [adminUsers, setAdminUsers] = useState([]);
 
@@ -389,7 +384,7 @@ export default function SocialMediaMain({ currentUser, onLogout }) {
     if (!userId) return;
     setError('');
     try {
-      const res = await itUpdatesApi.getEodReports({ user_id: userId, team: MODULE_TEAM });
+      const res = await itUpdatesApi.getEodReports({ team: MODULE_TEAM });
       setEodReports(Array.isArray(res?.data) ? res.data : []);
     } catch {
       setError('Failed to load EOD reports');
@@ -417,7 +412,7 @@ export default function SocialMediaMain({ currentUser, onLogout }) {
     if (!userId) return;
     if (activeTab === 'EOD Updates') {
       itUpdatesApi
-        .getEodReports({ user_id: userId, team: MODULE_TEAM })
+        .getEodReports({ team: MODULE_TEAM })
         .then((res) => setEodReports(Array.isArray(res.data) ? res.data : []))
         .catch(() => setEodReports([]));
     }
@@ -1533,70 +1528,13 @@ export default function SocialMediaMain({ currentUser, onLogout }) {
 
           {/* ─── EOD Updates ─── */}
           {activeTab === 'EOD Updates' && (
-            <section className="it-updates-panel it-updates-panel-full">
-              <div className="it-updates-panel-header">
-                <button
-                  type="button"
-                  className="it-updates-btn it-updates-btn-primary"
-                  onClick={() => setEodModal(true)}
-                >
-                  <MdAdd size={18} />
-                  Submit EOD
-                </button>
-                <EodDateRange value={eodRange} onChange={setEodRange} reports={eodReports} />
-              </div>
-              <p className="it-updates-eod-intro">
-                Your end-of-day reports. Click <strong>Submit EOD</strong> or the EOD button in the header.
-              </p>
-              <div className="it-updates-eod-list">
-                {filteredEodReports.length === 0 ? (
-                  <div className="it-updates-empty">
-                    {eodRangeActive(eodRange) ? 'No EOD reports match these filters.' : 'No EOD reports yet.'}
-                  </div>
-                ) : (
-                  filteredEodReports.map((report) => (
-                    <div
-                      key={report.report_id ?? report.id}
-                      className="it-updates-eod-card"
-                    >
-                      <div className="it-updates-eod-card-header">
-                        <span className="it-updates-eod-date">
-                          {report.report_date
-                            ? new Date(report.report_date).toLocaleDateString(
-                                undefined,
-                                {
-                                  weekday: 'short',
-                                  year: 'numeric',
-                                  month: 'short',
-                                  day: 'numeric',
-                                }
-                              )
-                            : '—'}
-                        </span>
-                        <span className="it-updates-eod-user">
-                          {report.username || user?.username}
-                        </span>
-                        {report.mood && (
-                          <span className="it-updates-eod-mood">{report.mood}</span>
-                        )}
-                      </div>
-                      {report.achievements && (
-                        <div className="it-updates-eod-block">
-                          <strong>Work Summary</strong>
-                          {/* Achievements may be rich-text HTML (submitted from a
-                              module with the rich editor) or plain text — render it
-                              safely so HTML never shows up as raw tags. */}
-                          <div
-                            className="it-updates-eod-richtext tc-rendered"
-                            dangerouslySetInnerHTML={{ __html: sanitizeCommentHtml(report.achievements) }}
-                          />
-                        </div>
-                      )}
-                    </div>
-                  ))
-                )}
-              </div>
-            </section>
+            <EodUpdatesPanel
+              reports={eodReports}
+              setReports={setEodReports}
+              currentUser={user}
+              members={teamOverview}
+              onSubmitClick={() => setEodModal(true)}
+            />
           )}
         </main>
         {loading && <div className="it-updates-loading-bar" />}

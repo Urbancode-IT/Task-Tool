@@ -25,7 +25,7 @@ const FALLBACK = {
   labels: {},
   // Navigation customisation: sector icons, display order, and per-sector section
   // names/icons so the same section can differ between sectors.
-  navigation: { icons: {}, order: {}, bySector: {} },
+  navigation: { icons: {}, order: {}, bySector: {}, locked: [] },
 };
 
 /** Dispatch on `window` after publishing so every mounted consumer refetches. */
@@ -142,6 +142,10 @@ function normalise(raw) {
       order: Object.fromEntries(
         Object.entries(raw.navigation?.order || {}).filter(([, v]) => Array.isArray(v) && v.length > 0)
       ),
+      // Sector ids locked from the Master console: hidden from every user.
+      locked: Array.isArray(raw.navigation?.locked)
+        ? raw.navigation.locked.filter((id) => typeof id === 'string' && id !== 'module.admin')
+        : [],
       // { 'module.creative_team': { labels: {...}, icons: {...} } }
       bySector: Object.fromEntries(
         Object.entries(raw.navigation?.bySector || {})
