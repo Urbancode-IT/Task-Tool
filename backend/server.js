@@ -3299,6 +3299,23 @@ app.post(`${ADMIN_PATH}/users`, async (req, res) => {
   }
 });
 
+// Users page: turn "lock for a missing EOD" off (exempt) or back on for the ticked users.
+// Body: { user_ids: [..], exempt: true | false }. Master accounts are never touched.
+app.put(`${ADMIN_PATH}/users-eod-lock`, async (req, res) => {
+  try {
+    const ids = Array.isArray(req.body?.user_ids) ? req.body.user_ids : [];
+    if (!ids.length) return res.status(400).json({ message: 'Select at least one user.' });
+    if (typeof req.body?.exempt !== 'boolean') return res.status(400).json({ message: 'Say whether to turn the EOD lock on or off.' });
+    if (!db.useDb()) return res.status(503).json({ message: 'Database is not available.' });
+    const masterIds = new Set((await db.dbGetMasterAdminUserIds()).map(String));
+    const changed = await db.dbSetEodLockExempt(ids.filter((id) => !masterIds.has(String(id))), req.body.exempt);
+    res.json({ updated: changed, exempt: req.body.exempt });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Failed to update the EOD lock' });
+  }
+});
+
 app.put(`${ADMIN_PATH}/users/:userId`, async (req, res) => {
   if (await blockMasterTarget(req, res)) return;
   try {

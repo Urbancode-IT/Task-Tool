@@ -847,6 +847,43 @@ export default function AdminMain({ currentUser, onLogout }) {
       return true;
     });
   }, [users, userSearch, userBranchFilter, userRoleFilter, userStatusFilter]);
+  // Users ticked in the table, for turning the EOD lock off / on for several at once.
+  const [pickedUserIds, setPickedUserIds] = useState(() => new Set());
+  const [eodLockBusy, setEodLockBusy] = useState(false);
+  const pickedUsers = filteredUsers.filter((u) => pickedUserIds.has(String(u.user_id)));
+  const allShownPicked = filteredUsers.length > 0 && pickedUsers.length === filteredUsers.length;
+  const togglePickedUser = (id) => setPickedUserIds((prev) => {
+    const next = new Set(prev);
+    const key = String(id);
+    if (next.has(key)) next.delete(key);
+    else next.add(key);
+    return next;
+  });
+  const togglePickAllShown = () => setPickedUserIds(
+    allShownPicked ? new Set() : new Set(filteredUsers.map((u) => String(u.user_id)))
+  );
+  /** exempt=true: never lock these users for a missing EOD; false: lock them again. */
+  const setEodLock = async (list, exempt) => {
+    const ids = list.map((u) => u.user_id);
+    if (!ids.length) return;
+    setEodLockBusy(true);
+    try {
+      await adminApi.setEodLockExempt(ids, exempt);
+      const changed = new Set(ids.map(String));
+      setUsers((prev) => prev.map((x) => (changed.has(String(x.user_id)) ? { ...x, eod_lock_exempt: exempt } : x)));
+      const who = ids.length === 1 ? list[0].username : `${ids.length} users`;
+      toastSuccess(exempt ? `EOD lock turned off for ${who}` : `EOD lock turned on for ${who}`);
+      setPickedUserIds(new Set());
+      // Turning the lock off also unlocks anyone locked right now.
+      if (exempt) loadLockedUsers();
+    } catch (e) {
+      const msg = e?.response?.data?.message || 'Failed to update the EOD lock';
+      setError(msg);
+      toastError(msg);
+    } finally {
+      setEodLockBusy(false);
+    }
+  };
   const userFiltersActive = Boolean(userSearch.trim() || userBranchFilter || userRoleFilter || userStatusFilter);
   const clearUserFilters = () => {
     setUserSearch('');
@@ -1271,6 +1308,33 @@ export default function AdminMain({ currentUser, onLogout }) {
                   <MdAdd size={18} /> Add user
                 </button>
               </div>
+              {pickedUsers.length > 0 ? (
+                <div className="admin-users-bulk" role="region" aria-label="Selected users">
+                  <strong>{pickedUsers.length} selected</strong>
+                  <span>EOD lock:</span>
+                  <button
+                    type="button"
+                    className="admin-btn"
+                    disabled={eodLockBusy}
+                    onClick={() => setEodLock(pickedUsers, true)}
+                    title="Never lock these users for a missing EOD (they are still reminded)"
+                  >
+                    Turn off (never lock)
+                  </button>
+                  <button
+                    type="button"
+                    className="admin-btn"
+                    disabled={eodLockBusy}
+                    onClick={() => setEodLock(pickedUsers, false)}
+                    title="Lock these users again when they miss an EOD"
+                  >
+                    Turn on
+                  </button>
+                  <button type="button" className="admin-btn admin-users-clear" onClick={() => setPickedUserIds(new Set())}>
+                    Clear selection
+                  </button>
+                </div>
+              ) : null}
               {loading ? (
                 <div className="admin-loading">Loading…</div>
               ) : (
@@ -1279,17 +1343,37 @@ export default function AdminMain({ currentUser, onLogout }) {
                     <table className="admin-table">
                       <thead>
                         <tr>
+                          <th className="admin-th-pick">
+                            <input
+                              type="checkbox"
+                              checked={allShownPicked}
+                              ref={(el) => {
+                                if (el) el.indeterminate = pickedUsers.length > 0 && !allShownPicked;
+                              }}
+                              onChange={togglePickAllShown}
+                              aria-label="Select all users shown"
+                            />
+                          </th>
                           <th>Username</th>
                           <th>Email</th>
                           <th>Branch</th>
                           <th>Roles</th>
                           <th>Status</th>
+                          <th title="On: locked out after a missed EOD. Off: never locked (still reminded).">EOD lock</th>
                           <th className="admin-th-actions">Actions</th>
                         </tr>
                       </thead>
                       <tbody>
                         {filteredUsers.map((u) => (
                           <tr key={u.user_id}>
+                            <td className="admin-td-pick">
+                              <input
+                                type="checkbox"
+                                checked={pickedUserIds.has(String(u.user_id))}
+                                onChange={() => togglePickedUser(u.user_id)}
+                                aria-label={`Select ${u.username}`}
+                              />
+                            </td>
                             <td>
                               <button
                                 type="button"
@@ -1344,6 +1428,22 @@ export default function AdminMain({ currentUser, onLogout }) {
                                 }}
                               >
                                 {u.is_active !== false ? 'Active' : 'Inactive'}
+                              </button>
+                            </td>
+                            <td>
+                              {/* Off: never locked for a missing EOD, still reminded and reported. */}
+                              <button
+                                type="button"
+                                className={'admin-status-toggle ' + (u.eod_lock_exempt ? 'is-inactive' : 'is-active')}
+                                disabled={eodLockBusy}
+                                title={
+                                  u.eod_lock_exempt
+                                    ? 'EOD lock off: never locked for a missing EOD. Click to turn on.'
+                                    : 'EOD lock on: locked after a missed EOD. Click to turn off.'
+                                }
+                                onClick={() => setEodLock([u], !u.eod_lock_exempt)}
+                              >
+                                {u.eod_lock_exempt ? 'Off' : 'On'}
                               </button>
                             </td>
                             <td className="admin-td-actions">

@@ -14,6 +14,8 @@ const adminApi = {
   getUsers: () => apiClient.get(`${ADMIN_PATH}/users`),
   createUser: (body) => apiClient.post(`${ADMIN_PATH}/users`, body),
   updateUser: (userId, body) => apiClient.put(`${ADMIN_PATH}/users/${userId}`, body),
+  // exempt=true: these users are never locked for a missing EOD; false turns the lock back on.
+  setEodLockExempt: (userIds, exempt) => apiClient.put(`${ADMIN_PATH}/users-eod-lock`, { user_ids: userIds, exempt }),
   deleteUser: (userId) => apiClient.delete(`${ADMIN_PATH}/users/${userId}`),
   setUserRoles: (userId, roleIds) =>
     apiClient.put(`${ADMIN_PATH}/users/${userId}/roles`, { role_ids: roleIds }),

@@ -631,6 +631,9 @@ export async function dbEnsureTables() {
       ADD COLUMN IF NOT EXISTS eod_locked BOOLEAN DEFAULT false,
       ADD COLUMN IF NOT EXISTS eod_lock_date DATE,
       ADD COLUMN IF NOT EXISTS eod_excused_through DATE;`);
+    // Per-user switch set by admins on the Users page: when true the user is never
+    // locked for a missing EOD (they are still reminded and still reported).
+    await p.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS eod_lock_exempt BOOLEAN NOT NULL DEFAULT false;`);
     // Branch the user belongs to (Tirunelveli / Velachery / Pallikaranai).
     await p.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS branch TEXT;`);
     // Active/inactive: only active users can be assigned tasks/projects and are subject
@@ -3743,16 +3746,17 @@ export async function dbGetUserEodLockState(userId, isAdmin) {
               eod_lock_date::text       AS eod_lock_date,
               eod_excused_through::text AS eod_excused_through,
               created_at::date::text    AS created_date,
-              is_active
+              is_active,
+              COALESCE(eod_lock_exempt, false) AS eod_lock_exempt
          FROM users WHERE user_id = $1`,
       [userId]
     );
     const u = rows[0];
     if (!u) return { locked: false };
 
-    // Inactive users are exempt from the EOD requirement — never lock them, and clear
-    // any stale lock so they are not stuck behind the lock screen.
-    if (u.is_active === false) {
+    // Inactive users, and users an admin set to "never lock" on the Users page, are
+    // exempt — never lock them, and clear any stale lock so they are not stuck.
+    if (u.is_active === false || u.eod_lock_exempt) {
       if (u.eod_locked) {
         await p.query('UPDATE users SET eod_locked = false, eod_lock_date = NULL WHERE user_id = $1', [userId]);
       }
@@ -3920,6 +3924,7 @@ export async function dbLockEodDefaulters(dueDay) {
               eod_lock_date = $1::date
         WHERE COALESCE(u.is_active, true) = true
           AND COALESCE(u.eod_locked, false) = false
+          AND COALESCE(u.eod_lock_exempt, false) = false
           AND u.created_at::date <= $1::date
           AND (u.eod_excused_through IS NULL OR u.eod_excused_through < $1::date)
           AND u.user_id NOT IN (
@@ -3945,6 +3950,29 @@ export async function dbLockEodDefaulters(dueDay) {
     console.error('dbLockEodDefaulters:', err.message);
     return [];
   }
+}
+
+/**
+ * Set "never lock for a missing EOD" on several users at once (Users page). Turning it on
+ * also lifts a lock they are under right now. Returns the ids that were changed.
+ * @param {number[]} userIds
+ * @param {boolean} exempt
+ */
+export async function dbSetEodLockExempt(userIds, exempt) {
+  const p = getPool();
+  if (!p) return [];
+  const ids = [...new Set((userIds || []).map((v) => parseInt(String(v), 10)).filter(Number.isFinite))];
+  if (!ids.length) return [];
+  const { rows } = await p.query(
+    `UPDATE users
+        SET eod_lock_exempt = $2,
+            eod_locked = CASE WHEN $2 THEN false ELSE eod_locked END,
+            eod_lock_date = CASE WHEN $2 THEN NULL ELSE eod_lock_date END
+      WHERE user_id = ANY($1::int[])
+      RETURNING user_id`,
+    [ids, Boolean(exempt)]
+  );
+  return rows.map((r) => r.user_id);
 }
 
 /** Users currently locked for a missing EOD report. */
@@ -5559,6 +5587,7 @@ export async function dbGetUsersWithRoles() {
   try {
     const { rows } = await p.query(
       `SELECT u.user_id, u.username, u.email, u.profile_image, u.is_it_developer, u.is_it_manager, u.branch, u.is_active, u.created_at,
+              COALESCE(u.eod_lock_exempt, false) AS eod_lock_exempt,
               COALESCE(u.is_master_admin, false) AS is_master_admin,
               COALESCE(array_agg(r.name) FILTER (WHERE r.role_id IS NOT NULL), '{}') AS role_names,
               COALESCE(array_agg(r.code) FILTER (WHERE r.role_id IS NOT NULL), '{}') AS role_codes
