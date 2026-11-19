@@ -1104,7 +1104,7 @@ select.smc-inline option {
     var(--smc-col-type) + var(--smc-col-category)
     + var(--smc-col-course) + var(--smc-col-stage) + 1px
   );
-  --smc-scroll-width: calc(14 * var(--smc-col-stage));
+  --smc-scroll-width: calc(11 * var(--smc-col-stage));
   display: flex;
   flex-direction: column;
   align-items: stretch;
@@ -1227,7 +1227,7 @@ body.smc-resizing {
 .smc-lane-head--scroll,
 .smc-lane-row--scroll {
   display: grid;
-  grid-template-columns: repeat(14, var(--smc-col-stage));
+  grid-template-columns: repeat(11, var(--smc-col-stage));
   width: var(--smc-scroll-width);
   min-width: var(--smc-scroll-width);
   align-items: stretch;
@@ -2630,6 +2630,45 @@ body.smc-resizing {
   gap: 8px;
 }
 
+.smc-url-list {
+  display: grid;
+  gap: 8px;
+}
+
+.smc-url-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.smc-url-row input {
+  flex: 1;
+  min-width: 0;
+}
+
+.smc-url-btn {
+  flex: 0 0 auto;
+  width: 36px;
+  height: 36px;
+  border: 1px solid #2563eb;
+  border-radius: 8px;
+  background: #2563eb;
+  color: #fff;
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.smc-url-btn.remove {
+  border-color: #e2e8f0;
+  background: #fff;
+  color: #b91c1c;
+}
+
+.smc-url-btn:hover {
+  filter: brightness(0.95);
+}
+
 .smc-posted a {
   display: grid;
   gap: 2px;
@@ -2997,40 +3036,6 @@ body.smc-resizing {
   font-size: 0.72rem;
   font-weight: 700;
   letter-spacing: 0.04em;
-}
-
-/* Small "N/A" button on a step still to do; sits after the name, before the ⋮ menu. */
-.smc-na-btn {
-  order: 2;
-  flex: none;
-  margin: 0 8px 0 auto;
-  padding: 1px 6px;
-  border: 1px solid rgba(255, 255, 255, 0.7);
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.18);
-  color: #fff;
-  font-size: 0.62rem;
-  font-weight: 700;
-  line-height: 1.5;
-  cursor: pointer;
-}
-
-.smc-na-btn:hover {
-  background: rgba(255, 255, 255, 0.35);
-}
-
-/* In a light-red "still ahead" cell the button is dark on light. */
-.smc-lane-cell--na-able {
-  align-items: flex-end;
-  justify-content: center;
-  padding-right: 6px;
-}
-
-.smc-lane-cell--na-able .smc-na-btn {
-  margin: 0;
-  border-color: #fca5a5;
-  background: #fff;
-  color: #b91c1c;
 }
 
 /* "Applicable steps" on the task form (ApplicableSteps in ContentPipeline.jsx). */

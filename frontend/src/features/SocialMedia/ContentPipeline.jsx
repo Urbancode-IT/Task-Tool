@@ -15,7 +15,6 @@ import {
   MdFileDownload,
   MdFilterList,
   MdMoreVert,
-  MdMovie,
   MdPalette,
   MdPlayArrow,
   MdScheduleSend,
@@ -23,7 +22,6 @@ import {
   MdStorefront,
   MdVerified,
   MdVideocam,
-  MdWebStories,
 } from 'react-icons/md';
 import {
   FaFacebook,
@@ -44,6 +42,7 @@ import {
   POSTING_CHANNELS,
   actionsFor,
   channelPostUrl,
+  splitPostUrls,
   contentKindLabel,
   defaultPostAssignees,
   findPersonByHint,
@@ -61,6 +60,7 @@ import {
   statusMeta,
   toneStyle,
 } from './contentModel';
+import usePersistedState from '../../utils/usePersistedState';
 import './ContentPipeline.css';
 
 /** Same team key as Social Media edit-task comments (task_comments.team). */
@@ -79,11 +79,8 @@ const STAGE_ICONS = {
 };
 
 const CHANNEL_ICONS = {
-  instagram_post: FaInstagram,
-  instagram_story: MdWebStories,
-  instagram_reel: MdMovie,
-  facebook_post: FaFacebook,
-  facebook_story: MdWebStories,
+  instagram: FaInstagram,
+  facebook: FaFacebook,
   meta_ads: SiMeta,
   google_ads: SiGoogleads,
   youtube: FaYoutube,
@@ -550,6 +547,36 @@ function ColumnFilter({ label, active, children }) {
       ) : null}
     </>
   );
+}
+
+/**
+ * "Assigned to" filter: true when the person has any role on the row, not only the
+ * current step's assignee (which changes at every step). Covers the current assignee(s),
+ * the content writer, both approvers, every channel's poster, and whoever finished a
+ * step (stage_actors holds names, so those are matched by name).
+ */
+function rowInvolves(task, userId, people = []) {
+  const id = String(userId);
+  const production = task?.production || {};
+  const ids = [
+    task?.assigned_to,
+    ...(Array.isArray(task?.assignee_ids) ? task.assignee_ids : []),
+    production.content_writer_id,
+    production.content_approver_id,
+    production.final_approver_id,
+    ...Object.values(production.post_assignees || {}).map((poster) => poster?.id),
+  ];
+  if (ids.some((value) => value != null && value !== '' && String(value) === id)) return true;
+  const name = String(people.find((person) => String(person.user_id) === id)?.username || '').trim().toLowerCase();
+  if (!name) return false;
+  const names = [
+    production.content_writer,
+    production.content_approver,
+    production.final_approver,
+    ...Object.values(production.post_assignees || {}).map((poster) => poster?.name),
+    ...Object.values(task?.stage_actors || {}),
+  ];
+  return names.some((value) => String(value || '').trim().toLowerCase() === name);
 }
 
 /** True when a row's value is one of the picked values (nothing picked = no filter). */
@@ -1266,20 +1293,20 @@ function TaskPage({
             <DriveUploads task={task} onTask={onTask} onlyStage={stage} />
           ) : null}
           {posting && canAct && (
-            <label className="smc-field wide">{channel?.label || 'Post'} URL
-              <input
-                value={links[stage] || postUrl || ''}
-                onChange={(event) => updateProduction('post_links', { ...links, [stage]: event.target.value })}
-                placeholder="https://"
-              />
-            </label>
+            <PostUrlFields
+              label={`${channel?.label || 'Post'} URL`}
+              value={links[stage] ?? postUrl ?? ''}
+              onChange={(next) => updateProduction('post_links', { ...links, [stage]: next })}
+            />
           )}
           {posting && !canAct && postUrl ? (
             <div className="smc-posted">
-              <a href={postUrl} target="_blank" rel="noreferrer">
-                <strong>{channel?.label}</strong>
-                <span>{postUrl}</span>
-              </a>
+              {splitPostUrls(postUrl).map((url) => (
+                <a key={url} href={url} target="_blank" rel="noreferrer">
+                  <strong>{channel?.label}</strong>
+                  <span>{url}</span>
+                </a>
+              ))}
             </div>
           ) : null}
           {showStageAssignee ? (
@@ -1652,6 +1679,44 @@ function flowState(task, columnKey) {
  * offered for reels only; every posting channel after Final Approval is listed. Unticked
  * steps show as grey N/A on the board. Edits go through updateProduction, then Save.
  */
+/** One URL box per live link, with an add button; the links are stored one per line. */
+function PostUrlFields({ label, value, onChange }) {
+  const rows = String(value || '').split(/\r?\n/);
+  const setRow = (index, text) => {
+    const next = [...rows];
+    next[index] = text.replace(/\s*\r?\n\s*/g, ' ');
+    onChange(next.join('\n'));
+  };
+  const addRow = () => onChange([...rows, ''].join('\n'));
+  const removeRow = (index) => {
+    const next = rows.filter((_, i) => i !== index);
+    onChange((next.length ? next : ['']).join('\n'));
+  };
+  return (
+    <div className="smc-field wide">
+      <span>{label}</span>
+      <div className="smc-url-list">
+        {rows.map((row, index) => (
+          <div className="smc-url-row" key={index}>
+            <input
+              value={row}
+              onChange={(event) => setRow(index, event.target.value)}
+              placeholder="https://"
+              aria-label={`${label} ${index + 1}`}
+            />
+            {index === rows.length - 1 ? (
+              <button type="button" className="smc-url-btn" onClick={addRow} title="Add another URL" aria-label="Add another URL">+</button>
+            ) : null}
+            {rows.length > 1 ? (
+              <button type="button" className="smc-url-btn remove" onClick={() => removeRow(index)} title="Remove this URL" aria-label="Remove this URL">×</button>
+            ) : null}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function ApplicableSteps({ task, updateProduction, readOnly = false }) {
   const production = task.production || {};
   const postNa = production.post_na || {};
@@ -1776,38 +1841,14 @@ function naCell(stage, extra) {
   );
 }
 
-/** Small "N/A" button on a step that is still to do, to mark it not applicable. */
-function naButton(task, stage, onToggle) {
-  if (!onToggle) return null;
-  return (
-    <button
-      type="button"
-      className="smc-na-btn"
-      title={`Not applicable: ${stage.label} is not needed for this content`}
-      aria-label={`Mark ${stage.label} not applicable`}
-      onClick={(event) => {
-        event.stopPropagation();
-        onToggle(task, stage.key);
-      }}
-    >
-      N/A
-    </button>
-  );
-}
-
-function renderStageCell(task, stage, { menuFor, setMenuFor, openTask, className = '', people = [], onToggleNa }) {
+function renderStageCell(task, stage, { menuFor, setMenuFor, openTask, className = '', people = [] }) {
   const extra = className ? ` ${className}` : '';
-  // Set only on an open posting channel after Final Approval (the small N/A button).
-  let naToggle = null;
   // Shooting is for reels only. Whether a reel needs shooting is set under Applicable steps on the task (or with the
   // Not applicable button inside Shooting), so the board cell shows only the person.
   if (stage.key === 'shooting' && !shootingApplies(task)) return naCell(stage, extra);
-  // Posting channels: one this content is not going to is N/A from the start (picked on
-  // the task form); after Final Approval an open channel can still be marked N/A here.
-  if (stage.posting) {
-    if (!postApplies(task, stage.key)) return naCell(stage, extra);
-    if (isPostingOpen(task) && !channelPostUrl(task, stage.key)) naToggle = onToggleNa;
-  }
+  // Posting channels this content is not going to (unticked under Applicable steps on
+  // the task) show a fixed NA block.
+  if (stage.posting && !postApplies(task, stage.key)) return naCell(stage, extra);
   const writerNamed = String(task?.production?.content_writer || '').trim();
   const waitingForDemo = stage.key === 'content_generation'
     && shownStage(task) === 'content_generation'
@@ -1841,24 +1882,6 @@ function renderStageCell(task, stage, { menuFor, setMenuFor, openTask, className
         <article className="smc-card rework" onClick={() => openTask(task, stage.key)}>
           <span className="smc-card-label" title="Rework">Rework</span>
         </article>
-      </div>
-    );
-  }
-  if (!state && naToggle) {
-    // A step still ahead (a reel's Shooting): open it, or mark it not applicable now.
-    return (
-      <div
-        key={stage.key}
-        className={`smc-lane-cell empty smc-lane-cell--na-able${extra}`}
-        role="button"
-        tabIndex={0}
-        onClick={() => openTask(task, stage.key)}
-        onKeyDown={(event) => {
-          if (event.key === 'Enter') openTask(task, stage.key);
-        }}
-        aria-label={`Open ${stage.label}`}
-      >
-        {naButton(task, stage, naToggle)}
       </div>
     );
   }
@@ -1910,12 +1933,18 @@ function renderStageCell(task, stage, { menuFor, setMenuFor, openTask, className
         >
           <MdMoreVert size={16} />
         </button>
-        {naToggle ? naButton(task, stage, naToggle) : null}
         <span className="smc-card-label" title={person}>{person}</span>
       </article>
     </div>
   );
 }
+
+// Filters are kept in localStorage so a reload keeps them; these check what comes back.
+const asText = (v) => (typeof v === 'string' ? v : '');
+const asList = (v) => (Array.isArray(v) ? v.map(String) : []);
+const asListMap = (v) => (v && typeof v === 'object' && !Array.isArray(v)
+  ? Object.fromEntries(Object.entries(v).filter(([, list]) => Array.isArray(list) && list.length).map(([k, list]) => [k, list.map(String)]))
+  : {});
 
 export default function ContentPipeline({
   currentUser,
@@ -1935,16 +1964,16 @@ export default function ContentPipeline({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
-  const [query, setQuery] = useState('');
+  const [query, setQuery] = usePersistedState('smc.filter.search', '', asText);
   const debouncedQuery = useDebouncedValue(query, 200);
   // Branch column filter: any number of branches ([] = all).
-  const [branch, setBranch] = useState([]);
-  const [contentType, setContentType] = useState([]);
-  const [stageFilter, setStageFilter] = useState('');
+  const [branch, setBranch] = usePersistedState('smc.filter.branch', [], asList);
+  const [contentType, setContentType] = usePersistedState('smc.filter.contentType', [], asList);
+  const [stageFilter, setStageFilter] = usePersistedState('smc.filter.stage', '', asText);
   // Ids of rows added in this visit: shown even when the filters would hide them.
   const [addedIds, setAddedIds] = useState(() => new Set());
   // Stage / posting column heading filters: { [columnKey]: ['done', 'hold', ...] }.
-  const [stageStates, setStageStates] = useState({});
+  const [stageStates, setStageStates] = usePersistedState('smc.filter.stageStates', {}, asListMap);
   const setStageState = (key, picked) => setStageStates((prev) => {
     const next = { ...prev };
     if (picked.length) next[key] = picked;
@@ -1952,16 +1981,16 @@ export default function ContentPipeline({
     return next;
   });
   const [showStages, setShowStages] = useState(false);
-  const [assignee, setAssignee] = useState('');
+  const [assignee, setAssignee] = usePersistedState('smc.filter.assignee', '', asText);
   // Assigned by = the person who created the row (created_by).
-  const [assignedBy, setAssignedBy] = useState('');
+  const [assignedBy, setAssignedBy] = usePersistedState('smc.filter.assignedBy', '', asText);
   // Start, End and Publish date column filters: one date each, matched exactly.
-  const [startFilter, setStartFilter] = useState([]);
-  const [endFilter, setEndFilter] = useState([]);
-  const [publishFilter, setPublishFilter] = useState([]);
+  const [startFilter, setStartFilter] = usePersistedState('smc.filter.start', [], asList);
+  const [endFilter, setEndFilter] = usePersistedState('smc.filter.end', [], asList);
+  const [publishFilter, setPublishFilter] = usePersistedState('smc.filter.publish', [], asList);
   // Column-heading filters with no top-bar equivalent.
-  const [category, setCategory] = useState([]);
-  const [course, setCourse] = useState([]);
+  const [category, setCategory] = usePersistedState('smc.filter.category', [], asList);
+  const [course, setCourse] = usePersistedState('smc.filter.course', [], asList);
   const [menuFor, setMenuFor] = useState(null);
   const [adding, setAdding] = useState(false);
   // Delete mode: the # column turns into tickboxes; ticked rows are deleted together.
@@ -2166,7 +2195,7 @@ export default function ContentPipeline({
       if (!pickedMatches(task.content_type, contentType)) return false;
       if (!pickedMatches(task.production?.course_type, category)) return false;
       if (!pickedMatches(task.production?.course, course)) return false;
-      if (assignee && String(task.assigned_to) !== String(assignee)) return false;
+      if (assignee && !rowInvolves(task, assignee, people)) return false;
       if (assignedBy && String(task.created_by) !== String(assignedBy)) return false;
       const rowEnd = String(task.production?.sheet_date || task.due_date || '').slice(0, 10);
       const rowStart = String(task.task_date || '').slice(0, 10) || rowEnd;
@@ -2174,10 +2203,22 @@ export default function ContentPipeline({
       if (!pickedMatches(rowEnd, endFilter)) return false;
       if (!pickedMatches(String(task.publish_date || '').slice(0, 10), publishFilter)) return false;
       if (!q) return true;
-      const hay = `${task.code} ${task.title} ${task.campaign_name || ''} ${task.content_branch} ${task.production?.course_type || ''} ${task.production?.course || ''}`.toLowerCase();
+      // Search also finds people: the assignee, requester, writer, approvers, posters and
+      // whoever finished a step.
+      const production = task.production || {};
+      const names = [
+        task.assignee,
+        task.requester,
+        production.content_writer,
+        production.content_approver,
+        production.final_approver,
+        ...Object.values(production.post_assignees || {}).map((poster) => poster?.name),
+        ...Object.values(task.stage_actors || {}),
+      ].filter(Boolean).join(' ');
+      const hay = `${task.code} ${task.title} ${task.campaign_name || ''} ${task.content_branch} ${production.course_type || ''} ${production.course || ''} ${names}`.toLowerCase();
       return hay.includes(q);
     });
-  }, [items, debouncedQuery, branch, contentType, category, course, assignee, assignedBy, startFilter, endFilter, publishFilter]);
+  }, [items, debouncedQuery, branch, contentType, category, course, assignee, assignedBy, startFilter, endFilter, publishFilter, people]);
 
   // Everyone who created a row on the board, including people no longer in the team list.
   const assignerChoices = useMemo(() => {
@@ -2539,9 +2580,10 @@ export default function ContentPipeline({
         { ...task, production: { ...(task.production || {}), post_links: { ...(task.production?.post_links || {}) } } },
         channel,
       ) || String(task.production?.post_links?.[channel] || '').trim();
-      if (!/^https?:\/\//i.test(url)) {
+      const urls = splitPostUrls(url);
+      if (!urls.length || !urls.every((item) => /^https?:\/\/\S+$/i.test(item))) {
         setSelected(task);
-        toastError(`Add the ${stageMeta(channel).label} post URL.`);
+        toastError(`Add the ${stageMeta(channel).label} post URL. Each link must start with https://.`);
         return;
       }
     }
@@ -2671,30 +2713,6 @@ export default function ContentPipeline({
   };
 
   const latestTask = (taskId) => itemsRef.current.find((item) => String(item.id) === String(taskId));
-
-  /**
-   * The small N/A button on the board: a posting channel this content will not go to,
-   * or a reel that needs no shooting. Clicking an N/A cell makes it applicable again.
-   * The server replaces production as a whole, so the full object is sent.
-   */
-  const toggleNotApplicable = (source, key) => {
-    const task = latestTask(source.id) || source;
-    const production = { ...(task.production || {}) };
-    if (key === 'shooting') {
-      const markNa = production.shooting_na !== true;
-      // A reel already waiting in Shooting moves on to Designing / Editing.
-      if (markNa && task.pipeline_stage === 'shooting') {
-        runAction('skip_shooting', task);
-        return;
-      }
-      patchRow(task.id, { production: { ...production, shooting_na: markNa } });
-      return;
-    }
-    const flags = { ...(production.post_na || {}) };
-    if (flags[key]) delete flags[key];
-    else flags[key] = true;
-    patchRow(task.id, { production: { ...production, post_na: flags } });
-  };
 
   const saveRowField = (taskId, field, value) => {
     const task = latestTask(taskId);
@@ -3104,7 +3122,7 @@ export default function ContentPipeline({
               <input
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
-                placeholder="Task, title, or branch"
+                placeholder="Task, title, branch or person"
                 aria-label="Search content"
               />
         </div>
@@ -3341,6 +3359,10 @@ export default function ContentPipeline({
                         {contentTypes.map((item) => (
                           <option key={item.code} value={item.code}>{item.label}</option>
                         ))}
+                        {/* A type no longer offered (Ad, GMB, Curriculum) still shows on rows that use it. */}
+                        {task.content_type && !contentTypes.some((item) => item.code === task.content_type) ? (
+                          <option value={task.content_type} disabled>{typeName(task, contentTypes)} (no longer used)</option>
+                        ) : null}
                       </select>
                     </div>
                     <div className="smc-lane-meta smc-lane-meta--search">
@@ -3402,7 +3424,7 @@ export default function ContentPipeline({
                 {sorted.map((task) => (
                   <div key={task.id} className="smc-lane-row smc-lane-row--scroll">
                     {SCROLL_COLUMNS.map((stage) => renderStageCell(task, stage, {
-                      menuFor, setMenuFor, openTask, people, onToggleNa: toggleNotApplicable,
+                      menuFor, setMenuFor, openTask, people,
                     }))}
                   </div>
                 ))}

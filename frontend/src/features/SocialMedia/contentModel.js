@@ -12,15 +12,13 @@ export const STAGES = [
 
 /** Posting / story area columns shown after Final Approval (fixed order). */
 export const POSTING_CHANNELS = [
-  { value: 'instagram_post', label: 'Instagram Post', color: '#E1306C' },
-  { value: 'instagram_story', label: 'Instagram Story', color: '#F56040' },
-  { value: 'instagram_reel', label: 'Instagram Reel', color: '#C13584' },
-  { value: 'facebook_post', label: 'Facebook Post', color: '#1877F2' },
-  { value: 'facebook_story', label: 'Facebook Story', color: '#0866FF' },
+  // One column each for Instagram and Facebook (posts, stories and reels together).
+  { value: 'instagram', label: 'Instagram', color: '#E1306C' },
+  { value: 'facebook', label: 'Facebook', color: '#1877F2' },
+  { value: 'linkedin', label: 'LinkedIn', color: '#0A66C2' },
   { value: 'meta_ads', label: 'Meta Ads', color: '#0668E1' },
   { value: 'google_ads', label: 'Google Ads', color: '#EA4335' },
   { value: 'youtube', label: 'YouTube', color: '#FF0000' },
-  { value: 'linkedin', label: 'LinkedIn', color: '#0A66C2' },
   { value: 'gmb', label: 'GMB', color: '#34A853' },
 ];
 
@@ -57,6 +55,7 @@ export const CONTENT_TYPES = [
   { value: 'image', label: 'Image' },
   { value: 'website', label: 'Website' },
   { value: 'curriculum', label: 'Curriculum' },
+  { value: 'thumbnail', label: 'Thumbnail' },
 ];
 
 export const CONTENT_BRANCHES = [
@@ -79,14 +78,17 @@ export function channelMeta(key) {
 export function channelPostUrl(task, channelKey) {
   const links = task?.production?.post_links || {};
   if (links[channelKey]) return links[channelKey];
-  if (channelKey === 'instagram_post' && links.instagram) return links.instagram;
-  if (channelKey === 'facebook_post' && links.facebook) return links.facebook;
   if (channelKey === 'youtube' && links.youtube) return links.youtube;
   if (channelKey === 'linkedin' && links.linkedin) return links.linkedin;
   if (Array.isArray(task?.platforms) && task.platforms.length === 1 && task.platforms[0] === channelKey) {
     return task.published_url || '';
   }
   return '';
+}
+
+/** A posting column may hold several live links, stored one per line. */
+export function splitPostUrls(value) {
+  return String(value || '').split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
 }
 
 /** Reels are the only content with a Shooting step. */

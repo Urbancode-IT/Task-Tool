@@ -3,6 +3,7 @@ import { MdCheck, MdClose, MdSettings } from 'react-icons/md';
 import chatApi from '../../api/chatApi';
 import { useChat, conversationTitle, directPartner } from './chatContext';
 import { ChatAvatar } from './ChatParts';
+import { CHAT_STATUS_META, shownStatus } from './chatPresence';
 import { CHAT_THEMES } from './chatThemes';
 
 /**
@@ -11,7 +12,7 @@ import { CHAT_THEMES } from './chatThemes';
  * members, with a way into the group settings.
  */
 export default function ChatInfo({ conversation, onClose, onOpenGroupSettings }) {
-  const { meId, theme, setTheme } = useChat();
+  const { meId, theme, setTheme, presence } = useChat();
   const isGroup = conversation.kind === 'group';
   const partner = directPartner(conversation, meId);
   const title = conversationTitle(conversation, meId);
@@ -59,14 +60,16 @@ export default function ChatInfo({ conversation, onClose, onOpenGroupSettings })
         <div className="chat-info-hero">
           {partner?.avatar ? (
             <a href={partner.avatar} target="_blank" rel="noopener noreferrer" title="Open photo">
-              <ChatAvatar name={title} src={partner.avatar} size={112} />
+              <ChatAvatar name={title} src={partner.avatar} size={112} status={shownStatus(presence, partner.id)} />
             </a>
           ) : (
             <ChatAvatar name={title} group={isGroup} size={112} />
           )}
           <h3 className="chat-info-name">{title}</h3>
           <span className="chat-info-sub">
-            {isGroup ? `Group · ${conversation.members.length} members` : email || 'Direct message'}
+            {isGroup
+              ? `Group · ${conversation.members.length} members`
+              : `${CHAT_STATUS_META[shownStatus(presence, partner?.id)].label}${email ? ` · ${email}` : ''}`}
           </span>
         </div>
 
@@ -103,7 +106,7 @@ export default function ChatInfo({ conversation, onClose, onOpenGroupSettings })
             <ul className="chat-info-members">
               {conversation.members.map((m) => (
                 <li key={m.id}>
-                  <ChatAvatar name={m.username} src={m.avatar} size={32} />
+                  <ChatAvatar name={m.username} src={m.avatar} size={32} status={shownStatus(presence, m.id)} />
                   <span>{m.id === meId ? `${m.username} (You)` : m.username}</span>
                   {m.role === 'admin' ? <em>Admin</em> : null}
                 </li>

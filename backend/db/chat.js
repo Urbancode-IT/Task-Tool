@@ -131,6 +131,33 @@ export async function ensureChatTables() {
   await p.query(`
     ALTER TABLE chat_members ADD COLUMN IF NOT EXISTS last_delivered_message_id BIGINT NOT NULL DEFAULT 0;
   `);
+  // The status each person picks in chat (Available / Busy / Away / Do not disturb).
+  // Whether they are online at all is not stored: the live socket tracks that.
+  await p.query(`
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS chat_status VARCHAR(16) NOT NULL DEFAULT 'available';
+  `);
+}
+
+// ── Status ─────────────────────────────────────────────────────────────────
+
+export const CHAT_STATUSES = ['available', 'busy', 'away', 'dnd'];
+
+/** Everyone's chosen chat status: { [userId]: 'available' | 'busy' | 'away' | 'dnd' }. */
+export async function chatStatuses() {
+  const { rows } = await pool().query(
+    `SELECT user_id, chat_status FROM users WHERE COALESCE(is_active, true) = true`
+  );
+  return Object.fromEntries(
+    rows.map((r) => [r.user_id, CHAT_STATUSES.includes(r.chat_status) ? r.chat_status : 'available'])
+  );
+}
+
+/** Save the signed-in user's chosen status. */
+export async function chatSetStatus(userId, status) {
+  const value = String(status || '').trim().toLowerCase();
+  if (!CHAT_STATUSES.includes(value)) throw new ChatError(400, 'Choose Available, Busy, Away or Do not disturb.');
+  await pool().query('UPDATE users SET chat_status = $2 WHERE user_id = $1', [userId, value]);
+  return value;
 }
 
 /**

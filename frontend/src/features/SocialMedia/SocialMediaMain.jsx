@@ -133,7 +133,7 @@ function boardColumnForPipeline(task) {
     const open = POSTING_CHANNELS.find((channel) => !links[channel.value]);
     if (open) return open.value;
     const posted = [...POSTING_CHANNELS].reverse().find((channel) => links[channel.value]);
-    return posted?.value || 'instagram_post';
+    return posted?.value || 'instagram';
   }
   if (STATUS_ORDER.includes(stage)) return stage;
   return 'content_generation';
@@ -146,15 +146,15 @@ function boardColumnForTask(task) {
     idea: 'content_generation',
     todo: 'content_generation',
     in_progress: 'content_generation',
-    instagram: 'instagram_post',
-    review: 'instagram_post',
+    instagram: 'instagram',
+    review: 'instagram',
     meta_ads: 'meta_ads',
     rework: 'meta_ads',
     linkedin: 'linkedin',
     youtube: 'youtube',
     google_ads: 'google_ads',
     gmb: 'gmb',
-    completed: 'instagram_post',
+    completed: 'instagram',
   };
   return legacy[task?.status] || 'content_generation';
 }

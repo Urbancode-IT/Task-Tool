@@ -8,6 +8,9 @@ const chatApi = {
   users: () => apiClient.get(`${P}/users`),
   conversations: () => apiClient.get(`${P}/conversations`),
   unread: () => apiClient.get(`${P}/unread`),
+  // { [userId]: { status, online } } and changing my own status.
+  presence: () => apiClient.get(`${P}/presence`),
+  setStatus: (status) => apiClient.put(`${P}/status`, { status }),
   openDirect: (userId) => apiClient.post(`${P}/direct`, { user_id: userId }),
   createGroup: (name, memberIds) => apiClient.post(`${P}/groups`, { name, member_ids: memberIds }),
   renameGroup: (id, name) => apiClient.patch(`${P}/groups/${id}`, { name }),

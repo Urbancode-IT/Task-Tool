@@ -1218,8 +1218,15 @@ export async function dbEnsureTables() {
         ('carousel', 'Carousel', 4),
         ('gmb', 'GMB', 5),
         ('website', 'Website', 6),
-        ('curriculum', 'Curriculum', 7)
+        ('curriculum', 'Curriculum', 7),
+        ('thumbnail', 'Thumbnail', 8)
       ON CONFLICT (type_code) DO NOTHING;
+    `);
+    // Ad, GMB and Curriculum are no longer offered as content types. Hidden, not
+    // deleted: rows that already use them keep their type.
+    await p.query(`
+      UPDATE social_media_content_types SET is_active = FALSE
+       WHERE type_code IN ('ad', 'gmb', 'curriculum') AND is_active = TRUE;
     `);
     try {
       const { ensureSocialMediaCourses } = await import('./courses.js');
@@ -3747,16 +3754,18 @@ export async function dbGetUserEodLockState(userId, isAdmin) {
               eod_excused_through::text AS eod_excused_through,
               created_at::date::text    AS created_date,
               is_active,
-              COALESCE(eod_lock_exempt, false) AS eod_lock_exempt
+              COALESCE(eod_lock_exempt, false) AS eod_lock_exempt,
+              COALESCE(is_master_admin, false) AS is_master_admin
          FROM users WHERE user_id = $1`,
       [userId]
     );
     const u = rows[0];
     if (!u) return { locked: false };
 
-    // Inactive users, and users an admin set to "never lock" on the Users page, are
-    // exempt — never lock them, and clear any stale lock so they are not stuck.
-    if (u.is_active === false || u.eod_lock_exempt) {
+    // Inactive users, master admins (the account that owns Seyal), and users an admin
+    // set to "never lock" on the Users page are exempt — never lock them, and clear any
+    // stale lock so they are not stuck behind the lock screen.
+    if (u.is_active === false || u.is_master_admin || u.eod_lock_exempt) {
       if (u.eod_locked) {
         await p.query('UPDATE users SET eod_locked = false, eod_lock_date = NULL WHERE user_id = $1', [userId]);
       }
@@ -3865,6 +3874,8 @@ export async function dbGetUsersMissingEod(dateStr, { itOnly = false } = {}) {
       `SELECT u.user_id, u.username, u.email
          FROM users u
         WHERE COALESCE(u.is_active, true) = true
+          -- Master admins own Seyal and do not file EODs: never reminded or reported.
+          AND COALESCE(u.is_master_admin, false) = false
           AND u.email IS NOT NULL
           AND btrim(u.email) <> ''
           AND u.created_at::date <= $1::date
@@ -3925,6 +3936,7 @@ export async function dbLockEodDefaulters(dueDay) {
         WHERE COALESCE(u.is_active, true) = true
           AND COALESCE(u.eod_locked, false) = false
           AND COALESCE(u.eod_lock_exempt, false) = false
+          AND COALESCE(u.is_master_admin, false) = false
           AND u.created_at::date <= $1::date
           AND (u.eod_excused_through IS NULL OR u.eod_excused_through < $1::date)
           AND u.user_id NOT IN (

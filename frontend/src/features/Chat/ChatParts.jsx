@@ -4,10 +4,100 @@ import chatApi from '../../api/chatApi';
 import { toastError, toastSuccess } from '../../utils/toast';
 import { confirmDialog } from '../../utils/confirm';
 import { useChat } from './chatContext';
+import { CHAT_STATUS_META, CHAT_STATUS_CHOICES } from './chatPresence';
 
 /* Pieces shared by the chat window and the message pane. */
 
-export function ChatAvatar({ name, src, size = 36, group = false }) {
+/** "My status" button at the top of the chat list: shows mine, opens the 4 choices. */
+export function MyStatusPicker() {
+  const { myStatus, setMyStatus } = useChat();
+  const [open, setOpen] = useState(false);
+  const meta = CHAT_STATUS_META[myStatus] || CHAT_STATUS_META.available;
+  useEffect(() => {
+    if (!open) return undefined;
+    const close = (e) => {
+      if (!e.target.closest?.('.chat-status-picker')) setOpen(false);
+    };
+    const onKey = (e) => {
+      if (e.key === 'Escape') {
+        e.stopPropagation();
+        setOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', close);
+    window.addEventListener('keydown', onKey, true);
+    return () => {
+      document.removeEventListener('mousedown', close);
+      window.removeEventListener('keydown', onKey, true);
+    };
+  }, [open]);
+  return (
+    <div className="chat-status-picker">
+      <button
+        type="button"
+        className="chat-status-current"
+        onClick={() => setOpen((v) => !v)}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        title="Change your status"
+      >
+        <StatusDot status={myStatus} />
+        <span>{meta.label}</span>
+      </button>
+      {open ? (
+        <div className="chat-status-menu" role="menu">
+          {CHAT_STATUS_CHOICES.map((key) => (
+            <button
+              key={key}
+              type="button"
+              role="menuitemradio"
+              aria-checked={myStatus === key}
+              className={myStatus === key ? 'is-current' : ''}
+              onClick={() => {
+                setMyStatus(key);
+                setOpen(false);
+              }}
+            >
+              <StatusDot status={key} />
+              <span>
+                {CHAT_STATUS_META[key].label}
+                {key === 'dnd' ? <em>No message pop-ups or sound</em> : null}
+              </span>
+            </button>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * A coloured status dot: green Available, red Busy, amber Away, red with a bar for
+ * Do not disturb, grey ring for Offline. See chatPresence.js.
+ */
+export function StatusDot({ status = 'offline', size = 10, className = '' }) {
+  const meta = CHAT_STATUS_META[status] || CHAT_STATUS_META.offline;
+  return (
+    <span
+      className={`chat-status-dot is-${status}${className ? ` ${className}` : ''}`}
+      style={{ width: size, height: size, '--status-color': meta.color }}
+      title={meta.label}
+      role="img"
+      aria-label={meta.label}
+    />
+  );
+}
+
+/** Avatar; with `status` it carries the person's status dot at the bottom right. */
+export function ChatAvatar({ name, src, size = 36, group = false, status }) {
+  if (status && !group) {
+    return (
+      <span className="chat-avatar-wrap" style={{ width: size, height: size }}>
+        <ChatAvatar name={name} src={src} size={size} />
+        <StatusDot status={status} size={Math.max(9, Math.round(size * 0.3))} className="chat-avatar-status" />
+      </span>
+    );
+  }
   if (group) {
     return (
       <span className="chat-avatar chat-avatar-group" style={{ width: size, height: size }}>

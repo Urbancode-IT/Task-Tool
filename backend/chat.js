@@ -44,11 +44,24 @@ import {
   chatRenameGroup,
   chatSendMessage,
   chatSetRole,
+  chatSetStatus,
+  chatStatuses,
   chatToggleReaction,
   chatUnreadTotals,
 } from './db/chat.js';
 
 let io = null;
+
+// Open sockets per user (a person may have several tabs or devices). Someone with none
+// is shown as Offline whatever status they picked.
+const liveSockets = new Map();
+const isOnline = (id) => (liveSockets.get(id) || 0) > 0;
+
+/** Tell every signed-in user that someone's status or online state changed. */
+function broadcastPresence(id, extra = {}) {
+  if (!io) return;
+  io.emit('chat:presence', { user_id: id, online: isOnline(id), ...extra });
+}
 
 const userId = (req) => {
   const n = parseInt(String(req.user?.id ?? ''), 10);
@@ -132,6 +145,27 @@ export function registerChatRoutes(app, basePath) {
   app.get(`${P}/conversations`, handle('Failed to load chats', async (req, res, me) => res.json(await chatListConversations(me))));
 
   app.get(`${P}/unread`, handle('Failed to load unread count', async (req, res, me) => res.json(await chatUnreadTotals(me))));
+
+  // Everyone's chat status and whether they are online: { [userId]: { status, online } }.
+  app.get(
+    `${P}/presence`,
+    handle('Failed to load statuses', async (req, res) => {
+      const statuses = await chatStatuses();
+      res.json(
+        Object.fromEntries(Object.entries(statuses).map(([id, status]) => [id, { status, online: isOnline(Number(id)) }]))
+      );
+    })
+  );
+
+  // The signed-in user picks Available / Busy / Away / Do not disturb.
+  app.put(
+    `${P}/status`,
+    handle('Failed to change your status', async (req, res, me) => {
+      const status = await chatSetStatus(me, req.body?.status);
+      broadcastPresence(me, { status });
+      res.json({ status });
+    })
+  );
 
   app.post(
     `${P}/direct`,
@@ -343,6 +377,15 @@ export function attachChatSocket(httpServer, allowedOrigins = []) {
   io.on('connection', async (socket) => {
     const me = socket.data.userId;
     socket.join(`user:${me}`);
+    // Online / offline: announced only when the first tab opens or the last one closes.
+    liveSockets.set(me, (liveSockets.get(me) || 0) + 1);
+    if (liveSockets.get(me) === 1) broadcastPresence(me);
+    socket.on('disconnect', () => {
+      const left = (liveSockets.get(me) || 1) - 1;
+      if (left > 0) liveSockets.set(me, left);
+      else liveSockets.delete(me);
+      if (left <= 0) broadcastPresence(me);
+    });
     let myName = null;
     try {
       myName = (await db.dbGetUsersByIds([me]))[0]?.username || null;

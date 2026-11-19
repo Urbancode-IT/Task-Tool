@@ -85,20 +85,38 @@ export const CONTENT_BRANCHES = [
   'Pallikaranai',
 ];
 
+// Instagram and Facebook are one column each (posts, stories and reels together).
 export const POSTING_CHANNELS = [
-  'instagram_post',
-  'instagram_story',
-  'instagram_reel',
-  'facebook_post',
-  'facebook_story',
+  'instagram',
+  'facebook',
+  'linkedin',
   'meta_ads',
   'google_ads',
   'youtube',
-  'linkedin',
   'gmb',
 ];
 
 export const PLATFORMS = POSTING_CHANNELS;
+
+// Channel keys used before Instagram and Facebook were merged into one column each.
+const CHANNEL_ALIASES = {
+  instagram_post: 'instagram',
+  instagram_story: 'instagram',
+  instagram_reel: 'instagram',
+  facebook_post: 'facebook',
+  facebook_story: 'facebook',
+};
+
+/** A channel key in today's form: old Instagram / Facebook keys map to the merged ones. */
+export function channelKey(key) {
+  const k = String(key || '').trim().toLowerCase();
+  return CHANNEL_ALIASES[k] || k;
+}
+
+/** The keys a merged channel may be stored under: its own, then the old ones. */
+function keysFor(channel) {
+  return [channel, ...Object.keys(CHANNEL_ALIASES).filter((old) => CHANNEL_ALIASES[old] === channel)];
+}
 
 const PRIORITIES = ['low', 'medium', 'high', 'critical'];
 
@@ -181,9 +199,23 @@ function asPlatforms(value) {
   return [];
 }
 
+/** Production with post links / posters / NA flags keyed by today's channels. */
+function withMergedChannels(production) {
+  const out = { ...production };
+  if (production.post_links) out.post_links = postLinks(production.post_links);
+  if (production.post_assignees) out.post_assignees = sanitizePostAssignees(production.post_assignees);
+  if (production.post_na) out.post_na = sanitizeChannelFlags(production.post_na);
+  if (Array.isArray(production.drive_files)) {
+    out.drive_files = production.drive_files.map((file) => (
+      file && CHANNEL_ALIASES[file.stage] ? { ...file, stage: CHANNEL_ALIASES[file.stage] } : file
+    ));
+  }
+  return out;
+}
+
 export function mapContentTask(row) {
   if (!row) return null;
-  const platforms = asPlatforms(row.platforms);
+  const platforms = [...new Set(asPlatforms(row.platforms).map(channelKey))];
   return {
     id: String(row.task_id),
     task_id: row.task_id,
@@ -213,7 +245,7 @@ export function mapContentTask(row) {
     content_doc_link: row.content_doc_link ?? '',
     drive_url: row.drive_url ?? '',
     asset_notes: row.asset_notes ?? '',
-    production: asObject(row.production_meta),
+    production: withMergedChannels(asObject(row.production_meta)),
     scheduled_at: row.scheduled_at ?? null,
     published_url: row.published_url ?? '',
     publication_confirmed: Boolean(row.publication_confirmed),
@@ -343,7 +375,7 @@ export function stageActorsFromEvents(events = []) {
     if (action === 'save_channel_post' || action === 'confirm_publish') {
       rememberActor(map, 'ready_to_post', name);
       rememberActor(map, 'published', name);
-      const channel = String(event.feedback || '').split(':')[0].trim().toLowerCase();
+      const channel = channelKey(String(event.feedback || '').split(':')[0]);
       if (CHANNEL_SET.has(channel)) rememberActor(map, channel, name);
     }
     if (from && to && from !== to) rememberActor(map, from, name);
@@ -474,9 +506,11 @@ function cleanProduction(value) {
 
 function sanitizeChannelFlags(value) {
   const source = asObject(value);
+  const on = (key) => source[key] === true || source[key] === 'true';
   const out = {};
   for (const channel of POSTING_CHANNELS) {
-    if (source[channel] === true || source[channel] === 'true') out[channel] = true;
+    const old = keysFor(channel).slice(1);
+    if (on(channel) || (old.length && old.every(on))) out[channel] = true;
   }
   return out;
 }
@@ -492,7 +526,11 @@ function sanitizePostAssignees(value) {
   const source = asObject(value);
   const out = {};
   for (const channel of POSTING_CHANNELS) {
-    const item = asObject(source[channel]);
+    const found = keysFor(channel).find((key) => {
+      const entry = asObject(source[key]);
+      return cleanText(entry.id ?? entry.user_id, 20) || cleanText(entry.name ?? entry.username, 120);
+    });
+    const item = asObject(source[found || channel]);
     const id = cleanText(item.id ?? item.user_id, 20);
     const name = cleanText(item.name ?? item.username, 120);
     if (!id && !name) continue;
@@ -513,7 +551,7 @@ export function sanitizeDriveFiles(value) {
     if (!/^[A-Za-z0-9_-]{8,}$/.test(id)) return null;
     const kind = ['image', 'poster', 'reference', 'rework', 'others', 'final'].includes(file?.kind) ? file.kind : 'others';
     const url = httpOrEmpty(file?.url);
-    const stage = [...PIPELINE_STAGES, ...POSTING_CHANNELS].includes(file?.stage) ? file.stage : '';
+    const stage = [...PIPELINE_STAGES, ...POSTING_CHANNELS].includes(channelKey(file?.stage)) ? channelKey(file?.stage) : '';
     return {
       id,
       name: cleanText(file?.name, 180),
@@ -529,17 +567,13 @@ function postLinks(value) {
   const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
   const links = {};
   for (const key of POSTING_CHANNELS) {
-    const url = cleanText(source[key], 2000);
-    if (url) links[key] = url;
-  }
-  // Keep older single-platform keys usable for existing rows.
-  if (!links.instagram_post && source.instagram) {
-    const url = cleanText(source.instagram, 2000);
-    if (url) links.instagram_post = url;
-  }
-  if (!links.facebook_post && source.facebook) {
-    const url = cleanText(source.facebook, 2000);
-    if (url) links.facebook_post = url;
+    for (const stored of keysFor(key)) {
+      const url = cleanText(source[stored], 2000);
+      if (url) {
+        links[key] = url;
+        break;
+      }
+    }
   }
   for (const key of ['youtube', 'linkedin']) {
     if (!links[key] && source[key]) {
@@ -1161,19 +1195,23 @@ export function planContentTransition(task, action, input = {}, { canManage = fa
       if (stage !== 'ready_to_post' && stage !== 'published') {
         throw new ContentError(400, 'Post links are added after Final Approval.');
       }
-      const channel = String(input.channel || '').trim().toLowerCase();
+      const channel = channelKey(input.channel);
       if (!POSTING_CHANNELS.includes(channel)) throw new ContentError(400, 'Choose a posting area.');
       const stored = asObject(task.production || task.production_meta);
       const incoming = asObject(input.production).post_links || {};
-      const url = cleanText(incoming[channel] ?? input.post_url ?? input.published_url, 2000);
-      if (!isHttpUrl(url)) throw new ContentError(400, 'Add the live post URL.');
+      // A channel may hold several live links, one per line.
+      const urls = String(incoming[channel] ?? input.post_url ?? input.published_url ?? '')
+        .split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+      if (!urls.length) throw new ContentError(400, 'Add the live post URL.');
+      if (!urls.every(isHttpUrl)) throw new ContentError(400, 'Each post URL must start with http:// or https://.');
+      const url = cleanText(urls.join('\n'), 2000);
       const links = postLinks({ ...(stored.post_links || {}), ...incoming, [channel]: url });
       const production = cleanProduction({ ...stored, ...asObject(input.production), post_links: links });
       const platforms = Object.keys(links);
       patch.platforms = JSON.stringify(platforms);
       patch.production_meta = JSON.stringify(production);
-      patch.published_url = links[channel];
-      patch.publish_link = links[channel];
+      patch.published_url = urls[0];
+      patch.publish_link = urls[0];
       patch.publication_confirmed = true;
       // A publish date planned on the board is kept; otherwise posting sets today.
       patch.publish_date = String(task.publish_date || '').slice(0, 10) || new Date().toISOString().slice(0, 10);

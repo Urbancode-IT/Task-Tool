@@ -51,6 +51,26 @@ export default function ChatProvider({ currentUser, children }) {
     setSoundOnState(on);
     writeSoundOn(on);
   }, []);
+  // Everyone's status ({ [userId]: { status, online } }), kept live over the socket.
+  const [presence, setPresence] = useState({});
+  const myStatus = presence[meId]?.status || 'available';
+  // Do not disturb: no popups, chime or system notifications for new messages.
+  const dndRef = useRef(false);
+  useEffect(() => {
+    dndRef.current = myStatus === 'dnd';
+  }, [myStatus]);
+  const setMyStatus = useCallback(
+    async (status) => {
+      const previous = presence[meId];
+      setPresence((p) => ({ ...p, [meId]: { online: true, ...p[meId], status } }));
+      try {
+        await chatApi.setStatus(status);
+      } catch {
+        setPresence((p) => ({ ...p, [meId]: previous || { online: true, status: 'available' } }));
+      }
+    },
+    [presence, meId]
+  );
   const dismissPopup = useCallback((key) => {
     setPopups((list) => list.filter((p) => p.key !== key));
   }, []);
@@ -100,6 +120,7 @@ export default function ChatProvider({ currentUser, children }) {
     // Popup + chime (+ a system notification while the tab is hidden) for a message
     // from someone else in a conversation the user is not reading.
     const alertNewMessage = (message) => {
+      if (dndRef.current) return;
       const cid = message.conversation_id;
       const conv = conversationsRef.current.find((c) => c.id === cid);
       const group = conv?.kind === 'group';
@@ -140,6 +161,17 @@ export default function ChatProvider({ currentUser, children }) {
     s.on('connect', () => {
       setSocket(s);
       refreshConversations();
+      chatApi
+        .presence()
+        .then(({ data }) => setPresence(data && typeof data === 'object' ? data : {}))
+        .catch(() => {});
+    });
+    // Someone came online, went offline, or changed their status.
+    s.on('chat:presence', ({ user_id, online, status }) => {
+      setPresence((p) => ({
+        ...p,
+        [user_id]: { ...(p[user_id] || { status: 'available' }), online: Boolean(online), ...(status ? { status } : {}) },
+      }));
     });
     s.on('connect_error', (err) => {
       if (err?.message !== 'unauthorized' || retry) return;
@@ -267,8 +299,11 @@ export default function ChatProvider({ currentUser, children }) {
       setSoundOn,
       theme,
       setTheme,
+      presence,
+      myStatus,
+      setMyStatus,
     }),
-    [currentUser, meId, socket, config, conversations, refreshConversations, totals, open, activeId, openConversation, markRead, popups, dismissPopup, soundOn, setSoundOn, theme, setTheme]
+    [currentUser, meId, socket, config, conversations, refreshConversations, totals, open, activeId, openConversation, markRead, popups, dismissPopup, soundOn, setSoundOn, theme, setTheme, presence, myStatus, setMyStatus]
   );
 
   return <ChatContext.Provider value={value}>{children}</ChatContext.Provider>;

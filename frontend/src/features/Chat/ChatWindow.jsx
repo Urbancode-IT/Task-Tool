@@ -11,7 +11,8 @@ import {
 } from 'react-icons/md';
 import { useChat, conversationTitle } from './chatContext';
 import { lastMessagePreview } from './chatText';
-import { ChatAvatar, NewChatPanel } from './ChatParts';
+import { ChatAvatar, MyStatusPicker, NewChatPanel } from './ChatParts';
+import { shownStatus } from './chatPresence';
 import MessagePane from './MessagePane';
 import { requestNotificationPermission } from './chatAlerts';
 import './Chat.css';
@@ -43,7 +44,7 @@ const timeLabel = (iso) => {
 
 /** The chat window: conversation list on the left, the open conversation on the right. */
 export default function ChatWindow() {
-  const { meId, conversations, config, activeId, setActiveId, setOpen, soundOn, setSoundOn } = useChat();
+  const { meId, conversations, config, activeId, setActiveId, setOpen, soundOn, setSoundOn, presence } = useChat();
 
   // Opening the chat is a user gesture, so it is the moment to ask (once) for system
   // notifications, used when a message arrives while this tab is in the background.
@@ -112,6 +113,7 @@ export default function ChatWindow() {
             <>
               <div className="chat-side-head">
                 <strong>Chat</strong>
+                <MyStatusPicker />
                 <span className="chat-head-actions">
                   {config.can_create_groups ? (
                     <button type="button" className="chat-icon-btn" onClick={() => setPanel('group')} title="New group">
@@ -147,7 +149,12 @@ export default function ChatWindow() {
                         className={`chat-conv${c.id === activeId ? ' active' : ''}${c.unread ? ' unread' : ''}`}
                         onClick={() => setActiveId(c.id)}
                       >
-                        <ChatAvatar name={title} src={partner?.avatar} group={c.kind === 'group'} />
+                        <ChatAvatar
+                          name={title}
+                          src={partner?.avatar}
+                          group={c.kind === 'group'}
+                          status={partner ? shownStatus(presence, partner.id) : undefined}
+                        />
                         <span className="chat-conv-main">
                           <span className="chat-conv-top">
                             <span className="chat-conv-title">{title}</span>

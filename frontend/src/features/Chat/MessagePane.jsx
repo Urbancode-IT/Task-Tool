@@ -22,6 +22,7 @@ import { confirmDialog } from '../../utils/confirm';
 import { useChat, conversationTitle } from './chatContext';
 import { findMentions, formatBytes, mentionQueryAt, tokenize } from './chatText';
 import { ChatAvatar, GroupSettings } from './ChatParts';
+import { CHAT_STATUS_META, shownStatus } from './chatPresence';
 import ChatInfo from './ChatInfo';
 import MediaViewer from './MediaViewer';
 
@@ -313,7 +314,7 @@ function Message({ msg, tick, mine, showHead, isGroup, members, meId, reactions,
 
 /** The open conversation: header, messages, and the composer. */
 export default function MessagePane({ conversation, onBack }) {
-  const { meId, me, socket, config, markRead, theme } = useChat();
+  const { meId, me, socket, config, markRead, theme, presence } = useChat();
   // Contact / group info panel, opened from the photo and name in the header.
   const [showInfo, setShowInfo] = useState(false);
   const siteAdmin = (me?.permissions || []).includes('admin.access');
@@ -655,10 +656,20 @@ export default function MessagePane({ conversation, onBack }) {
           title={isGroup ? 'Group info' : 'Contact info'}
           aria-expanded={showInfo}
         >
-          <ChatAvatar name={title} src={partner?.avatar} group={isGroup} size={34} />
+          <ChatAvatar
+            name={title}
+            src={partner?.avatar}
+            group={isGroup}
+            size={34}
+            status={partner ? shownStatus(presence, partner.id) : undefined}
+          />
           <span className="chat-pane-title">
             <strong>{title}</strong>
-            <span>{isGroup ? `${members.length} members · tap for info` : 'Tap for contact info'}</span>
+            <span>
+              {isGroup
+                ? `${members.length} members · tap for info`
+                : `${CHAT_STATUS_META[shownStatus(presence, partner?.id)].label} · tap for contact info`}
+            </span>
           </span>
         </button>
         {isGroup ? (
